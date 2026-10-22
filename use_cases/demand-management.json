@@ -3,16 +3,31 @@
   "name": "Demand Management",
   "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
   "enabled": true,
-  "version": 1,
+  "version": 2,
   "trigger": "user_selects",
   "input": {
     "mode": "list",
     "accepts_file": true,
     "batch_text_field": "demand",
     "item_fields": [
-      { "name": "demand_no", "type": "text", "label": "Demand #", "required": false },
-      { "name": "demand", "type": "textarea", "label": "Describe the demand", "required": true },
-      { "name": "requester", "type": "text", "label": "Requesting unit", "required": false }
+      {
+        "name": "demand_no",
+        "type": "text",
+        "label": "Demand #",
+        "required": false
+      },
+      {
+        "name": "demand",
+        "type": "textarea",
+        "label": "Describe the demand",
+        "required": true
+      },
+      {
+        "name": "requester",
+        "type": "text",
+        "label": "Requesting unit",
+        "required": false
+      }
     ]
   },
   "validation": {
@@ -33,18 +48,71 @@
       "output": {
         "mode": "table",
         "columns": [
-          { "name": "Domain", "type": "text" },
-          { "name": "Category", "type": "enum", "values": ["Business", "Data", "Application", "Integration", "Technology"] },
-          { "name": "Priority", "type": "enum", "values": ["High", "Medium", "Low"] },
-          { "name": "Mandate / objective", "type": "text" },
-          { "name": "Impacted business capability", "type": "list" },
-          { "name": "Impacted application", "type": "list" },
-          { "name": "Owners", "type": "list" },
-          { "name": "Is duplicate", "type": "enum", "values": ["Yes", "Partial", "No"] },
-          { "name": "Duplicate demand number", "type": "text" },
-          { "name": "Duplicate with existing artefact", "type": "text" },
-          { "name": "Screening observation", "type": "text" },
-          { "name": "Evidence", "type": "citations" }
+          {
+            "name": "Domain",
+            "type": "text"
+          },
+          {
+            "name": "Category",
+            "type": "enum",
+            "values": [
+              "Business",
+              "Data",
+              "Application",
+              "Integration",
+              "Technology"
+            ]
+          },
+          {
+            "name": "Priority",
+            "type": "enum",
+            "values": [
+              "High",
+              "Medium",
+              "Low"
+            ]
+          },
+          {
+            "name": "Mandate / objective",
+            "type": "text"
+          },
+          {
+            "name": "Impacted business capability",
+            "type": "list"
+          },
+          {
+            "name": "Impacted application",
+            "type": "list"
+          },
+          {
+            "name": "Owners",
+            "type": "list"
+          },
+          {
+            "name": "Is duplicate",
+            "type": "enum",
+            "values": [
+              "Yes",
+              "Partial",
+              "No"
+            ]
+          },
+          {
+            "name": "Duplicate demand number",
+            "type": "text"
+          },
+          {
+            "name": "Duplicate with existing artefact",
+            "type": "text"
+          },
+          {
+            "name": "Screening observation",
+            "type": "text"
+          },
+          {
+            "name": "Evidence",
+            "type": "citations"
+          }
         ]
       }
     },
@@ -55,17 +123,57 @@
       "output": {
         "mode": "table",
         "columns": [
-          { "name": "Recommendation", "type": "enum", "values": ["Reuse", "Enhancement", "Merge/CR", "Link new artefacts", "Onboard new requirement"] },
-          { "name": "Overlaps with", "type": "list" },
-          { "name": "Consolidate with demand(s)", "type": "list" },
-          { "name": "Contract / licence match", "type": "text" },
-          { "name": "Security fit", "type": "text" },
-          { "name": "Recommended owner", "type": "text" },
-          { "name": "Justification", "type": "text" },
-          { "name": "Confidence", "type": "enum", "values": ["High", "Medium", "Low"] },
-          { "name": "Evidence", "type": "citations" }
+          {
+            "name": "Recommendation",
+            "type": "enum",
+            "values": [
+              "Reuse",
+              "Enhancement",
+              "Merge/CR",
+              "Link new artefacts",
+              "Onboard new requirement"
+            ]
+          },
+          {
+            "name": "Overlaps with",
+            "type": "list"
+          },
+          {
+            "name": "Consolidate with demand(s)",
+            "type": "list"
+          },
+          {
+            "name": "Contract / licence match",
+            "type": "text"
+          },
+          {
+            "name": "Security fit",
+            "type": "text"
+          },
+          {
+            "name": "Recommended owner",
+            "type": "text"
+          },
+          {
+            "name": "Justification",
+            "type": "text"
+          },
+          {
+            "name": "Confidence",
+            "type": "enum",
+            "values": [
+              "High",
+              "Medium",
+              "Low"
+            ]
+          },
+          {
+            "name": "Evidence",
+            "type": "citations"
+          }
         ]
       }
     }
-  ]
+  ],
+  "updated_at": "2026-10-22T18:03:24+00:00"
 }

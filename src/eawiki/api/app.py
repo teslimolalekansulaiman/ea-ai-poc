@@ -255,6 +255,23 @@ def usecase_delete(uc_id: str):
     return {"deleted": uc.delete(uc_id)}
 
 
+class RunBody(BaseModel):
+    items: list[dict]
+    safety: bool = False
+    k: int = 8
+
+
+@app.post("/api/usecases/{uc_id}/run")
+def usecase_run(uc_id: str, body: RunBody):
+    """Execute a use case over the given input items (the LangGraph engine)."""
+    from eawiki import usecases as uc
+    from eawiki.query import executor
+    spec = uc.get(uc_id)
+    if not spec:
+        raise HTTPException(404, f"no use case '{uc_id}'")
+    return executor.run(spec, body.items, backend=API_BACKEND, safety_llm=body.safety, k=body.k)
+
+
 # --- static frontend (mounted last so /api/* wins) -----------------------
 if WEB.exists():
     app.mount("/", StaticFiles(directory=str(WEB), html=True), name="web")
