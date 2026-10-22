@@ -38,6 +38,8 @@ import argparse
 import glob
 import json
 import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Optional, Protocol
@@ -192,6 +194,51 @@ class VertexAIEmbedder:
         return _l2_normalize(np.asarray(out, dtype=np.float32))
 
 
+def _embed_url() -> str:
+    """Embeddings endpoint: EMBED_PROXY_URL, else derived from the chat URL."""
+    u = os.environ.get("EMBED_PROXY_URL")
+    if u:
+        return u
+    chat = os.environ.get("VLM_PROXY_URL", "")
+    return chat.replace("/chat/completions", "/embeddings") if chat else ""
+
+
+class OpenAICompatEmbedder:
+    """OpenAI-compatible /embeddings (OpenRouter now, Pulse in prod). Plain urllib.
+    Probes the model once to learn its real dimension so the index sizes itself."""
+    name = "openai"
+
+    def __init__(self, model: Optional[str] = None, batch_size: int = 64):
+        self.model = model or os.environ.get("EMBED_MODEL") or "openai/text-embedding-3-small"
+        self.url = _embed_url()
+        self.key = (os.environ.get("VLM_PROXY_KEY") or os.environ.get("VLM_API_KEY")
+                    or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY") or "")
+        if not self.url:
+            raise RuntimeError("openai embedder: set EMBED_PROXY_URL or VLM_PROXY_URL")
+        self._bs = batch_size
+        self.dim = len(self._post(["dimension probe"])[0])
+
+    def _post(self, texts: list[str]) -> list[list[float]]:
+        body = json.dumps({"model": self.model, "input": texts}).encode()
+        req = urllib.request.Request(self.url, data=body, method="POST")
+        req.add_header("Content-Type", "application/json")
+        if self.key:
+            req.add_header("Authorization", f"Bearer {self.key}")
+        try:
+            from eawiki.subjects import _ssl_ctx
+            with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx()) as r:
+                data = json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"embeddings HTTP {e.code}: {e.read().decode()[:200]}") from None
+        return [d["embedding"] for d in data["data"]]
+
+    def encode(self, texts: list[str]) -> np.ndarray:
+        out: list[list[float]] = []
+        for i in range(0, len(texts), self._bs):
+            out.extend(self._post(texts[i:i + self._bs]))
+        return _l2_normalize(np.asarray(out, dtype=np.float32))
+
+
 class HashingEmbedder:
     """Deterministic hashing bag-of-words -> fixed-dim vector. NO semantic quality;
     for testing the embed->load->query plumbing without downloading a model."""
@@ -213,6 +260,8 @@ def get_embedder(backend: str, model: Optional[str], dim: int,
                  batch_size: int) -> Embedder:
     if backend == "st":
         return SentenceTransformerEmbedder(model or ST_MODEL, batch_size)
+    if backend in ("openai", "openrouter", "pulse"):
+        return OpenAICompatEmbedder(model, batch_size)
     if backend == "vertex":
         return VertexAIEmbedder(model or VERTEX_MODEL, batch_size)
     if backend == "hash":
@@ -258,7 +307,7 @@ def main() -> None:
     # so the GCP VM sets them once in the environment — no flags, no code edits):
     #   EAWIKI_EMBED_BACKEND  EAWIKI_EMBED_MODEL  EAWIKI_EMBED_DIM
     ap.add_argument("--backend", default=os.environ.get("EAWIKI_EMBED_BACKEND", "st"),
-                    choices=["st", "vertex", "hash"])
+                    choices=["st", "openai", "openrouter", "pulse", "vertex", "hash"])
     ap.add_argument("--model", default=os.environ.get("EAWIKI_EMBED_MODEL"),
                     help="embedding model name; overrides the backend default (env: EAWIKI_EMBED_MODEL)")
     ap.add_argument("--dim", type=int, default=int(os.environ.get("EAWIKI_EMBED_DIM", HASH_DIM)),

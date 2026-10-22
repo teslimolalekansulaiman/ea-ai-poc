@@ -235,10 +235,15 @@ the UI's Landscape/Map and Coverage sections.
 
 ---
 
-## Query-time  🟡 (scaffold built — `src/eawiki/query/`)
-Implemented as a small explicit Python package (no agent framework — the flow is a
-DAG; LangGraph only if it becomes an agent). Model calls route through the same
-pluggable backends, so **Pulse** slots into one place. See `src/eawiki/query/README.md`.
+## Query-time — the AI layer  ✅ (`src/eawiki/query/`, LangGraph + NeMo Guardrails)
+Built as a **LangGraph `StateGraph`** (`graph.py`): `input_guard → route → retrieve →
+relevance → answer → output_guard`, guards short-circuiting via conditional edges. The LLM
+is a single LangChain wrapper (`llm.BackendLLM` → `claude -p` local / **Pulse** OpenAI-compatible
+via env). **Guardrails = NeMo Guardrails** (`safety.py` + `nemo/config.yml`, self-check
+input/output) layered behind a fast deterministic pre-filter (`guardrails.py`): defense in
+depth, security-first (red-team-ready). Pipeline status: `refused | abstained | retrieved |
+answered | blocked_output`. Entry: `ask.py` (`python -m eawiki.query.ask "..."`).
+See `src/eawiki/query/README.md`.
 
 - **A. Route** (`route.py`) the question: vector (local/pointed) · graph traversal
   (dependencies/coverage) · community summary (global) · wiki page (browsable). Rule-based
@@ -247,10 +252,23 @@ pluggable backends, so **Pulse** slots into one place. See `src/eawiki/query/REA
   subgraph, or a summary + its blocks); small→big: `expand()` a retrieved block to its
   neighbours. Verified live: vector search + typed graph traversal (`MATCH` over ArcadeDB).
 - **C. Answer** (`answer.py`) with the LLM, citing source blocks. Entry point: `ask.py`
-  (`python -m eawiki.query.ask "..."`).
+  (`python -m eawiki.query.ask "..."`) — the guarded **AI layer** the UI calls.
 
-NOTE: retrieval *plumbing* works today; retrieval *quality* is real only once the Pulse
-embedder replaces the hash placeholders (re-run `embed` + `load`).
+**Guardrails (`guardrails.py`, defense-in-depth, mostly deterministic so they run without
+Pulse):**
+- INPUT: length/empty validation; deterministic prompt-injection & jailbreak patterns;
+  deterministic toxicity/threat patterns; **+ an LLM safety classifier** (toxicity /
+  jailbreak / injection / off-topic — `claude -p` local, Pulse prod). Unsafe → refuse.
+- RETRIEVAL: relevance-threshold **abstention** ("not in the documents"); **kind-scoping**.
+- OUTPUT: **citation verification** (every cited `[block]` must be in the retrieved set;
+  hallucinated cites flagged, `grounded` flag) + optional LLM **faithfulness** check.
+- The pipeline returns a status: `refused | abstained | retrieved | answered`.
+
+**Graph-route anchoring:** a dependency/ownership question is anchored on the entity *named
+in the question* (`entities_in_question`) and answered from the **graph + that entity's cited
+blocks** — correct and fully grounded **even before Pulse** (graph traversal needs no
+embeddings). Vector-only (pointed) questions improve once Pulse embeddings replace the hash
+placeholders (re-run `embed` + `load`).
 
 ---
 

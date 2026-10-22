@@ -74,6 +74,26 @@ class Retriever:
             params={"p": f"%{text.lower()}%", "l": limit})
         return rows or []
 
+    def entities_in_question(self, question: str, limit: int = 5) -> list[dict]:
+        """Entities whose NAME appears in the question (reverse match) — the right
+        anchor for a graph question like 'who owns the Payment Gateway?'. Works
+        without embeddings, so graph answers are correct even before Pulse."""
+        q = (question or "").lower()
+        rows = self.store.query("SELECT node_id, name, type FROM Entity")
+        hits = [r for r in (rows or []) if r.get("name") and r["name"].lower() in q]
+        # longer names first (more specific match wins)
+        hits.sort(key=lambda r: len(r["name"]), reverse=True)
+        return hits[:limit]
+
+    def blocks_by_ids(self, block_ids: list[str]) -> list[dict]:
+        """Fetch block text/section for a set of block_ids (graph-route evidence)."""
+        if not block_ids:
+            return []
+        rows = self.store.query(
+            "SELECT block_id, btype, section, text FROM Block WHERE block_id IN :ids",
+            params={"ids": list(block_ids)})
+        return rows or []
+
     def subgraph(self, node_id: str) -> dict:
         """Outgoing + incoming typed relationships of an entity (one hop)."""
         out = self.store.query(

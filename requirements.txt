@@ -15,3 +15,9 @@ anthropic>=0.40
 #   backend=hash needs nothing (numpy only) — plumbing tests, no semantic quality.
 # sentence-transformers>=3.0
 # google-cloud-aiplatform>=1.60
+
+# Query AI layer: LangGraph orchestration + NeMo Guardrails (input/output safety).
+# The LLM is injected (eawiki.query.llm.BackendLLM -> claude -p / Pulse via env).
+langgraph>=0.2
+langchain-core>=0.3
+nemoguardrails>=0.24

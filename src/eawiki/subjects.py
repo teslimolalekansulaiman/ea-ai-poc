@@ -24,8 +24,11 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import re
 import subprocess
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
@@ -37,6 +40,35 @@ PROSE_TYPES = {"heading", "paragraph", "list_item", "caption"}
 # ---------------------------------------------------------------------------
 # pluggable LLM backend
 # ---------------------------------------------------------------------------
+def _ssl_ctx():
+    """SSL context with a real CA bundle (macOS system Python often lacks one)."""
+    import ssl
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return ssl.create_default_context()
+
+
+def _openai_chat(prompt: str, url: str, key: str, model: str, timeout: int = 300) -> str:
+    """One OpenAI-compatible /chat/completions call (OpenRouter locally, Pulse in
+    prod — same wire format). Plain urllib, no SDK."""
+    if not url:
+        raise RuntimeError("openai backend: set VLM_PROXY_URL (the /chat/completions URL)")
+    body = json.dumps({"model": model,
+                       "messages": [{"role": "user", "content": prompt}]}).encode()
+    req = urllib.request.Request(url, data=body, method="POST")
+    req.add_header("Content-Type", "application/json")
+    if key:
+        req.add_header("Authorization", f"Bearer {key}")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as r:
+            data = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"openai chat HTTP {e.code}: {e.read().decode()[:200]}") from None
+    return (data["choices"][0]["message"]["content"] or "").strip()
+
+
 def llm_text(prompt: str, backend: str = "cli", model: Optional[str] = None) -> str:
     if backend == "cli":
         cmd = ["claude", "-p"]
@@ -46,6 +78,13 @@ def llm_text(prompt: str, backend: str = "cli", model: Optional[str] = None) -> 
         if r.returncode != 0:
             raise RuntimeError(f"claude CLI failed: {r.stderr.strip()[:200]}")
         return r.stdout.strip()
+    if backend in ("openai", "openrouter", "pulse"):
+        # OpenAI-compatible endpoint (OpenRouter now, Pulse in prod — base_url swap)
+        url = os.environ.get("VLM_PROXY_URL", "")
+        key = (os.environ.get("VLM_PROXY_KEY") or os.environ.get("VLM_API_KEY")
+               or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY") or "")
+        mdl = model or os.environ.get("VLM_MODEL") or "openai/gpt-4o-mini"
+        return _openai_chat(prompt, url, key, mdl)
     if backend == "sdk":
         from anthropic import Anthropic
         client = Anthropic()
