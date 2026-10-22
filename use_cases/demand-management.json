@@ -1,0 +1,71 @@
+{
+  "id": "demand-management",
+  "name": "Demand Management",
+  "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
+  "enabled": true,
+  "version": 1,
+  "trigger": "user_selects",
+  "input": {
+    "mode": "list",
+    "accepts_file": true,
+    "batch_text_field": "demand",
+    "item_fields": [
+      { "name": "demand_no", "type": "text", "label": "Demand #", "required": false },
+      { "name": "demand", "type": "textarea", "label": "Describe the demand", "required": true },
+      { "name": "requester", "type": "text", "label": "Requesting unit", "required": false }
+    ]
+  },
+  "validation": {
+    "enabled": true,
+    "on_fail": "stop",
+    "fail_message": "Not a valid demand — returned to requester for clarification.",
+    "questions": [
+      "Is this a true demand (a need or change), not an incident or a question?",
+      "Is there a clear business need or outcome?",
+      "Is there enough detail to assess it (what / who / why)?"
+    ]
+  },
+  "stages": [
+    {
+      "id": "screening",
+      "name": "Screening & Impact Assessment",
+      "instructions": "Classify the demand (architecture domain, business capability, category), prioritize it, record the mandate/objective, map impact to business capabilities, services, applications and their owners, check conformance against principles and security controls, and flag duplicates within the list and against existing artefacts. Answer only what the knowledge base supports; for anything it doesn't, say what is needed rather than guessing.",
+      "output": {
+        "mode": "table",
+        "columns": [
+          { "name": "Domain", "type": "text" },
+          { "name": "Category", "type": "enum", "values": ["Business", "Data", "Application", "Integration", "Technology"] },
+          { "name": "Priority", "type": "enum", "values": ["High", "Medium", "Low"] },
+          { "name": "Mandate / objective", "type": "text" },
+          { "name": "Impacted business capability", "type": "list" },
+          { "name": "Impacted application", "type": "list" },
+          { "name": "Owners", "type": "list" },
+          { "name": "Is duplicate", "type": "enum", "values": ["Yes", "Partial", "No"] },
+          { "name": "Duplicate demand number", "type": "text" },
+          { "name": "Duplicate with existing artefact", "type": "text" },
+          { "name": "Screening observation", "type": "text" },
+          { "name": "Evidence", "type": "citations" }
+        ]
+      }
+    },
+    {
+      "id": "recommendation",
+      "name": "Recommendation",
+      "instructions": "Check overlap with existing solutions (components, platforms, applications, APIs, prior/running initiatives) and with other demands (consolidate). Check the contract register for licences/renewals that could cover it. Confirm security fit before recommending reuse. Recommend the way forward and the demand owner, and justify by what it overlaps with. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it doesn't, say what is needed.",
+      "output": {
+        "mode": "table",
+        "columns": [
+          { "name": "Recommendation", "type": "enum", "values": ["Reuse", "Enhancement", "Merge/CR", "Link new artefacts", "Onboard new requirement"] },
+          { "name": "Overlaps with", "type": "list" },
+          { "name": "Consolidate with demand(s)", "type": "list" },
+          { "name": "Contract / licence match", "type": "text" },
+          { "name": "Security fit", "type": "text" },
+          { "name": "Recommended owner", "type": "text" },
+          { "name": "Justification", "type": "text" },
+          { "name": "Confidence", "type": "enum", "values": ["High", "Medium", "Low"] },
+          { "name": "Evidence", "type": "citations" }
+        ]
+      }
+    }
+  ]
+}

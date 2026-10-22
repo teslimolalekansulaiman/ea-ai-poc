@@ -215,6 +215,46 @@ def block(block_id: str):
     raise HTTPException(404, f"no block '{block_id}'")
 
 
+# --- use-case registry (the UI builder's CRUD) ---------------------------
+@app.get("/api/usecases")
+def usecases_list():
+    from eawiki import usecases as uc
+    return {"usecases": uc.list_specs()}
+
+
+@app.get("/api/usecases/{uc_id}")
+def usecase_get(uc_id: str):
+    from eawiki import usecases as uc
+    s = uc.get(uc_id)
+    if not s:
+        raise HTTPException(404, f"no use case '{uc_id}'")
+    return s
+
+
+@app.post("/api/usecases")
+def usecase_create(spec: dict):
+    from eawiki import usecases as uc
+    try:
+        return uc.save(spec)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/usecases/{uc_id}")
+def usecase_update(uc_id: str, spec: dict):
+    from eawiki import usecases as uc
+    try:
+        return uc.save(spec, uc_id=uc_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/usecases/{uc_id}")
+def usecase_delete(uc_id: str):
+    from eawiki import usecases as uc
+    return {"deleted": uc.delete(uc_id)}
+
+
 # --- static frontend (mounted last so /api/* wins) -----------------------
 if WEB.exists():
     app.mount("/", StaticFiles(directory=str(WEB), html=True), name="web")
