@@ -259,6 +259,7 @@ class RunBody(BaseModel):
     items: list[dict]
     safety: bool = False
     k: int = 8
+    context_mode: str = "auto"       # full | retrieval | auto
 
 
 @app.post("/api/usecases/{uc_id}/run")
@@ -269,7 +270,8 @@ def usecase_run(uc_id: str, body: RunBody):
     spec = uc.get(uc_id)
     if not spec:
         raise HTTPException(404, f"no use case '{uc_id}'")
-    return executor.run(spec, body.items, backend=API_BACKEND, safety_llm=body.safety, k=body.k)
+    return executor.run(spec, body.items, backend=API_BACKEND, safety_llm=body.safety,
+                        k=body.k, context_mode=body.context_mode)
 
 
 # --- static frontend (mounted last so /api/* wins) -----------------------

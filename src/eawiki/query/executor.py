@@ -22,6 +22,10 @@ is config; this engine interprets it.
 
 from __future__ import annotations
 
+import functools
+import json
+import re
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Optional, TypedDict
@@ -37,13 +41,68 @@ DUP_THRESHOLD = 0.80   # cosine similarity between demands to call them duplicat
 PAGES = Path("data/pages")
 
 
+WIKI_BUDGET = 150_000   # chars (~37K tokens): load the WHOLE wiki if it fits this
+
+
+def _slug(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return s or "subject"
+
+
 def _wiki_page(node_id: str) -> str:
-    """The synthesized Step-3a wiki page for an entity, if one exists (the 'LLM wiki')."""
+    """One synthesized Step-3a wiki page for an entity (name-anchored)."""
     for slug in (node_id, "landscape-" + node_id):
         p = PAGES / f"{slug}.md"
         if p.exists():
             return p.read_text(encoding="utf-8")
     return ""
+
+
+@functools.lru_cache(maxsize=1)
+def _all_wiki() -> str:
+    """The ENTIRE wiki concatenated (subject + landscape pages), capped at WIKI_BUDGET.
+    Cached in memory. Used by the 'full' context mode — a normal in-context LLM wiki."""
+    parts, total = [], 0
+    for p in sorted(PAGES.glob("*.md")):
+        t = p.read_text(encoding="utf-8")
+        if total + len(t) > WIKI_BUDGET:
+            break
+        parts.append(f"### PAGE: {p.stem}\n{t}")
+        total += len(t)
+    return "\n\n".join(parts)
+
+
+def _wiki_fits() -> bool:
+    return sum(p.stat().st_size for p in PAGES.glob("*.md")) <= WIKI_BUDGET
+
+
+@functools.lru_cache(maxsize=1)
+def _subject_index():
+    """block_id -> [subject page slug] (for semantic page selection in retrieval mode)."""
+    idx: dict[str, list[str]] = {}
+    sp = Path("data/graph/subjects.json")
+    if sp.exists():
+        for s in json.loads(sp.read_text(encoding="utf-8")):
+            slug = _slug(s.get("name", ""))
+            for b in s.get("block_ids", []):
+                idx.setdefault(b, []).append(slug)
+    return idx
+
+
+def _pages_from_blocks(block_ids: list[str], limit: int = 2) -> str:
+    """Pick the wiki pages whose subjects OWN the top retrieved blocks (semantic,
+    rides on the vector search) — robust even when the query names no entity."""
+    idx = _subject_index()
+    votes: Counter = Counter()
+    for b in block_ids:
+        for slug in idx.get(b, []):
+            votes[slug] += 1
+    out = []
+    for slug, _ in votes.most_common(limit):
+        p = PAGES / f"{slug}.md"
+        if p.exists():
+            out.append(f"### {slug}\n{p.read_text(encoding='utf-8')[:3500]}")
+    return "\n\n".join(out)
 
 
 class UCState(TypedDict, total=False):
@@ -53,6 +112,7 @@ class UCState(TypedDict, total=False):
     model: Optional[str]
     safety_llm: bool
     k: int
+    context_mode: str            # full | retrieval | auto (default auto)
     stage_idx: int
     valid: list[str]             # item ids that passed input_guard + validation
     rejected: list[dict]         # {id, reason, stage: "guard"|"validation"}
@@ -177,20 +237,33 @@ def n_dedupe(s: UCState) -> dict:
 
 
 def n_retrieve(s: UCState) -> dict:
-    """Build per-item context for the CURRENT stage (vector + graph), cached by demand."""
+    """Per-item context for the CURRENT stage. Two context modes:
+    - full  : the WHOLE wiki in-context (loaded once, shared) — a normal LLM wiki;
+    - retrieval: semantic — vector blocks + graph + the wiki pages owning the top blocks.
+    `auto` uses full when the wiki fits WIKI_BUDGET, else retrieval. Blocks + graph are
+    always included (blocks give the citations)."""
     r = _retriever()
     by_id = {it["_id"]: it for it in s["items"]}
+    mode = s.get("context_mode") or s["spec"].get("context_mode") or "auto"
+    full = mode in ("full", "full_wiki") or (mode == "auto" and _wiki_fits())
+    shared = _all_wiki() if full else None            # loaded once, reused across items
     ctx: dict[str, dict] = {}
     for i in s.get("valid", []):
         text = _item_text(s["spec"], by_id[i])
         blocks = r.vector_search(text, k=s.get("k", 8))
-        sub, page = None, ""
-        ents = r.entities_in_question(text)
-        if ents:
-            sub = r.subgraph(ents[0]["node_id"])
-            page = _wiki_page(ents[0]["node_id"])     # the synthesized wiki page
+        block_ids = [b["block_id"] for b in blocks]
+        sub = r.subgraph(r.entities_in_question(text)[0]["node_id"]) if r.entities_in_question(text) else None
+        if full:
+            page = shared
+        else:
+            page = _pages_from_blocks(block_ids)
+            ents = r.entities_in_question(text)
+            if ents:
+                ep = _wiki_page(ents[0]["node_id"])
+                if ep and ep[:40] not in page:
+                    page = (page + "\n\n### " + ents[0]["node_id"] + "\n" + ep[:3500]).strip()
         ctx[i] = {"blocks": blocks, "subgraph": sub, "page": page,
-                  "block_ids": [b["block_id"] for b in blocks]}
+                  "block_ids": block_ids, "full": full}
     return {"ctx": ctx}
 
 
@@ -211,8 +284,11 @@ def n_generate(s: UCState) -> dict:
     def render_ctx(c):
         lines = []
         if c.get("page"):
-            lines.append("WIKI PAGE (synthesized summary — cite the block ids it references, not the page):")
-            lines.append(c["page"][:1800])
+            lbl = ("FULL WIKI (all synthesized pages — cite the block ids they reference, not the page)"
+                   if c.get("full") else
+                   "RELEVANT WIKI PAGES (synthesized — cite the block ids they reference)")
+            lines.append(lbl + ":")
+            lines.append(c["page"])
             lines.append("")
         sg = c.get("subgraph")
         if sg and (sg.get("out") or sg.get("in")):
@@ -325,8 +401,8 @@ def build_app():
 
 
 def run(spec: dict, items: list[dict], backend: str = "cli", model: Optional[str] = None,
-        safety_llm: bool = False, k: int = 8) -> dict:
+        safety_llm: bool = False, k: int = 8, context_mode: str = "auto") -> dict:
     state: UCState = {"spec": spec, "items": items, "backend": backend, "model": model,
-                      "safety_llm": safety_llm, "k": k}
+                      "safety_llm": safety_llm, "k": k, "context_mode": context_mode}
     out = build_app().invoke(state)
     return out.get("_final", {})
