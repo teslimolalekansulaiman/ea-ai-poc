@@ -1,13 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../api'
-import { useCite } from '../cite'
-
-const STATUS_PILL = { answered: 'ok', needs_source: 'warn', needs_input: 'info' }
+import UseCaseResult from '../components/UseCaseResult'
 
 export default function Run() {
   const { id } = useParams()
-  const { open } = useCite()
   const [list, setList] = useState([])
   const [ucId, setUcId] = useState(id || '')
   const [spec, setSpec] = useState(null)
@@ -15,7 +12,6 @@ export default function Run() {
   const [running, setRunning] = useState(false)
   const [res, setRes] = useState(null)
   const [err, setErr] = useState('')
-  const [showTrace, setShowTrace] = useState(false)
 
   useEffect(() => { api.usecases().then(d => setList(d.usecases.filter(u => u.enabled !== false))) }, [])
   useEffect(() => { if (ucId) api.usecase(ucId).then(setSpec).catch(() => setSpec(null)); else setSpec(null) }, [ucId])
@@ -94,73 +90,7 @@ export default function Run() {
       {err && <div className="card" style={{ padding: 12, color: 'var(--crit)', marginBottom: 14 }}>{err}</div>}
 
       {/* Results */}
-      {res && <Results res={res} spec={spec} open={open} showTrace={showTrace} setShowTrace={setShowTrace} />}
+      {res && <UseCaseResult res={res} />}
     </div>
-  )
-}
-
-function Cell({ cell, open }) {
-  if (!cell) return <td style={{ color: 'var(--fg-faint)' }}>—</td>
-  const pill = STATUS_PILL[cell.status] || 'neutral'
-  const val = Array.isArray(cell.value) ? cell.value.join(', ') : (cell.value ?? '')
-  return (
-    <td>
-      {cell.status === 'answered'
-        ? <span>{String(val)}</span>
-        : <span className={'pill ' + pill}>{cell.status === 'needs_input' ? 'needs input' : 'needs source'}</span>}
-      {cell.status !== 'answered' && cell.needs && <div className="meta" style={{ color: 'var(--fg-faint)' }}>{cell.needs}</div>}
-      {(cell.evidence || []).map(e => <span key={e} className="cite" style={{ marginLeft: 4 }} onClick={() => open(e)}>{e}</span>)}
-    </td>
-  )
-}
-
-function Results({ res, spec, open, showTrace, setShowTrace }) {
-  const stages = res.stages || []
-  const rowIds = Object.keys(res.rows || {})
-  const cellOf = (iid, stageId, colName) =>
-    (res.rows[iid]?.[stageId]?.cells || []).find(c => c.column === colName)
-
-  return (
-    <>
-      {res.rejected?.length > 0 && (
-        <div className="card" style={{ padding: 16, marginBottom: 14, borderLeft: '3px solid var(--warn)' }}>
-          <h3 style={{ fontSize: 13, marginBottom: 8 }}>Not assessed ({res.rejected.length})</h3>
-          {res.rejected.map((r, i) => <div key={i} className="rel"><span className="t">{r.id}</span><span className="r">{r.stage}: {r.reason}</span></div>)}
-        </div>
-      )}
-
-      {stages.map(st => (
-        <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 14 }} key={st.id}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', fontWeight: 600 }}>{st.name}</div>
-          <div className="tbl-scroll"><table className="data"><thead><tr>
-            <th>Item</th>{st.columns.map(c => <th key={c}>{c}</th>)}
-          </tr></thead><tbody>
-            {rowIds.map(iid => (
-              <tr key={iid}><td className="mono">{iid}</td>
-                {st.columns.map(c => <Cell key={c} cell={cellOf(iid, st.id, c)} open={open} />)}
-              </tr>
-            ))}
-          </tbody></table></div>
-        </div>
-      ))}
-
-      {res.provide?.length > 0 && (
-        <div className="card" style={{ padding: 16, marginBottom: 14, borderLeft: '3px solid var(--accent)' }}>
-          <h3 style={{ fontSize: 13, marginBottom: 8 }}>To complete the assessment, provide:</h3>
-          {res.provide.map((p, i) => <div key={i} className="rel"><span className="r">{p.status === 'needs_input' ? 'from requester' : 'ingest / source'}</span><span className="t">{p.needs}</span></div>)}
-        </div>
-      )}
-
-      {res.trace?.length > 0 && (
-        <div className="card" style={{ padding: 16 }}>
-          <a href="#" onClick={e => { e.preventDefault(); setShowTrace(!showTrace) }}>{showTrace ? '▾' : '▸'} Run details ({res.trace.length} steps)</a>
-          {showTrace && <div style={{ marginTop: 10 }}>
-            {res.trace.map((t, i) => (
-              <div key={i} className="rel"><span className="r mono">{t.node} · {t.ms}ms</span><span>{t.note}</span></div>
-            ))}
-          </div>}
-        </div>
-      )}
-    </>
   )
 }
