@@ -1,0 +1,17 @@
+# EA GraphRAG Wiki — Python dependencies
+# Pinned so the VM gets the same stack. torch/torchvision come in transitively
+# via docling; on a CPU-only VM install the CPU torch wheel first (see README notes)
+# to avoid the large CUDA download.
+docling==2.139.0
+
+# LLM calls: Step 1b table interpreter (optional — falls back to keyword rules
+# offline) and Step 3a extraction. Needs ANTHROPIC_API_KEY set on the VM.
+anthropic>=0.40
+
+# Step 5 — embeddings are a PLUGGABLE backend (eawiki/embed.py). Install the one
+# you use; configure via EAWIKI_EMBED_BACKEND / EAWIKI_EMBED_MODEL / EAWIKI_EMBED_DIM.
+#   local dev (backend=st):      sentence-transformers>=3.0   (torch already via docling)
+#   GCP     (backend=vertex):    google-cloud-aiplatform>=1.60
+#   backend=hash needs nothing (numpy only) — plumbing tests, no semantic quality.
+# sentence-transformers>=3.0
+# google-cloud-aiplatform>=1.60

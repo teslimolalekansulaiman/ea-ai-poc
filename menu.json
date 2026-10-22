@@ -1,0 +1,397 @@
+{
+  "_about": "Authoritative EA schema for this project: the SUBSET of ArchiMate 3.2 that matches our documents, plus a dormant reserve of further types that can be switched on later. node_types = allowed graph nodes, edge_types = allowed relationships (each anchored to one of ArchiMate's closed set of 11 relationships), attributes = allowed node properties. Step 1b/3a extraction is governed by this; Step 4 validates every extracted edge against the allowed source->target triples here. `label` = the org-facing name, `synonyms` = keywords that recognize the concept in document text, `archimate_type`/`archimate_relationship` = the formal standard anchor, `note` = a pragmatic-mapping caveat to review.",
+  "_version": "1.0.0",
+  "_enabled_rule": "Only types with `enabled: true` are used by extraction (Steps 1b/3a) and validation (Step 4). `enabled: false` types are DORMANT reserve — present so a document that needs them can be switched on without a code change, but ignored until then. This is what the admin UI toggles on/off per type.",
+  "_schema_growth": {
+    "enabled": false,
+    "note": "OFF (frozen schema). When OFF: a document concept that maps to no enabled type degrades to the generic `element`/`associated_with` fallback and is flagged, but the vocabulary never changes on its own and no human step is required. When ON (governed growth): unmapped concepts additionally land in a review list with an LLM-suggested type for an EA to approve, promoting a dormant type to enabled or adding a new one. Toggled from the admin UI; safe to flip either way (files are the system of record, the DB is a re-projection)."
+  },
+
+  "archimate_version": "3.2",
+  "spec_source": "ArchiMate 3.2 (The Open Group). Names cross-checked against Bizzdesign 3.2 concepts, ServiceNow ArchiMate shapes, Unicom System Architect, MEGA HOPEX (official spec is behind an Open Group login).",
+
+  "relationship_vocabulary": {
+    "_note": "The complete closed ArchiMate relationship set. Every edge_type below must anchor to exactly one of these. An extracted edge that cannot map to one of these is almost certainly spurious.",
+    "structural": {
+      "Composition": "An element consists of one or more other elements (whole-part; parts cannot exist without the whole).",
+      "Aggregation": "An element groups one or more other elements (whole-part; parts can exist independently).",
+      "Assignment": "Allocation of responsibility, performance of behaviour, or deployment (active structure -> behaviour/structure).",
+      "Realization": "A more concrete element realizes (fulfils/implements) a more abstract one."
+    },
+    "dependency": {
+      "Serving": "An element provides its functionality to another element.",
+      "Access": "Behaviour/active-structure reads, writes, or read/writes a passive (data) element. access_types: read | write | read-write | access.",
+      "Influence": "Weakest dependency; one element affects the achievement of a motivation element."
+    },
+    "dynamic": {
+      "Triggering": "A temporal/causal control flow: one element triggers another.",
+      "Flow": "Transfer of information or value from one element to another."
+    },
+    "other": {
+      "Specialization": "An element is a particular kind of another element.",
+      "Association": "Generic, unspecified link between elements.",
+      "Junction": "Connector joining several relationships of the same type."
+    }
+  },
+
+  "node_types": {
+    "capability": {
+      "enabled": true,
+      "label": "Business Capability",
+      "archimate_type": "Capability",
+      "layer": "Strategy",
+      "synonyms": ["capability", "business capability"],
+      "source_doc": "01-business (Capability column)"
+    },
+    "department": {
+      "enabled": true,
+      "label": "Department / Organizational Unit",
+      "archimate_type": "Business Actor",
+      "layer": "Business",
+      "synonyms": ["department", "owning department", "owner", "org unit", "team", "division"],
+      "source_doc": "01-business, 02-application (Owner/Owning Department columns)"
+    },
+    "business_process": {
+      "enabled": true,
+      "label": "Business Process",
+      "archimate_type": "Business Process",
+      "layer": "Business",
+      "synonyms": ["process", "supporting process", "business process"],
+      "source_doc": "01-business (Supporting Processes column)"
+    },
+    "application": {
+      "enabled": true,
+      "label": "Application",
+      "archimate_type": "Application Component",
+      "layer": "Application",
+      "synonyms": ["application", "app", "system", "service"],
+      "source_doc": "02-application (Application column)"
+    },
+    "vendor": {
+      "enabled": true,
+      "label": "Vendor / Supplier",
+      "archimate_type": "Business Actor",
+      "layer": "Business",
+      "synonyms": ["vendor", "supplier", "provider"],
+      "note": "External Business Actor, distinguished from `department` only by role (supplier vs owner). 'In-house' is NOT a vendor and must be recorded as an attribute, never a node (see attributes.vendor).",
+      "source_doc": "02-application (Vendor column)"
+    },
+    "data_entity": {
+      "enabled": true,
+      "label": "Data Entity",
+      "archimate_type": "Data Object",
+      "layer": "Application",
+      "synonyms": ["data entity", "entity", "data object"],
+      "note": "TOGAF 'Data Entity' is logical; mapped to ArchiMate Data Object (application layer). If you later want a conceptual/business view, the alternative anchor is Business Object.",
+      "source_doc": "03-data (Data Entity column)"
+    },
+    "data_store": {
+      "enabled": true,
+      "label": "Data Store",
+      "archimate_type": "Artifact",
+      "layer": "Technology",
+      "synonyms": ["data store", "database", "stored in", "datastore"],
+      "note": "A physical store (DB/file). Anchored to Artifact; could be System Software (DBMS) depending on granularity.",
+      "source_doc": "03-data (Stored In column)"
+    },
+    "node": {
+      "enabled": true,
+      "label": "Server / Infrastructure Node",
+      "archimate_type": "Node",
+      "layer": "Technology",
+      "synonyms": ["server", "node", "host", "vm", "infrastructure"],
+      "source_doc": "04-technology (Server column)"
+    },
+    "data_centre": {
+      "enabled": true,
+      "label": "Data Centre",
+      "archimate_type": "Facility",
+      "layer": "Physical",
+      "synonyms": ["data centre", "data center", "location", "site", "facility"],
+      "note": "A data centre is a physical Facility; ArchiMate also offers the cross-layer Location element if you prefer a logical placement.",
+      "source_doc": "04-technology (Location column)"
+    },
+    "control": {
+      "enabled": true,
+      "label": "Security Control",
+      "archimate_type": "Requirement",
+      "layer": "Motivation",
+      "synonyms": ["control", "security control", "safeguard"],
+      "note": "Security controls map most naturally to Motivation Requirements (something the architecture must satisfy); Constraint is the alternative.",
+      "source_doc": "05-security (Control column)"
+    },
+    "framework": {
+      "enabled": true,
+      "label": "Compliance Framework",
+      "archimate_type": "Grouping",
+      "layer": "Composite",
+      "synonyms": ["framework", "standard", "regulation"],
+      "note": "A framework (ISO 27001, NIST CSF...) groups controls. Anchored to Grouping; Driver is the alternative if you model it as external pressure.",
+      "source_doc": "05-security (Framework column)"
+    },
+    "element": {
+      "enabled": true,
+      "label": "Generic Element (fallback)",
+      "archimate_type": null,
+      "layer": null,
+      "synonyms": ["element"],
+      "note": "GENERIC FALLBACK — kept ON so no data is lost. The gap-analysis table's subject is a generic reference to an item defined elsewhere; such rows do NOT create new nodes (Step 4 reconciles them onto the existing subject by name, contributing only roadmap attributes). Also the landing type for any concept that matches no enabled node type when _schema_growth is OFF. Flagged for review either way.",
+      "source_doc": "06-gap-analysis (Element column)"
+    },
+
+    "business_service": {
+      "enabled": false,
+      "label": "Business Service",
+      "archimate_type": "Business Service",
+      "layer": "Business",
+      "synonyms": ["business service", "service offered", "customer service"],
+      "note": "DORMANT reserve. A service the business exposes (distinct from the `application` that realizes it). Switch on if a document describes services as first-class, not just apps.",
+      "source_doc": "(reserve — not yet in corpus)"
+    },
+    "product": {
+      "enabled": false,
+      "label": "Product",
+      "archimate_type": "Product",
+      "layer": "Business",
+      "synonyms": ["product", "offering", "package"],
+      "note": "DORMANT reserve. A coherent offering of services/passive elements with a contract. Switch on if a document organizes around products.",
+      "source_doc": "(reserve — not yet in corpus)"
+    },
+    "application_service": {
+      "enabled": false,
+      "label": "Application Service",
+      "archimate_type": "Application Service",
+      "layer": "Application",
+      "synonyms": ["application service", "api", "exposed service", "endpoint"],
+      "note": "DORMANT reserve. The behaviour an application exposes (vs the `application` component itself). Switch on if docs model APIs/services separately from systems.",
+      "source_doc": "(reserve — not yet in corpus)"
+    },
+    "technology_service": {
+      "enabled": false,
+      "label": "Technology Service",
+      "archimate_type": "Technology Service",
+      "layer": "Technology",
+      "synonyms": ["technology service", "platform service", "infrastructure service"],
+      "note": "DORMANT reserve. Infrastructure capability exposed to the application layer (e.g. 'messaging', 'storage'). Switch on for a technology-service view.",
+      "source_doc": "(reserve — not yet in corpus)"
+    },
+    "principle": {
+      "enabled": false,
+      "label": "Architecture Principle",
+      "archimate_type": "Principle",
+      "layer": "Motivation",
+      "synonyms": ["principle", "architecture principle", "design principle"],
+      "note": "DORMANT reserve. A normative statement guiding the architecture (Motivation). Switch on if principle documents are ingested.",
+      "source_doc": "(reserve — not yet in corpus)"
+    },
+    "course_of_action": {
+      "enabled": false,
+      "label": "Course of Action / Initiative",
+      "archimate_type": "Course of Action",
+      "layer": "Strategy",
+      "synonyms": ["initiative", "course of action", "strategic initiative", "programme"],
+      "note": "DORMANT reserve. A strategic initiative/approach (Strategy layer). Useful for roadmaps/initiatives; today the 2027 Roadmap lives as a wiki THEME, not a node.",
+      "source_doc": "(reserve — not yet in corpus)"
+    }
+  },
+
+  "edge_types": {
+    "owned_by": {
+      "enabled": true,
+      "label": "Owned by",
+      "archimate_relationship": "Assignment",
+      "source_types": ["application", "capability", "data_entity"],
+      "target_types": ["department"],
+      "synonyms": ["owner", "owning department", "owned by", "department"],
+      "source_doc": "01-business, 02-application"
+    },
+    "supplied_by": {
+      "enabled": true,
+      "label": "Supplied by",
+      "archimate_relationship": "Serving",
+      "source_types": ["application"],
+      "target_types": ["vendor"],
+      "synonyms": ["vendor", "supplier", "supplied by"],
+      "note": "Direction follows the vendor SERVING the application; emitted as application->vendor for convenience.",
+      "source_doc": "02-application"
+    },
+    "supports": {
+      "enabled": true,
+      "label": "Supported by process",
+      "archimate_relationship": "Serving",
+      "source_types": ["capability"],
+      "target_types": ["business_process"],
+      "synonyms": ["supporting process", "process"],
+      "note": "REVIEW: emitted as capability->process named 'supports', but semantically the process serves (supports) the capability. Consider renaming to 'supported_by' or flipping direction in Step 4.",
+      "source_doc": "01-business"
+    },
+    "system_of_record": {
+      "enabled": true,
+      "label": "System of record",
+      "archimate_relationship": "Access",
+      "access_type": "read-write",
+      "source_types": ["data_entity"],
+      "target_types": ["application"],
+      "synonyms": ["system of record", "sor", "master system"],
+      "note": "Semantically the application Accesses (masters) the data entity; emitted as data_entity->application. Step 4 may flip to application->data_entity to match Access direction.",
+      "source_doc": "03-data"
+    },
+    "stored_in": {
+      "enabled": true,
+      "label": "Stored in",
+      "archimate_relationship": "Realization",
+      "source_types": ["data_entity"],
+      "target_types": ["data_store"],
+      "synonyms": ["stored in", "data store", "database"],
+      "note": "In ArchiMate the Artifact REALIZES the Data Object (data_store->data_entity). Emitted data_entity->data_store for convenience; reconcile direction in Step 4. Association is the looser alternative.",
+      "source_doc": "03-data"
+    },
+    "hosts": {
+      "enabled": true,
+      "label": "Hosts",
+      "archimate_relationship": "Assignment",
+      "source_types": ["node"],
+      "target_types": ["application"],
+      "synonyms": ["hosts", "hosted", "runs"],
+      "note": "Node deploys/hosts the application (Assignment of infrastructure to the deployed component).",
+      "source_doc": "04-technology"
+    },
+    "located_in": {
+      "enabled": true,
+      "label": "Located in",
+      "archimate_relationship": "Aggregation",
+      "source_types": ["node"],
+      "target_types": ["data_centre"],
+      "synonyms": ["location", "data centre", "data center", "site"],
+      "note": "The Facility/Location aggregates the nodes within it (data_centre aggregates node); emitted node->data_centre. Association is the looser alternative.",
+      "source_doc": "04-technology"
+    },
+    "governed_by": {
+      "enabled": true,
+      "label": "Governed by framework",
+      "archimate_relationship": "Aggregation",
+      "source_types": ["control"],
+      "target_types": ["framework"],
+      "synonyms": ["framework", "standard"],
+      "note": "The framework aggregates its controls (framework aggregates control); emitted control->framework.",
+      "source_doc": "05-security"
+    },
+    "associated_with": {
+      "enabled": true,
+      "label": "Associated with (generic fallback)",
+      "archimate_relationship": "Association",
+      "source_types": ["*"],
+      "target_types": ["*"],
+      "synonyms": ["related to", "associated with", "linked to"],
+      "note": "GENERIC EDGE FALLBACK — kept ON so no relationship is lost. The landing type for a genuine relationship whose specific kind maps to no enabled edge type (when _schema_growth is OFF). Flagged for review; promote to a specific edge when the pattern recurs.",
+      "source_doc": "(fallback — not column-derived)"
+    },
+
+    "depends_on": {
+      "enabled": false,
+      "label": "Depends on",
+      "archimate_relationship": "Serving",
+      "source_types": ["application", "capability", "business_service"],
+      "target_types": ["application", "business_service", "technology_service"],
+      "synonyms": ["depends on", "requires", "relies on", "consumes", "integrates with"],
+      "note": "DORMANT reserve, but HIGH VALUE for dependency/impact questions. Switch on when Step 3a starts extracting app-to-app dependencies from prose/diagrams. Until then such links fall back to `associated_with`.",
+      "source_doc": "(reserve — prose/diagram dependencies)"
+    },
+    "sends_data_to": {
+      "enabled": false,
+      "label": "Sends data to",
+      "archimate_relationship": "Flow",
+      "source_types": ["application", "business_process"],
+      "target_types": ["application", "business_process"],
+      "synonyms": ["sends data to", "feeds", "pushes to", "exports to", "data flow"],
+      "note": "DORMANT reserve. Directed information flow between systems/processes — key for data-lineage and impact. Switch on with the 3a flow pass.",
+      "source_doc": "(reserve — prose/diagram flows)"
+    },
+    "reads_writes": {
+      "enabled": false,
+      "label": "Reads / writes data",
+      "archimate_relationship": "Access",
+      "source_types": ["application", "business_process"],
+      "target_types": ["data_entity"],
+      "synonyms": ["reads", "writes", "accesses", "updates", "creates"],
+      "note": "DORMANT reserve. Application/process accessing a data entity (carry access_type read|write|read-write). Complements system_of_record; switch on with the 3a data-access pass.",
+      "source_doc": "(reserve — prose data access)"
+    },
+    "triggers": {
+      "enabled": false,
+      "label": "Triggers",
+      "archimate_relationship": "Triggering",
+      "source_types": ["business_process"],
+      "target_types": ["business_process"],
+      "synonyms": ["triggers", "initiates", "then", "followed by", "hands off to"],
+      "note": "DORMANT reserve. Temporal/causal process control flow — for process-chain questions. Switch on with a process-flow pass.",
+      "source_doc": "(reserve — process flows)"
+    },
+    "composed_of": {
+      "enabled": false,
+      "label": "Composed of",
+      "archimate_relationship": "Composition",
+      "source_types": ["application", "capability", "business_service"],
+      "target_types": ["application", "capability", "element"],
+      "synonyms": ["composed of", "consists of", "contains", "module of", "part of"],
+      "note": "DORMANT reserve. Whole-part structure (e.g. the 'Fee Collection module' as part of a capability). Switch on if sub-component structure is modelled.",
+      "source_doc": "(reserve — component decomposition)"
+    },
+    "specializes": {
+      "enabled": false,
+      "label": "Specializes",
+      "archimate_relationship": "Specialization",
+      "source_types": ["*"],
+      "target_types": ["*"],
+      "synonyms": ["specializes", "is a kind of", "type of", "subtype of"],
+      "note": "DORMANT reserve. 'A is a particular kind of B', same-type only. Switch on for taxonomy/classification structure.",
+      "source_doc": "(reserve — taxonomies)"
+    },
+    "influences": {
+      "enabled": false,
+      "label": "Influences",
+      "archimate_relationship": "Influence",
+      "source_types": ["*"],
+      "target_types": ["control", "principle", "capability"],
+      "synonyms": ["influences", "affects", "supports goal", "contributes to"],
+      "note": "DORMANT reserve. Weakest dependency onto a motivation/goal element. Switch on if motivation (principles/goals) is ingested.",
+      "source_doc": "(reserve — motivation layer)"
+    }
+  },
+
+  "attributes": {
+    "_note": "Properties recorded ON a node (ArchiMate 'properties'), never nodes themselves. `applies_to` lists the node types that may carry each.",
+    "status": {
+      "applies_to": ["application", "control"],
+      "values_seen": ["Active", "Retired", "Planned", "Deprecated", "Implemented"]
+    },
+    "classification": {
+      "applies_to": ["data_entity"],
+      "values_seen": ["Public", "Internal", "Confidential", "Restricted"]
+    },
+    "role": {
+      "applies_to": ["node"],
+      "note": "Free text describing what the server does."
+    },
+    "applies_to": {
+      "applies_to": ["control"],
+      "note": "Free text target of a control (e.g. 'All production systems')."
+    },
+    "vendor": {
+      "applies_to": ["application"],
+      "note": "Recorded as an attribute only when the value is not a real external supplier (e.g. 'In-house'); real vendors become supplied_by edges."
+    },
+    "current_state": {
+      "applies_to": ["capability", "application", "data_entity", "node", "element"],
+      "note": "From the gap-analysis 'Current' column; attached to the reconciled subject."
+    },
+    "target_state": {
+      "applies_to": ["capability", "application", "data_entity", "node", "element"],
+      "note": "From the gap-analysis 'Target' column."
+    },
+    "gap": {
+      "applies_to": ["capability", "application", "data_entity", "node", "element"],
+      "note": "From the gap-analysis 'Gap' column; the roadmap delta."
+    }
+  }
+}

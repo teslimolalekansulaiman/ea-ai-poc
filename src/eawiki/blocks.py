@@ -1,0 +1,111 @@
+"""Block schema for Step 1 (parse into structural blocks).
+
+A *block* is one structural unit of a source document (heading, paragraph, list
+item, table, figure, caption). It is the unit of provenance for the whole
+pipeline: everything downstream (graph edges, wiki pages, embeddings) cites a
+block_id. Tables and figures are preserved as *structure*, not flattened to
+text, because Step 1b reads them deterministically.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass, field, asdict
+from pathlib import Path
+from typing import Any, Optional
+
+# Block type vocabulary. Deliberately small and stable; it describes document
+# *structure*, not EA semantics (that comes from menu.json later).
+BLOCK_TYPES = (
+    "heading",
+    "paragraph",
+    "list_item",
+    "table",
+    "figure",
+    "caption",
+    "other",
+)
+
+
+def content_hash(*parts: str) -> str:
+    """Stable short hash of a block's content, for change detection."""
+    h = hashlib.sha1()
+    for p in parts:
+        h.update((p or "").encode("utf-8"))
+        h.update(b"\x00")
+    return h.hexdigest()[:16]
+
+
+@dataclass
+class Block:
+    """One structural unit of a document, with provenance."""
+
+    block_id: str           # stable: "<doc_id>:<ordinal>"
+    doc_id: str             # source document stem, e.g. "02-application"
+    source_file: str        # path relative to project root
+    ordinal: int            # position in document reading order (0-based)
+    type: str               # one of BLOCK_TYPES
+
+    # Normalized text. For a table this is a markdown rendering (so text
+    # consumers and the embedder have something textual); the real structure
+    # lives in `table`. For a figure this is the caption.
+    text: str = ""
+
+    level: Optional[int] = None                 # heading depth (1 = top)
+    section_path: list[str] = field(default_factory=list)  # enclosing headings
+
+    # Preserved structure (exactly one may be set, depending on type).
+    table: Optional[dict[str, Any]] = None      # {num_rows, num_cols, cells, markdown}
+    figure: Optional[dict[str, Any]] = None     # {caption, image_ref}
+
+    # Extra provenance from the parser.
+    self_ref: Optional[str] = None              # docling node ref, e.g. "#/texts/5"
+    page_no: Optional[int] = None
+
+    # Document class, set once at ingest and carried through the whole pipeline
+    # (block -> fact -> node/edge -> store -> query) so architecture *facts* can be
+    # told apart from *motivation* / *governance* / *reference* material, and queries
+    # can scope to one. Defaults to "architecture" (the common case).
+    kind: str = "architecture"
+
+    content_hash: str = ""
+
+    def __post_init__(self) -> None:
+        if self.type not in BLOCK_TYPES:
+            raise ValueError(f"unknown block type: {self.type!r}")
+        if not self.content_hash:
+            self.content_hash = content_hash(
+                self.type, self.text, json.dumps(self.table or {}, sort_keys=True)
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Block":
+        return cls(**d)
+
+
+def save_blocks(doc_id: str, source_file: str, blocks: list[Block], out_path: Path,
+                extra_meta: Optional[dict[str, Any]] = None) -> None:
+    """Write a document's blocks to JSON. Files are the system of record."""
+    counts: dict[str, int] = {}
+    for b in blocks:
+        counts[b.type] = counts.get(b.type, 0) + 1
+    payload = {
+        "doc_id": doc_id,
+        "source_file": source_file,
+        "n_blocks": len(blocks),
+        "counts": counts,
+        **(extra_meta or {}),
+        "blocks": [b.to_dict() for b in blocks],
+    }
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def load_blocks(path: Path) -> list[Block]:
+    """Read a document's blocks back from JSON."""
+    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    return [Block.from_dict(b) for b in payload["blocks"]]

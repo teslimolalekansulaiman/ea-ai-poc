@@ -1,0 +1,42 @@
+# ArcadeDB — graph + vector store for the EA GraphRAG wiki (Step 6 load target).
+#
+# Local dev: `docker compose up -d`  (or `docker-compose up -d` on Compose v1).
+# Studio UI:  http://localhost:2480   (user: root, password: from .env)
+# REST API:   http://localhost:2480/api/v1/...
+#
+# This same file runs unchanged on the GCP dev VM — only the password (.env) and,
+# for a public VM, the firewall/ports differ. See docker/README-arcadedb.md.
+services:
+  arcadedb:
+    # NOTE: pin an explicit tag for the dev VM / prod (reproducibility). `latest`
+    # is fine for a local box. Find current tags: https://hub.docker.com/r/arcadedata/arcadedb/tags
+    image: arcadedata/arcadedb:latest
+    container_name: eawiki-arcadedb
+    restart: unless-stopped
+    environment:
+      # rootPassword sets the admin password; defaultDatabases creates an empty
+      # `eawiki` database at first start, owned by root. Both via JAVA_OPTS.
+      JAVA_OPTS: >-
+        -Darcadedb.server.rootPassword=${ARCADEDB_PASSWORD:-change_me_local}
+        -Darcadedb.server.defaultDatabases=eawiki[root]
+    ports:
+      - "2480:2480"   # HTTP: Studio UI + REST API
+      - "2424:2424"   # binary protocol (driver connections)
+    volumes:
+      # Persist across restarts. Without the databases mount the image's VOLUME
+      # declaration spawns a throwaway anonymous volume on every `up` and your
+      # data is lost. `config` holds users + API tokens; `backups` holds dumps.
+      - arcadedb_databases:/home/arcadedb/databases
+      - arcadedb_config:/home/arcadedb/config
+      - arcadedb_backups:/home/arcadedb/backups
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2480/api/v1/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  arcadedb_databases:
+  arcadedb_config:
+  arcadedb_backups:
