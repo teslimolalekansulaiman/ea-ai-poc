@@ -31,4 +31,5 @@ export const api = {
   updateUsecase: (id, spec) => J('/api/usecases/' + encodeURIComponent(id),
     { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec) }),
   deleteUsecase: (id) => J('/api/usecases/' + encodeURIComponent(id), { method: 'DELETE' }),
+  runUsecase: (id, body) => post('/api/usecases/' + encodeURIComponent(id) + '/run', body),
 }

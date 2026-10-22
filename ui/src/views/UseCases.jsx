@@ -58,6 +58,7 @@ export default function UseCases() {
               {' '}<span className="pill neutral">{u.stages.length} stage(s)</span>
               {u.validation?.enabled && <span className="pill info"> validation gate</span>}</div>
             <div className="stats" style={{ gap: 10 }}>
+              <a href={'#/run/' + u.id}>Run →</a>
               <a href="#" onClick={e => { e.preventDefault(); edit(u.id) }}>Edit</a>
               <a href="#" onClick={e => { e.preventDefault(); remove(u.id) }} style={{ color: 'var(--crit)' }}>Delete</a>
             </div>

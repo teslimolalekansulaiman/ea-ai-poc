@@ -10,6 +10,7 @@ import MapView from './views/MapView'
 import Coverage from './views/Coverage'
 import KB from './views/KB'
 import UseCases from './views/UseCases'
+import Run from './views/Run'
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -24,6 +25,8 @@ createRoot(document.getElementById('root')).render(
             <Route path="coverage" element={<Coverage />} />
             <Route path="kb" element={<KB />} />
             <Route path="usecases" element={<UseCases />} />
+            <Route path="run" element={<Run />} />
+            <Route path="run/:id" element={<Run />} />
           </Route>
         </Routes>
       </HashRouter>
