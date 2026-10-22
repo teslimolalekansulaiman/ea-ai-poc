@@ -59,6 +59,20 @@ def _wiki_page(node_id: str) -> str:
 
 
 @functools.lru_cache(maxsize=1)
+def _community_summaries() -> str:
+    """The Step-8 community summaries — the condensed, thematic source for GLOBAL
+    questions (classic GraphRAG map-reduce input), far smaller than the full wiki."""
+    cp = Path("data/graph/communities.json")
+    if not cp.exists():
+        return ""
+    out = []
+    for c in json.loads(cp.read_text(encoding="utf-8")).get("communities", []):
+        if c.get("summary"):
+            out.append(f"## {c['name']} ({c.get('dominant_domain','')}, {c.get('size',0)} members)\n{c['summary']}")
+    return "\n\n".join(out)
+
+
+@functools.lru_cache(maxsize=1)
 def _all_wiki() -> str:
     """The ENTIRE wiki concatenated (subject + landscape pages), capped at WIKI_BUDGET.
     Cached in memory. Used by the 'full' context mode — a normal in-context LLM wiki."""

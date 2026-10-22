@@ -93,11 +93,12 @@ def n_retrieve(s: QAState) -> dict:
             if ev:
                 blocks = ev
     block_ids = [b["block_id"] for b in blocks]
-    # LLM-wiki context: full wiki for broad/summary questions; otherwise the PRECISE
-    # subject page(s) — found from the top vector blocks' subjects (reuses the block
-    # index, no page embedding). Falls back to "" when nothing maps.
-    if s["route"]["strategy"] == "global" and ew._wiki_fits():
-        page = ew._all_wiki()
+    # Context by question type: GLOBAL → the Step-8 community summaries (condensed,
+    # thematic — the right source for whole-landscape questions), falling back to the
+    # full wiki only on a tiny corpus with no summaries. Otherwise → the PRECISE subject
+    # page(s), found from the top vector blocks' subjects (reuses the block index).
+    if s["route"]["strategy"] == "global":
+        page = ew._community_summaries() or (ew._all_wiki() if ew._wiki_fits() else "")
     else:
         page = ew._pages_from_blocks(block_ids, limit=2)
     return {"_block_objs": blocks, "blocks": block_ids, "subgraph": subgraph, "page": page}
