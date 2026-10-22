@@ -6,9 +6,11 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Generated artifacts — regenerable by rerunning the pipeline, not source of truth
-# for the move (docs/ is the source; data/ is rebuilt on the VM).
-data/
+# Generated artifacts — regenerable by rerunning the pipeline (docs/ is the source;
+# data/ is rebuilt on the VM). The TOGAF metamodel is the EXCEPTION: it's a hand-authored
+# source-of-truth schema, so it IS tracked.
+/data/*
+!/data/togaf92_metamodel.json
 
 # Secrets
 .env

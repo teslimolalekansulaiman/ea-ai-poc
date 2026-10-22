@@ -299,7 +299,7 @@ def main() -> None:
     ap.add_argument("--menu", dest="menu", default="menu.json")
     ap.add_argument("--out", dest="out", default="data/graph/subjects.json")
     ap.add_argument("--coverage", dest="coverage", default="data/graph/coverage.json")
-    ap.add_argument("--backend", default="cli", choices=["cli", "sdk"])
+    ap.add_argument("--backend", default="cli", choices=["cli", "sdk", "openai", "openrouter", "pulse"])
     ap.add_argument("--model", default=None)
     args = ap.parse_args()
 

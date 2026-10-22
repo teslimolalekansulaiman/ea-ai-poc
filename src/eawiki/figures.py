@@ -108,7 +108,7 @@ def main() -> None:
     ap.add_argument("--in", dest="in_dir", default="data/blocks")
     ap.add_argument("--menu", dest="menu", default="data/togaf92_metamodel.json")
     ap.add_argument("--out", dest="out", default="data/graph/facts_figures.json")
-    ap.add_argument("--backend", default="cli", choices=["cli", "sdk"])
+    ap.add_argument("--backend", default="cli", choices=["cli", "sdk", "openai", "openrouter", "pulse"])
     ap.add_argument("--model", default=None)
     ap.add_argument("--workers", type=int, default=6,
                     help="concurrent figures (each is one vision claude -p call); 1 = sequential")

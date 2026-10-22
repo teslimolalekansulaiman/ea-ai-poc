@@ -1,79 +1,307 @@
 {
   "_note": "Gold set hand-labelled from the SOURCE TEXT of 01-business + 02-application (incl. the full capability + application-catalogue tables). `entities`/`relations` are the facts those docs state; `review` lists graph items to VERIFY against the .docx (not asserted true, not fixed in the pipeline). score.py reads entities/relations only. Relations are now enumerated completely for these two docs so relation precision is meaningful.",
-  "docs": ["01-business", "02-application"],
+  "docs": [
+    "01-business",
+    "02-application"
+  ],
   "entities": [
-    {"name": "License Management", "type": "business_capability"},
-    {"name": "Inspection Management", "type": "business_capability"},
-    {"name": "Fee Collection", "type": "business_capability"},
-    {"name": "Licensing Department", "type": "organization_unit"},
-    {"name": "Inspection Department", "type": "organization_unit"},
-    {"name": "Finance Department", "type": "organization_unit"},
-    {"name": "GD of IT", "type": "organization_unit"},
-    {"name": "License Issuance", "type": "process"},
-    {"name": "License Renewal", "type": "process"},
-    {"name": "Site Inspection", "type": "process"},
-    {"name": "Fee Settlement", "type": "process"},
-    {"name": "issuance workflow", "type": "process"},
-    {"name": "Customer Portal", "type": "physical_application_component"},
-    {"name": "Licensing Core", "type": "physical_application_component"},
-    {"name": "Identity Service", "type": "physical_application_component"},
-    {"name": "Payment Gateway", "type": "physical_application_component"},
-    {"name": "Document Management System", "type": "physical_application_component"},
-    {"name": "Inspection Mobile App", "type": "physical_application_component"},
-    {"name": "SMS Gateway", "type": "physical_application_component"},
-    {"name": "National Address Registry", "type": "physical_application_component"},
-    {"name": "Fee Collection module", "type": "physical_application_component"},
-    {"name": "Oracle", "type": "actor"},
-    {"name": "OpenText", "type": "actor"},
-    {"name": "Vendor X", "type": "actor"},
-    {"name": "Vendor Y (hosted abroad)", "type": "actor"},
-    {"name": "SADAD integration", "type": "actor"},
-    {"name": "Applicant", "type": "actor"},
-    {"name": "Issued license PDFs", "type": "data_entity"},
-    {"name": "Reduce license processing time to three working days", "type": "objective"}
+    {
+      "name": "License Management",
+      "type": "business_capability"
+    },
+    {
+      "name": "Inspection Management",
+      "type": "business_capability"
+    },
+    {
+      "name": "Fee Collection",
+      "type": "business_capability"
+    },
+    {
+      "name": "Licensing Department",
+      "type": "organization_unit"
+    },
+    {
+      "name": "Inspection Department",
+      "type": "organization_unit"
+    },
+    {
+      "name": "Finance Department",
+      "type": "organization_unit"
+    },
+    {
+      "name": "GD of IT",
+      "type": "organization_unit"
+    },
+    {
+      "name": "License Issuance",
+      "type": "process"
+    },
+    {
+      "name": "License Renewal",
+      "type": "process"
+    },
+    {
+      "name": "Site Inspection",
+      "type": "process"
+    },
+    {
+      "name": "Fee Settlement",
+      "type": "process"
+    },
+    {
+      "name": "issuance workflow",
+      "type": "process"
+    },
+    {
+      "name": "Customer Portal",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "Licensing Core",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "Identity Service",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "Payment Gateway",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "Document Management System",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "Inspection Mobile App",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "SMS Gateway",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "National Address Registry",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "Fee Collection module",
+      "type": "physical_application_component"
+    },
+    {
+      "name": "Oracle",
+      "type": "actor"
+    },
+    {
+      "name": "OpenText",
+      "type": "actor"
+    },
+    {
+      "name": "Vendor X",
+      "type": "actor"
+    },
+    {
+      "name": "Vendor Y (hosted abroad)",
+      "type": "actor"
+    },
+    {
+      "name": "SADAD integration",
+      "type": "actor"
+    },
+    {
+      "name": "Applicant",
+      "type": "actor"
+    },
+    {
+      "name": "Issued license PDFs",
+      "type": "data_entity"
+    },
+    {
+      "name": "Reduce license processing time to three working days",
+      "type": "objective"
+    }
   ],
   "relations": [
-    {"source": "License Management", "relation": "is_owned_by", "target": "Licensing Department"},
-    {"source": "Inspection Management", "relation": "is_owned_by", "target": "Inspection Department"},
-    {"source": "Fee Collection", "relation": "is_owned_by", "target": "Finance Department"},
-    {"source": "License Management", "relation": "is_realized_by", "target": "License Issuance"},
-    {"source": "License Management", "relation": "is_realized_by", "target": "License Renewal"},
-    {"source": "Inspection Management", "relation": "is_realized_by", "target": "Site Inspection"},
-    {"source": "Fee Collection", "relation": "is_realized_by", "target": "Fee Settlement"},
-    {"source": "License Management", "relation": "supports", "target": "Reduce license processing time to three working days"},
-    {"source": "License Issuance", "relation": "is_owned_by", "target": "Licensing Department"},
-    {"source": "License Renewal", "relation": "is_owned_by", "target": "Licensing Department"},
-    {"source": "License Issuance", "relation": "triggers", "target": "Site Inspection"},
-    {"source": "Customer Portal", "relation": "supports", "target": "License Issuance"},
-    {"source": "License Renewal", "relation": "uses", "target": "issuance workflow"},
-    {"source": "Customer Portal", "relation": "is_owned_by", "target": "GD of IT"},
-    {"source": "Licensing Core", "relation": "is_owned_by", "target": "GD of IT"},
-    {"source": "Identity Service", "relation": "is_owned_by", "target": "GD of IT"},
-    {"source": "SMS Gateway", "relation": "is_owned_by", "target": "GD of IT"},
-    {"source": "Inspection Mobile App", "relation": "is_owned_by", "target": "Inspection Department"},
-    {"source": "Payment Gateway", "relation": "is_owned_by", "target": "Finance Department"},
-    {"source": "Customer Portal", "relation": "is_supplied_by", "target": "Oracle"},
-    {"source": "Inspection Mobile App", "relation": "is_supplied_by", "target": "Vendor X"},
-    {"source": "Payment Gateway", "relation": "is_supplied_by", "target": "SADAD integration"},
-    {"source": "SMS Gateway", "relation": "is_supplied_by", "target": "Vendor Y (hosted abroad)"},
-    {"source": "Document Management System", "relation": "is_supplied_by", "target": "OpenText"},
-    {"source": "Customer Portal", "relation": "communicates_with", "target": "Identity Service"},
-    {"source": "Customer Portal", "relation": "sends_data_to", "target": "Licensing Core"},
-    {"source": "Licensing Core", "relation": "is_realized_by", "target": "License Issuance"},
-    {"source": "Licensing Core", "relation": "is_realized_by", "target": "License Renewal"},
-    {"source": "Licensing Core", "relation": "communicates_with", "target": "Payment Gateway"},
-    {"source": "Licensing Core", "relation": "communicates_with", "target": "Document Management System"},
-    {"source": "Licensing Core", "relation": "communicates_with", "target": "Inspection Mobile App"},
-    {"source": "Licensing Core", "relation": "communicates_with", "target": "National Address Registry"}
+    {
+      "source": "License Management",
+      "relation": "is_owned_by",
+      "target": "Licensing Department"
+    },
+    {
+      "source": "Inspection Management",
+      "relation": "is_owned_by",
+      "target": "Inspection Department"
+    },
+    {
+      "source": "Fee Collection",
+      "relation": "is_owned_by",
+      "target": "Finance Department"
+    },
+    {
+      "source": "License Management",
+      "relation": "is_realized_by",
+      "target": "License Issuance"
+    },
+    {
+      "source": "License Management",
+      "relation": "is_realized_by",
+      "target": "License Renewal"
+    },
+    {
+      "source": "Inspection Management",
+      "relation": "is_realized_by",
+      "target": "Site Inspection"
+    },
+    {
+      "source": "Fee Collection",
+      "relation": "is_realized_by",
+      "target": "Fee Settlement"
+    },
+    {
+      "source": "License Management",
+      "relation": "contributes_to",
+      "target": "Reduce license processing time to three working days"
+    },
+    {
+      "source": "License Issuance",
+      "relation": "is_owned_by",
+      "target": "Licensing Department"
+    },
+    {
+      "source": "License Renewal",
+      "relation": "is_owned_by",
+      "target": "Licensing Department"
+    },
+    {
+      "source": "License Issuance",
+      "relation": "triggers",
+      "target": "Site Inspection"
+    },
+    {
+      "source": "Customer Portal",
+      "relation": "serves",
+      "target": "License Issuance"
+    },
+    {
+      "source": "License Renewal",
+      "relation": "uses",
+      "target": "issuance workflow"
+    },
+    {
+      "source": "Customer Portal",
+      "relation": "is_owned_by",
+      "target": "GD of IT"
+    },
+    {
+      "source": "Licensing Core",
+      "relation": "is_owned_by",
+      "target": "GD of IT"
+    },
+    {
+      "source": "Identity Service",
+      "relation": "is_owned_by",
+      "target": "GD of IT"
+    },
+    {
+      "source": "SMS Gateway",
+      "relation": "is_owned_by",
+      "target": "GD of IT"
+    },
+    {
+      "source": "Inspection Mobile App",
+      "relation": "is_owned_by",
+      "target": "Inspection Department"
+    },
+    {
+      "source": "Payment Gateway",
+      "relation": "is_owned_by",
+      "target": "Finance Department"
+    },
+    {
+      "source": "Customer Portal",
+      "relation": "is_supplied_by",
+      "target": "Oracle"
+    },
+    {
+      "source": "Inspection Mobile App",
+      "relation": "is_supplied_by",
+      "target": "Vendor X"
+    },
+    {
+      "source": "Payment Gateway",
+      "relation": "is_supplied_by",
+      "target": "SADAD integration"
+    },
+    {
+      "source": "SMS Gateway",
+      "relation": "is_supplied_by",
+      "target": "Vendor Y (hosted abroad)"
+    },
+    {
+      "source": "Document Management System",
+      "relation": "is_supplied_by",
+      "target": "OpenText"
+    },
+    {
+      "source": "Customer Portal",
+      "relation": "communicates_with",
+      "target": "Identity Service"
+    },
+    {
+      "source": "Customer Portal",
+      "relation": "sends_data_to",
+      "target": "Licensing Core"
+    },
+    {
+      "source": "Licensing Core",
+      "relation": "serves",
+      "target": "License Issuance"
+    },
+    {
+      "source": "Licensing Core",
+      "relation": "serves",
+      "target": "License Renewal"
+    },
+    {
+      "source": "Licensing Core",
+      "relation": "communicates_with",
+      "target": "Payment Gateway"
+    },
+    {
+      "source": "Licensing Core",
+      "relation": "communicates_with",
+      "target": "Document Management System"
+    },
+    {
+      "source": "Licensing Core",
+      "relation": "communicates_with",
+      "target": "Inspection Mobile App"
+    },
+    {
+      "source": "Licensing Core",
+      "relation": "communicates_with",
+      "target": "National Address Registry"
+    }
   ],
   "review": [
-    {"item": "Vendor Y (hosted abroad)  vs  Vendor Y",
-     "note": "The 02-application table cell literally reads 'Vendor Y (hosted abroad)'. A separate plain 'Vendor Y' node also exists (short form used in other docs' prose) — almost certainly the SAME vendor. Gold uses the literal cell; reconcile should alias the two but currently doesn't. Verify and alias if same."},
-    {"item": "Central Licensing", "graph_type": "location / physical_application_component / logical_application_component",
-     "note": "Graph split 'Central Licensing' into THREE nodes with conflicting types (Tier-2c flag). Same real entity typed inconsistently; decide the canonical type so it's ONE node. Left out of entities because its correct type is unclear from 'reuses the issuance workflow in Central Licensing'."},
-    {"item": "Abroad", "graph_type": "location",
-     "note": "Fragment extracted from 'Vendor Y (hosted abroad)'. Verify whether 'Abroad' should be a node at all, or merged with 'EU region' (mentioned in the SMS Gateway security text)."},
-    {"item": "Document Management System — owner",
-     "note": "Owner is 'unassigned' in the table (a real governance gap). Gold therefore has NO is_owned_by edge for DMS — if the graph invents one, that's a precision error; if it flags DMS as owner-less, that's correct coverage."}
+    {
+      "item": "Vendor Y (hosted abroad)  vs  Vendor Y",
+      "note": "The 02-application table cell literally reads 'Vendor Y (hosted abroad)'. A separate plain 'Vendor Y' node also exists (short form used in other docs' prose) — almost certainly the SAME vendor. Gold uses the literal cell; reconcile should alias the two but currently doesn't. Verify and alias if same."
+    },
+    {
+      "item": "Central Licensing",
+      "graph_type": "location / physical_application_component / logical_application_component",
+      "note": "Graph split 'Central Licensing' into THREE nodes with conflicting types (Tier-2c flag). Same real entity typed inconsistently; decide the canonical type so it's ONE node. Left out of entities because its correct type is unclear from 'reuses the issuance workflow in Central Licensing'."
+    },
+    {
+      "item": "Abroad",
+      "graph_type": "location",
+      "note": "Fragment extracted from 'Vendor Y (hosted abroad)'. Verify whether 'Abroad' should be a node at all, or merged with 'EU region' (mentioned in the SMS Gateway security text)."
+    },
+    {
+      "item": "Document Management System — owner",
+      "note": "Owner is 'unassigned' in the table (a real governance gap). Gold therefore has NO is_owned_by edge for DMS — if the graph invents one, that's a precision error; if it flags DMS as owner-less, that's correct coverage."
+    }
   ]
 }

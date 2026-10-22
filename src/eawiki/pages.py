@@ -120,7 +120,7 @@ def main() -> None:
     ap.add_argument("--menu", default="data/togaf92_metamodel.json")
     ap.add_argument("--pages", dest="pages_dir", default="data/pages")
     ap.add_argument("--out", dest="out", default="data/graph/facts_3a.json")
-    ap.add_argument("--backend", default="cli", choices=["cli", "sdk"])
+    ap.add_argument("--backend", default="cli", choices=["cli", "sdk", "openai", "openrouter", "pulse"])
     ap.add_argument("--model", default=None)
     ap.add_argument("--only", default=None, help="run a single subject by name")
     ap.add_argument("--limit", type=int, default=0, help="cap number of subjects (0 = all)")

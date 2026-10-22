@@ -407,7 +407,7 @@ def main() -> None:
     ap.add_argument("--plans", dest="plans", default="data/graph/table_plans.json")
     ap.add_argument("--menu", dest="menu", default="menu.json")
     ap.add_argument("--cache", dest="cache", default="data/graph/plan_cache")
-    ap.add_argument("--backend", dest="backend", choices=["cli", "sdk"], default=DEFAULT_BACKEND,
+    ap.add_argument("--backend", dest="backend", choices=["cli", "sdk", "openai", "openrouter", "pulse"], default=DEFAULT_BACKEND,
                     help="LLM backend: cli = `claude -p` (default, no SDK/key needed); sdk = Anthropic SDK")
     ap.add_argument("--mode", dest="mode", choices=["deterministic", "hybrid", "llm"],
                     default="hybrid",
