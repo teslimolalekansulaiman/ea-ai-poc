@@ -22,7 +22,7 @@ from pathlib import Path
 
 from eawiki.blocks import Block, load_blocks
 from eawiki.subjects import llm_text, _extract_json, _norm, llm_json
-from eawiki.tables import _vocab, _validate_llm_facts, _SECURITY_RULE
+from eawiki.tables import _vocab, _validate_llm_facts, _SECURITY_RULE, _PREDICATE_RULE
 
 
 def _context_for_figure(fig: Block, all_blocks: list[Block]) -> str:
@@ -74,7 +74,8 @@ Rules:
 - Extract an edge ONLY when the diagram shows an ACTUAL connection — a drawn arrow or line between two boxes. If there are NO visible arrows/lines, return "edges": [] — never infer a connection from mere left-to-right ordering or proximity.
 - Respect each edge's allowed source->target types; if a real connection fits none, use `associated_with`.
 - Every node and edge needs an `evidence` note describing what you saw in the image.
-{_SECURITY_RULE}"""
+{_SECURITY_RULE}
+{_PREDICATE_RULE}"""
 
     out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):

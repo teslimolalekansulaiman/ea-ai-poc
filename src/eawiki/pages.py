@@ -28,7 +28,7 @@ from pathlib import Path
 
 from eawiki.blocks import Block, load_blocks
 from eawiki.subjects import llm_text, _extract_json, _norm, llm_json
-from eawiki.tables import _vocab, _validate_llm_facts, _SECURITY_RULE
+from eawiki.tables import _vocab, _validate_llm_facts, _SECURITY_RULE, _PREDICATE_RULE
 
 
 def _slug(name: str) -> str:
@@ -100,7 +100,8 @@ Rules:
 - Use ONLY the node/edge types above; respect each edge's allowed source->target. If a real link fits none, use `associated_with`.
 - The subject is usually one endpoint of its edges; use the subject's own type for that endpoint.
 - Do not invent facts not in the blocks; ignore scaffolding (Purpose/Overview headings).
-{_SECURITY_RULE}"""
+{_SECURITY_RULE}
+{_PREDICATE_RULE}"""
 
     out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):

@@ -97,6 +97,23 @@ _SECURITY_RULE = ("- Security is CROSS-CUTTING: a security control / safeguard i
                   "(NOT `control`, which is a process decision step); a compliance framework or "
                   "standard (ISO 27001, NCA ECC, SAMA) is `standard`.")
 
+# Few-shot steering: push the model to the MOST SPECIFIC relation instead of defaulting
+# to the generic `associated_with` / `communicates_with`. Examples are generic (not from
+# the corpus) so they teach the pattern, not the answers.
+_PREDICATE_RULE = (
+    "- Pick the MOST SPECIFIC relation; use `associated_with` ONLY when no specific edge fits. Patterns:\n"
+    "    • an application/technology component that supports/runs a process, function or service → `serves` "
+    "(e.g. 'Payroll App runs the Salary Payment process' → Payroll App --serves--> Salary Payment), NOT associated_with.\n"
+    "    • a DIRECTIONAL data/information flow A→B → `sends_data_to` "
+    "(e.g. 'the CRM pushes records to the Data Warehouse' → CRM --sends_data_to--> Data Warehouse), NOT the undirected communicates_with.\n"
+    "    • one process/event that INITIATES another → `triggers` "
+    "(e.g. 'Order Received starts Fulfilment' → Order Received --triggers--> Fulfilment), NOT orchestrates/associated_with.\n"
+    "    • a capability/function/process that advances a goal, objective or driver → `contributes_to` "
+    "(e.g. 'the Automation capability shortens cycle time' → Automation --contributes_to--> Reduce cycle time).\n"
+    "    • a component supplied, vendored or hosted by an external party → `is_supplied_by` "
+    "(e.g. 'the Portal is provided by VendorCo' → Portal --is_supplied_by--> VendorCo).\n"
+    "    • two application components that exchange data without a clear direction → `communicates_with`.")
+
 
 def build_plan_llm(block: Block, menu: dict, backend: str, model: Optional[str]) -> dict:
     """Ask the LLM (via the pluggable cli/sdk backend) to classify the table and
@@ -364,7 +381,8 @@ Rules:
 - Split compound cells ("A and B", "A, B", "A (primary), B (DR)") into multiple edges; capture qualifiers in evidence.
 - Respect each edge's allowed source->target types. If a real link fits none, use `associated_with`.
 - Use the subject's node type for `source_type`; never invent names not present in the cells.
-{_SECURITY_RULE}"""
+{_SECURITY_RULE}
+{_PREDICATE_RULE}"""
 
     out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):

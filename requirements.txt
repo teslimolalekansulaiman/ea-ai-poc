@@ -26,3 +26,4 @@ nemoguardrails>=0.24
 fastapi>=0.159
 uvicorn[standard]>=0.54
 certifi>=2024.0        # CA bundle for OpenAI-compatible HTTPS on macOS Python
+openpyxl>=3.1          # eval/gold_to_xlsx.py — export the gold set to Excel
