@@ -22,6 +22,7 @@ from typing import Any, Optional, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from eawiki.query import answer as ans
+from eawiki.query import executor as ew
 from eawiki.query import guardrails as det
 from eawiki.query import route as rt
 from eawiki.query.retrieve import Retriever
@@ -45,6 +46,7 @@ class QAState(TypedDict, total=False):
     blocks: list
     _block_objs: list
     subgraph: Optional[dict]
+    page: str
     context: str
     answer: str
     citation_check: dict
@@ -90,15 +92,25 @@ def n_retrieve(s: QAState) -> dict:
             ev = r.blocks_by_ids(subgraph.get("blocks", []))
             if ev:
                 blocks = ev
-    return {"_block_objs": blocks, "blocks": [b["block_id"] for b in blocks],
-            "subgraph": subgraph}
+    block_ids = [b["block_id"] for b in blocks]
+    # LLM-wiki context: full wiki for broad/summary questions; otherwise the PRECISE
+    # subject page(s) — found from the top vector blocks' subjects (reuses the block
+    # index, no page embedding). Falls back to "" when nothing maps.
+    if s["route"]["strategy"] == "global" and ew._wiki_fits():
+        page = ew._all_wiki()
+    else:
+        page = ew._pages_from_blocks(block_ids, limit=2)
+    return {"_block_objs": blocks, "blocks": block_ids, "subgraph": subgraph, "page": page}
 
 
 def n_relevance(s: QAState) -> dict:
-    if s.get("subgraph") is None and not det.relevance_ok(
+    if s.get("subgraph") is None and not s.get("page") and not det.relevance_ok(
             s.get("_block_objs", []), max_distance=s.get("max_distance", 0.95)):
         return {"status": "abstained", "answer": det.ABSTAIN}
     context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"))
+    if s.get("page"):
+        context = ("WIKI (synthesized, connected context — cite the block ids it references, "
+                   "not the page):\n" + s["page"] + "\n\n" + context)
     return {"context": context}
 
 
