@@ -21,3 +21,8 @@ anthropic>=0.40
 langgraph>=0.2
 langchain-core>=0.3
 nemoguardrails>=0.24
+
+# Serving: HTTP API (feeds the 5-view UI; serves the static frontend from the same app)
+fastapi>=0.159
+uvicorn[standard]>=0.54
+certifi>=2024.0        # CA bundle for OpenAI-compatible HTTPS on macOS Python

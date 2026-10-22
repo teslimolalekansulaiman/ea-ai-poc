@@ -254,6 +254,20 @@ See `src/eawiki/query/README.md`.
 - **C. Answer** (`answer.py`) with the LLM, citing source blocks. Entry point: `ask.py`
   (`python -m eawiki.query.ask "..."`) — the guarded **AI layer** the UI calls.
 
+**HTTP API (`eawiki/api/app.py`, FastAPI):** feeds the 5-view UI and serves the static
+frontend from the **same app** (one Cloud Run service). Endpoints: `POST /api/ask`
+(guarded AI layer), `GET /api/pages[/{slug}]` (wiki), `GET /api/landscape[/{slug}]`
+(communities + landscape pages), `GET /api/coverage` (nodes/edges/communities/isolated +
+by-kind), `GET /api/graph?name=` (one-hop subgraph), `GET /api/kb?q=` (vector search).
+Pages come from files; ask/graph/kb use the query layer over ArcadeDB. Backend via
+`EAWIKI_API_BACKEND` (openrouter/pulse). Run: `uvicorn eawiki.api.app:app`.
+
+**UI (`web/index.html`):** the locked 5-view "Architecture Atlas" design (Ask / Wiki /
+Landscape / Coverage / Knowledge Base), wired to the API with live `fetch` calls — real
+answers with clickable citations, real wiki pages + relationship rail, community landscape
+pages, coverage stats, semantic KB search. Single-file, served by the API from `web/`, so
+it's **one Cloud Run service**; a React build can replace it later on the same API.
+
 **Guardrails (`guardrails.py`, defense-in-depth, mostly deterministic so they run without
 Pulse):**
 - INPUT: length/empty validation; deterministic prompt-injection & jailbreak patterns;
