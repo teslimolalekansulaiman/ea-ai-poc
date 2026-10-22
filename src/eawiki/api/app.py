@@ -139,6 +139,28 @@ def coverage():
     }
 
 
+@app.get("/api/map")
+def graph_map():
+    """The whole graph for the Map view: nodes (with domain + community) + edges."""
+    g = _load_json("graph.json", {"nodes": [], "edges": []})
+    menu = {}
+    mpath = Path(os.environ.get("EAWIKI_MENU", "data/togaf92_metamodel.json"))
+    if mpath.exists():
+        menu = json.loads(mpath.read_text(encoding="utf-8")).get("node_types", {})
+    comm_of: dict[str, str] = {}
+    for c in _load_json("communities.json", {"communities": []}).get("communities", []):
+        for mid in c.get("member_ids", []):
+            comm_of[mid] = c["name"]
+    nodes = [{"id": n["node_id"], "name": n.get("name", ""), "type": n.get("type", "element"),
+              "domain": (menu.get(n.get("type", ""), {}) or {}).get("domain", "Other"),
+              "community": comm_of.get(n["node_id"], "")}
+             for n in g["nodes"]]
+    edges = [{"source": e["source"], "target": e["target"],
+              "relation": e.get("relation", "associated_with")}
+             for e in g["edges"] if e.get("source") != e.get("target")]
+    return {"nodes": nodes, "edges": edges}
+
+
 @app.get("/api/graph")
 def graph(name: str):
     """One-hop subgraph of the entity named (for the wiki/graph view)."""

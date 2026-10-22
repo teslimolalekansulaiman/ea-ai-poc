@@ -1,6 +1,7 @@
 <title>Architecture Atlas</title>
 <meta name="description" content="Clickable mock of an LLM-powered enterprise-architecture wiki: ask, browse, visualize, check coverage, and manage the knowledge base.">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
 <style>
 /* Layout: slim left icon-rail + a single scrolling view area; each feature is one view. */
 :root{
@@ -354,10 +355,12 @@ svg .edge{stroke:var(--border-strong);stroke-width:1.5}
             <p>Every node and edge is extracted from the source documents. Click a node to trace what depends on it and what it affects.</p>
           </div>
         </div>
+        <div class="ls-toolbar" id="lsLegend"></div>
         <div class="ls-stage">
-          <div id="lsGrid" class="kb-grid" style="margin:0"></div>
+          <div class="graph-box"><div id="cy" style="width:100%;height:560px"></div></div>
           <aside class="card inspect" id="lsDetail">
-            <div class="empty">Select a community to read its landscape page.</div>
+            <div class="empty">Click a node to inspect it, or pick a community below.</div>
+            <div id="lsComms"></div>
           </aside>
         </div>
       </div>
@@ -493,7 +496,9 @@ async function loadWiki(){wikiLoaded=true;
 async function openPage(slug){
   document.querySelectorAll('#wikiNav button').forEach(b=>b.setAttribute('aria-current',b.dataset.k===slug));
   var page=document.getElementById('wikiPage');page.innerHTML='<div class="empty">Loading…</div>';
-  var d=await jget('/api/pages/'+encodeURIComponent(slug));
+  var d;
+  try{d=await jget('/api/pages/'+encodeURIComponent(slug));}
+  catch(e){page.innerHTML='<div class="empty">No wiki page for this entity ('+esc(slug)+').</div>';document.getElementById('wikiRail').innerHTML='';return;}
   page.innerHTML='<div class="page-title">'+esc(d.title)+'</div><div class="page-body">'+mdToHtml(d.markdown)+'</div>';
   var rail=document.getElementById('wikiRail');rail.innerHTML='';
   try{var g=await jget('/api/graph?name='+encodeURIComponent(d.title));
@@ -506,22 +511,55 @@ async function openPage(slug){
     rail.innerHTML=h;
   }catch(e){rail.innerHTML='';}}
 
-/* ================= LANDSCAPE ================= */
-var lsLoaded=false;
-async function loadLandscape(){lsLoaded=true;
-  try{var d=await jget('/api/landscape');
-    document.getElementById('lsGrid').innerHTML=d.communities.map(c=>
-      '<div class="card kb-doc" style="cursor:pointer" onclick="openLandscape(\''+c.slug+'\','+c.has_page+')">'
-      +'<div class="top"><div class="fi" style="background:'+lcol(c.domain)+'">'+c.size+'</div>'
-      +'<div><div class="nm">'+esc(c.name)+'</div><div class="meta">'+c.domain+' · '+c.size+' members</div></div></div>'
-      +'<div class="meta" style="color:var(--fg-muted);line-height:1.5">'+esc((c.summary||'').slice(0,130))+((c.summary||'').length>130?'…':'')+'</div></div>').join('');
-  }catch(e){document.getElementById('lsGrid').innerHTML='<div class="empty">API error: '+e+'</div>';}}
-async function openLandscape(slug,hasPage){
-  var det=document.getElementById('lsDetail');
-  if(!hasPage){det.innerHTML='<div class="empty">No landscape page generated for this community.</div>';return;}
-  det.innerHTML='<div class="empty">Loading…</div>';
-  var d=await jget('/api/landscape/'+encodeURIComponent(slug));
-  det.innerHTML='<div class="page-body">'+mdToHtml(d.markdown)+'</div>';}
+/* ================= LANDSCAPE / MAP (real node-link graph via Cytoscape) ======== */
+var lsLoaded=false, cy=null, CSSV={};
+var DOMV={Motivation:'--l-strategy',Strategy:'--l-strategy',Business:'--l-business',Data:'--l-application',Application:'--l-application',Technology:'--l-technology',Realization:'--l-security',Security:'--l-security',Other:'--fg-muted'};
+function resolveColors(){var cs=getComputedStyle(document.documentElement);
+  ['--l-strategy','--l-business','--l-application','--l-technology','--l-security','--fg-muted','--accent','--border-strong','--fg','--surface'].forEach(v=>CSSV[v]=cs.getPropertyValue(v).trim());}
+function domColor(d){return CSSV[DOMV[d]||'--fg-muted']||'#888';}
+
+async function loadLandscape(){lsLoaded=true; resolveColors();
+  try{
+    var m=await jget('/api/map');
+    var ids=new Set(m.nodes.map(n=>n.id));
+    var els=m.nodes.map(n=>({data:{id:n.id,label:n.name,domain:n.domain,type:n.type,community:n.community,color:domColor(n.domain)}}))
+      .concat(m.edges.filter(e=>ids.has(e.source)&&ids.has(e.target)).map((e,i)=>({data:{id:'e'+i,source:e.source,target:e.target,label:e.relation}})));
+    cy=cytoscape({container:document.getElementById('cy'),elements:els,
+      style:[
+        {selector:'node',style:{'background-color':'data(color)','label':'data(label)','font-size':'8px','color':CSSV['--fg'],'font-family':'IBM Plex Sans,sans-serif','text-valign':'center','text-halign':'right','text-margin-x':'3px','text-max-width':'90px','text-wrap':'ellipsis','width':'14px','height':'14px'}},
+        {selector:'edge',style:{'width':1,'line-color':CSSV['--border-strong'],'target-arrow-color':CSSV['--border-strong'],'target-arrow-shape':'triangle','arrow-scale':0.7,'curve-style':'bezier'}},
+        {selector:'node:selected',style:{'border-width':3,'border-color':CSSV['--accent'],'width':'20px','height':'20px'}},
+        {selector:'.faded',style:{'opacity':0.12}}
+      ],
+      layout:{name:'cose',animate:false,nodeRepulsion:9000,idealEdgeLength:75,padding:24,randomize:true}});
+    cy.on('tap','node',function(ev){inspectNode(ev.target);});
+    cy.on('tap',function(ev){if(ev.target===cy){cy.elements().removeClass('faded');cy.$(':selected').unselect();}});
+    buildLegend();
+    var d=await jget('/api/landscape');
+    document.getElementById('lsComms').innerHTML='<div class="ilist-label">Communities — open a landscape page</div>'
+      +'<div class="ilist">'+d.communities.filter(c=>c.has_page).map(c=>'<div><a href="#" onclick="openLandscape(\''+c.slug+'\');return false">'+esc(c.name)+'</a> <span style="color:var(--fg-faint)">· '+c.size+'</span></div>').join('')+'</div>';
+  }catch(e){document.getElementById('cy').innerHTML='<div class="empty" style="padding:20px">Map error: '+e+'</div>';}}
+
+function buildLegend(){
+  var doms=['Motivation','Business','Data','Application','Technology','Realization'];
+  document.getElementById('lsLegend').innerHTML='<span style="font-size:12px;color:var(--fg-faint);margin-right:4px">Domains:</span>'
+    +doms.map(d=>'<span class="lfilter" style="cursor:default"><span class="dot" style="background:'+domColor(d)+'"></span>'+d+'</span>').join('');
+}
+function inspectNode(node){
+  var nb=node.closedNeighborhood();cy.elements().addClass('faded');nb.removeClass('faded');node.select();
+  var d=node.data();
+  var out=node.outgoers('edge').map(e=>({r:e.data('label'),t:e.target().data('label')}));
+  var inc=node.incomers('edge').map(e=>({r:e.data('label'),s:e.source().data('label')}));
+  var h='<h4>'+esc(d.label)+'</h4><div class="sub"><span class="layer-tag" style="background:'+domColor(d.domain)+'">'+d.domain+'</span> <span class="pill neutral">'+d.type+'</span>'+(d.community?' <span class="pill info">'+esc(d.community)+'</span>':'')+'</div>';
+  h+='<div class="ilist-label">Depends on / affects →</div><div class="ilist">'+(out.length?out.map(o=>'<div><span class="mono" style="color:var(--fg-faint);font-size:11px">'+o.r+'</span> '+esc(o.t)+'</div>').join(''):'<div class="empty">nothing outgoing</div>')+'</div>';
+  h+='<div class="ilist-label">← Depended on by</div><div class="ilist">'+(inc.length?inc.map(o=>'<div><span class="mono" style="color:var(--fg-faint);font-size:11px">'+o.r+'</span> '+esc(o.s)+'</div>').join(''):'<div class="empty">nothing incoming</div>')+'</div>';
+  h+='<div style="margin-top:12px"><button class="btn" onclick="go(\'wiki\');setTimeout(()=>openPage(\''+d.id+'\'),50)">Open wiki page →</button></div>';
+  document.getElementById('lsDetail').innerHTML=h;
+}
+async function openLandscape(slug){
+  var det=document.getElementById('lsDetail');det.innerHTML='<div class="empty">Loading…</div>';
+  try{var d=await jget('/api/landscape/'+encodeURIComponent(slug));det.innerHTML='<div class="page-body">'+mdToHtml(d.markdown)+'</div>';}
+  catch(e){det.innerHTML='<div class="empty">No landscape page.</div>';}}
 
 /* ================= COVERAGE ================= */
 var covLoaded=false;
