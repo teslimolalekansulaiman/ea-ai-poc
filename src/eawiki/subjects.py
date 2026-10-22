@@ -50,14 +50,26 @@ def _ssl_ctx():
         return ssl.create_default_context()
 
 
-def _openai_chat(prompt: str, url: str, key: str, model: str, timeout: int = 300) -> str:
+def _openai_env(model: Optional[str] = None):
+    """(url, key, model) for the OpenAI-compatible backend, from env."""
+    url = os.environ.get("VLM_PROXY_URL", "")
+    key = (os.environ.get("VLM_PROXY_KEY") or os.environ.get("VLM_API_KEY")
+           or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY") or "")
+    mdl = model or os.environ.get("VLM_MODEL") or "openai/gpt-4o-mini"
+    return url, key, mdl
+
+
+def _openai_chat(prompt: str, url: str, key: str, model: str, timeout: int = 300,
+                 response_format: Optional[dict] = None) -> str:
     """One OpenAI-compatible /chat/completions call (OpenRouter locally, Pulse in
-    prod — same wire format). Plain urllib, no SDK."""
+    prod — same wire format). Plain urllib, no SDK. `response_format` enables
+    structured outputs (json_object / json_schema)."""
     if not url:
         raise RuntimeError("openai backend: set VLM_PROXY_URL (the /chat/completions URL)")
-    body = json.dumps({"model": model,
-                       "messages": [{"role": "user", "content": prompt}]}).encode()
-    req = urllib.request.Request(url, data=body, method="POST")
+    payload = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+    if response_format:
+        payload["response_format"] = response_format
+    req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST")
     req.add_header("Content-Type", "application/json")
     if key:
         req.add_header("Authorization", f"Bearer {key}")
@@ -80,10 +92,7 @@ def llm_text(prompt: str, backend: str = "cli", model: Optional[str] = None) -> 
         return r.stdout.strip()
     if backend in ("openai", "openrouter", "pulse"):
         # OpenAI-compatible endpoint (OpenRouter now, Pulse in prod — base_url swap)
-        url = os.environ.get("VLM_PROXY_URL", "")
-        key = (os.environ.get("VLM_PROXY_KEY") or os.environ.get("VLM_API_KEY")
-               or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY") or "")
-        mdl = model or os.environ.get("VLM_MODEL") or "openai/gpt-4o-mini"
+        url, key, mdl = _openai_env(model)
         return _openai_chat(prompt, url, key, mdl)
     if backend == "sdk":
         from anthropic import Anthropic
@@ -93,6 +102,27 @@ def llm_text(prompt: str, backend: str = "cli", model: Optional[str] = None) -> 
             messages=[{"role": "user", "content": prompt}])
         return resp.content[0].text.strip()
     raise ValueError(f"unknown backend: {backend}")
+
+
+def llm_json(prompt: str, backend: str = "cli", model: Optional[str] = None,
+             schema: Optional[dict] = None):
+    """Return parsed JSON from the model. On OpenAI-compatible backends this uses
+    **structured outputs** — a json_schema when `schema` is given, else json_object
+    mode — so the reply is guaranteed valid JSON (no markdown fences / truncation to
+    reparse). Falls back to lenient text extraction on cli/sdk, or if the provider
+    rejects response_format. Returns None if nothing parseable comes back."""
+    if backend in ("openai", "openrouter", "pulse"):
+        url, key, mdl = _openai_env(model)
+        rf = ({"type": "json_schema", "json_schema": {"name": "extraction", "strict": True, "schema": schema}}
+              if schema else {"type": "json_object"})
+        try:
+            return json.loads(_openai_chat(prompt, url, key, mdl, response_format=rf))
+        except Exception:
+            try:    # provider may not support response_format -> plain call + lenient parse
+                return _extract_json(_openai_chat(prompt, url, key, mdl))
+            except Exception:
+                return None
+    return _extract_json(llm_text(prompt, backend, model))
 
 
 def _extract_json(text: str) -> Any:
@@ -157,7 +187,7 @@ Rules:
 - A theme needs a heading about it or repeated discussion across blocks.
 - If there are none, return []."""
     try:
-        data = _extract_json(llm_text(prompt, backend, model))
+        data = llm_json(prompt, backend, model)
         return data if isinstance(data, list) else []
     except Exception as e:
         print(f"  ! discovery failed for a doc ({type(e).__name__}: {str(e)[:120]}) — skipping its prose subjects")

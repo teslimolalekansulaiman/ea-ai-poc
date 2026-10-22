@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from eawiki.blocks import Block, load_blocks
-from eawiki.subjects import llm_text, _extract_json, _norm
+from eawiki.subjects import llm_text, _extract_json, _norm, llm_json
 from eawiki.tables import _vocab, _validate_llm_facts, _SECURITY_RULE
 
 
@@ -102,7 +102,7 @@ Rules:
 - Do not invent facts not in the blocks; ignore scaffolding (Purpose/Overview headings).
 {_SECURITY_RULE}"""
 
-    out = _extract_json(llm_text(prompt, backend, model))
+    out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):
         raise ValueError("page extractor did not return a JSON object")
     out.setdefault("page_markdown", "")

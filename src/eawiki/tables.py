@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 from eawiki.blocks import Block, content_hash, load_blocks
-from eawiki.subjects import llm_text, _extract_json  # shared pluggable LLM backend (cli/sdk)
+from eawiki.subjects import llm_text, _extract_json, llm_json  # shared pluggable LLM backend
 
 # Default model for the interpreter. Override with --model (cli uses the
 # session default when None). Vocabulary comes entirely from the --menu schema.
@@ -145,7 +145,7 @@ Rules:
 {_SECURITY_RULE}
 - key_value / process / other tables have no subjects: return just table_kind and notes."""
 
-    plan = _extract_json(llm_text(prompt, backend, model))
+    plan = llm_json(prompt, backend, model)
     if not isinstance(plan, dict):
         raise ValueError("interpreter did not return a JSON object")
     plan["source"] = f"llm-{backend}"
@@ -366,7 +366,7 @@ Rules:
 - Use the subject's node type for `source_type`; never invent names not present in the cells.
 {_SECURITY_RULE}"""
 
-    out = _extract_json(llm_text(prompt, backend, model))
+    out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):
         raise ValueError("full-read did not return a JSON object")
     out.setdefault("subjects", [])

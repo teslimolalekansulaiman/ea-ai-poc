@@ -19,6 +19,8 @@ fallback has been **removed** — the LLM is the path.
 - ✅ **Steps 7–9 — Community / landscape layer** (`community.py` Louvain + domain tag → 17 communities; `summaries.py` grounded summaries; `landscape.py` → 9 landscape pages; projected to ArcadeDB `Community`/`IN_COMMUNITY`)
 - ⬜ **Step 3c — Recall** (optional, can fold in later) · ⬜ Wire **Pulse** (OpenAI-compatible: base_url swap) to replace `claude -p` + hash placeholders
 - ⚡ All three LLM steps (`pages`/`figures`/`tables`) now take `--workers N` (default 6) for concurrent `claude -p` calls.
+- 🧩 **Structured outputs:** every extraction step parses JSON via `subjects.llm_json` — on OpenAI-compatible backends it uses response_format (json_schema / json_object), guaranteed-valid JSON (no regex scraping), with a lenient fallback on `claude -p`.
+- 🧪 **Evaluation harness (`eval/`):** `eval/gold.json` (hand-labelled seed over 2 docs) + `eval/score.py` → precision/recall/F1 for entities + relations vs `graph.json` (alias-aware). Current: entity recall 1.00, relation recall 1.00 (0.82 exact-predicate); precision is a lower bound until the gold set is extended.
 
 ## Governing principle
 The **wiki is the main product.** Each page is a full LLM reading/synthesis of the source
@@ -262,11 +264,14 @@ by-kind), `GET /api/graph?name=` (one-hop subgraph), `GET /api/kb?q=` (vector se
 Pages come from files; ask/graph/kb use the query layer over ArcadeDB. Backend via
 `EAWIKI_API_BACKEND` (openrouter/pulse). Run: `uvicorn eawiki.api.app:app`.
 
-**UI (`web/index.html`):** the locked 5-view "Architecture Atlas" design (Ask / Wiki /
-Landscape / Coverage / Knowledge Base), wired to the API with live `fetch` calls — real
-answers with clickable citations, real wiki pages + relationship rail, community landscape
-pages, coverage stats, semantic KB search. Single-file, served by the API from `web/`, so
-it's **one Cloud Run service**; a React build can replace it later on the same API.
+**UI (`ui/` — React + Vite):** the 5-view "Architecture Atlas" (Ask / Wiki / Map / Coverage /
+Knowledge Base) as a React SPA — a route + component per view (react-router), shared `api.js`,
+citation modal, markdown renderer. The **Map** uses **React Flow + dagre** (boxed
+domain-coloured nodes, labelled edges, minimap/zoom; one community at a time + its 1-hop
+neighbours). `npm run build` → `ui/dist`, which **FastAPI serves** (falls back to the earlier
+single-file `web/index.html`) — still **one Cloud Run service** (a multi-stage Dockerfile does
+`npm build` then copies `dist` into the Python image). Dev: `npm --prefix ui run dev` (proxies
+`/api`). All model calls still route through the pluggable backend (OpenRouter/Pulse).
 
 **Guardrails (`guardrails.py`, defense-in-depth, mostly deterministic so they run without
 Pulse):**

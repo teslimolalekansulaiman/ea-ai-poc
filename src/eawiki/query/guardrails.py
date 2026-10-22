@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-from eawiki.subjects import _extract_json, llm_text
+from eawiki.subjects import _extract_json, llm_text, llm_json
 
 MAX_QUESTION_CHARS = 2000
 REFUSAL = ("I can't help with that request. I answer questions about the enterprise "
@@ -86,7 +86,7 @@ USER MESSAGE:
 >>>
 
 Return: {{"category": "<one>", "safe": true|false, "reason": "<short>"}}"""
-    out = _extract_json(llm_text(prompt, backend, model))
+    out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):
         return {"safe": True, "category": "safe", "reason": "classifier returned no JSON (fail-open)"}
     cat = out.get("category", "safe")
@@ -140,7 +140,7 @@ ANSWER:
 {answer}
 
 Return: {{"supported": true|false, "reason": "<short>"}}"""
-    out = _extract_json(llm_text(prompt, backend, model))
+    out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):
         return {"supported": True, "reason": "check returned no JSON (fail-open)"}
     return {"supported": bool(out.get("supported", True)), "reason": out.get("reason", "")}

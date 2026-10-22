@@ -26,7 +26,7 @@ from typing import Optional
 
 from eawiki import dedupe
 from eawiki.dedupe import normalize
-from eawiki.subjects import llm_text, _extract_json
+from eawiki.subjects import llm_text, _extract_json, llm_json
 from eawiki.tables import _validate_llm_facts
 
 
@@ -75,7 +75,7 @@ def make_adjudicator(edges: list[dict], backend: str, model: Optional[str]):
     def adjudicate(ca: dict, cb: dict) -> bool:
         a_desc = dedupe._describe(ca, edges_by_key, None)
         b_desc = dedupe._describe(cb, edges_by_key, None)
-        out = _extract_json(llm_text(dedupe.adjudication_prompt(a_desc, b_desc), backend, model))
+        out = llm_json(dedupe.adjudication_prompt(a_desc, b_desc), backend, model)
         return bool(isinstance(out, dict) and out.get("same") is True)
 
     return adjudicate

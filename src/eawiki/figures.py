@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from eawiki.blocks import Block, load_blocks
-from eawiki.subjects import llm_text, _extract_json, _norm
+from eawiki.subjects import llm_text, _extract_json, _norm, llm_json
 from eawiki.tables import _vocab, _validate_llm_facts, _SECURITY_RULE
 
 
@@ -76,7 +76,7 @@ Rules:
 - Every node and edge needs an `evidence` note describing what you saw in the image.
 {_SECURITY_RULE}"""
 
-    out = _extract_json(llm_text(prompt, backend, model))
+    out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):
         raise ValueError("vision extractor did not return a JSON object")
     out.setdefault("nodes", [])
