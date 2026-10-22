@@ -21,11 +21,14 @@ from eawiki.query import graph as g
 
 def ask(question: str, k: int = 8, backend: str = "cli", model=None,
         kinds=None, use_llm: bool = True, safety_llm: bool = True,
-        max_distance: float = 0.95, check_faithfulness: bool = False) -> dict:
+        max_distance: float = 0.95, check_faithfulness: bool = False,
+        history=None) -> dict:
     """Answer a question through the LangGraph guarded pipeline. Returns a structured
-    result with a `status`: refused | abstained | retrieved | answered | blocked_output."""
+    result with a `status`: refused | abstained | retrieved | answered | blocked_output.
+    `history` carries prior [{role, content}] turns so follow-ups resolve in context."""
     return g.run(question, backend=backend, model=model, k=k, kinds=kinds,
-                 use_llm=use_llm, safety=safety_llm, max_distance=max_distance)
+                 use_llm=use_llm, safety=safety_llm, max_distance=max_distance,
+                 history=history)
 
 
 def main() -> None:

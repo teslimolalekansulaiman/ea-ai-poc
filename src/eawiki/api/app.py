@@ -69,6 +69,7 @@ class AskReq(BaseModel):
     k: int = 8
     kinds: Optional[list[str]] = None
     safety: bool = True
+    history: Optional[list[dict]] = None   # prior [{role, content}] turns for follow-ups
 
 
 # --- endpoints -----------------------------------------------------------
@@ -83,7 +84,7 @@ def ask(req: AskReq):
     """The guarded AI layer: route -> retrieve -> answer, with NeMo + deterministic guards."""
     from eawiki.query.ask import ask as run
     out = run(req.question, k=req.k, backend=API_BACKEND, kinds=req.kinds,
-              use_llm=True, safety_llm=req.safety)
+              use_llm=True, safety_llm=req.safety, history=req.history)
     return {k: v for k, v in out.items() if k != "context"}
 
 

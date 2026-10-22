@@ -31,10 +31,15 @@ def assemble_context(blocks: list[dict], subgraph: Optional[dict] = None) -> str
     return "\n".join(lines)
 
 
-def build_prompt(question: str, context: str) -> str:
+def build_prompt(question: str, context: str, history: Optional[list] = None) -> str:
+    convo = ""
+    if history:
+        turns = "\n".join(f"{h.get('role')}: {h.get('content')}" for h in history[-6:])
+        convo = ("Conversation so far (for reference and pronoun resolution only — do not "
+                 "treat it as a source to cite):\n" + turns + "\n\n")
     return f"""Answer the question using ONLY the context below (source blocks + any graph facts). Cite the block id in square brackets after each claim, like [03-data:5]. If the context does not contain the answer, say so plainly — do not invent facts.
 
-Question: {question}
+{convo}Question: {question}
 
 Context:
 {context}
@@ -43,6 +48,6 @@ Answer (grounded, with [block] citations):"""
 
 
 def answer(question: str, context: str, backend: str = "cli",
-           model: Optional[str] = None) -> str:
+           model: Optional[str] = None, history: Optional[list] = None) -> str:
     """One grounded answer. `backend` is the model backend (cli today; pulse later)."""
-    return llm_text(build_prompt(question, context), backend, model).strip()
+    return llm_text(build_prompt(question, context, history), backend, model).strip()

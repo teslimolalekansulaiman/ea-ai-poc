@@ -27,11 +27,28 @@ from eawiki.query import guardrails as det
 from eawiki.query import route as rt
 from eawiki.query.retrieve import Retriever
 from eawiki.query.safety import NeMoGuard
+from eawiki.subjects import llm_text
+
+
+def _condense(question: str, history: list, backend: str, model: Optional[str]) -> str:
+    """Rewrite a follow-up into a standalone question using the recent turns, so the
+    router and vector search (which only see text) can resolve pronouns/references."""
+    convo = "\n".join(f"{h.get('role')}: {h.get('content')}" for h in history[-6:])
+    prompt = (
+        "Given the conversation and a follow-up question, rewrite the follow-up as a "
+        "STANDALONE question understandable without the conversation: resolve pronouns and "
+        "vague references to the explicit names from the conversation. If it is already "
+        "standalone, return it unchanged. Output ONLY the question, nothing else.\n\n"
+        f"Conversation:\n{convo}\n\nFollow-up: {question}\n\nStandalone question:"
+    )
+    out = llm_text(prompt, backend, model).strip()
+    return (out.splitlines()[0].strip().strip('"') if out else "") or question
 
 
 class QAState(TypedDict, total=False):
     # inputs
     question: str
+    history: list            # prior turns [{role, content}] for follow-ups
     backend: str
     model: Optional[str]
     kinds: Optional[list]
@@ -40,6 +57,7 @@ class QAState(TypedDict, total=False):
     safety: bool
     use_llm: bool
     # working / outputs
+    search_question: str     # standalone rewrite used for routing + retrieval
     status: str
     input_guard: dict
     route: dict
@@ -76,13 +94,24 @@ def n_input_guard(s: QAState) -> dict:
     return {"input_guard": res}
 
 
+def n_condense(s: QAState) -> dict:
+    hist = s.get("history") or []
+    if hist and s.get("use_llm", True):
+        try:
+            return {"search_question": _condense(
+                s["question"], hist, s.get("backend", "cli"), s.get("model"))}
+        except Exception:
+            pass
+    return {"search_question": s["question"]}
+
+
 def n_route(s: QAState) -> dict:
-    return {"route": rt.route(s["question"])}
+    return {"route": rt.route(s.get("search_question") or s["question"])}
 
 
 def n_retrieve(s: QAState) -> dict:
     r = _retriever()
-    q = s["question"]
+    q = s.get("search_question") or s["question"]
     blocks = r.vector_search(q, k=s.get("k", 8), kinds=s.get("kinds"))
     subgraph = None
     if s["route"]["strategy"] in ("graph", "browse"):
@@ -118,7 +147,8 @@ def n_relevance(s: QAState) -> dict:
 def n_answer(s: QAState) -> dict:
     if not s.get("use_llm", True):
         return {"status": "retrieved"}
-    text = ans.answer(s["question"], s["context"], s.get("backend", "cli"), s.get("model"))
+    text = ans.answer(s["question"], s["context"], s.get("backend", "cli"),
+                      s.get("model"), history=s.get("history"))
     return {"answer": text}
 
 
@@ -150,6 +180,7 @@ def _after_relevance(s: QAState) -> str:
 def build_app():
     g = StateGraph(QAState)
     g.add_node("input_guard", n_input_guard)
+    g.add_node("condense", n_condense)
     g.add_node("route", n_route)
     g.add_node("retrieve", n_retrieve)
     g.add_node("relevance", n_relevance)
@@ -157,7 +188,8 @@ def build_app():
     g.add_node("output_guard", n_output_guard)
 
     g.add_edge(START, "input_guard")
-    g.add_conditional_edges("input_guard", _after_input, {"refused": END, "ok": "route"})
+    g.add_conditional_edges("input_guard", _after_input, {"refused": END, "ok": "condense"})
+    g.add_edge("condense", "route")
     g.add_edge("route", "retrieve")
     g.add_edge("retrieve", "relevance")
     g.add_conditional_edges("relevance", _after_relevance, {"abstained": END, "ok": "answer"})
@@ -168,8 +200,9 @@ def build_app():
 
 def run(question: str, backend: str = "cli", model=None, k: int = 8,
         kinds=None, use_llm: bool = True, safety: bool = True,
-        max_distance: float = 0.95) -> dict:
-    state: QAState = {"question": question, "backend": backend, "model": model,
+        max_distance: float = 0.95, history=None) -> dict:
+    state: QAState = {"question": question, "history": history or [],
+                      "backend": backend, "model": model,
                       "k": k, "kinds": kinds, "use_llm": use_llm, "safety": safety,
                       "max_distance": max_distance}
     out = dict(build_app().invoke(state))

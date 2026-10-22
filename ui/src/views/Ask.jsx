@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { Markdown } from '../cite'
 import UseCaseResult from '../components/UseCaseResult'
@@ -14,10 +14,11 @@ const PILL = { answered: 'ok', refused: 'crit', abstained: 'warn', blocked_outpu
 
 export default function Ask() {
   const [mode, setMode] = useState('ask')              // 'ask' | 'usecase'
-  // --- ask mode ---
-  const [q, setQ] = useState('What would be impacted if we retired Oracle as a vendor?')
-  const [res, setRes] = useState(null)
+  // --- ask (conversational) mode ---
+  const [q, setQ] = useState('')
+  const [msgs, setMsgs] = useState([])                 // [{role:'user'|'bot', content, meta}]
   const [loading, setLoading] = useState(false)
+  const endRef = useRef(null)
   // --- use-case mode ---
   const [list, setList] = useState([])
   const [ucId, setUcId] = useState('')
@@ -32,11 +33,34 @@ export default function Ask() {
     setList(en); if (en.length && !ucId) setUcId(en[0].id)
   }).catch(() => {}) }, [])
   useEffect(() => { if (ucId) api.usecase(ucId).then(setSpec).catch(() => setSpec(null)); else setSpec(null) }, [ucId])
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [msgs, loading])
 
-  async function run() {
-    setLoading(true); setRes(null)
-    try { setRes(await api.ask(q)) } catch (e) { setRes({ status: 'error', answer: 'Request failed: ' + e }) }
+  async function send() {
+    const text = q.trim()
+    if (!text || loading) return
+    // history = completed prior turns, mapped to {role, content}
+    const history = msgs.filter(m => m.role !== 'bot' || m.content).map(m => ({
+      role: m.role === 'user' ? 'user' : 'assistant',
+      content: m.role === 'user' ? m.content : (m.meta?.answer ?? m.content),
+    }))
+    setMsgs(m => [...m, { role: 'user', content: text }])
+    setQ(''); setLoading(true)
+    try {
+      const res = await api.ask(text, history)
+      setMsgs(m => [...m, { role: 'bot', content: res.answer, meta: { ...res, answer: res.answer } }])
+    } catch (e) {
+      setMsgs(m => [...m, { role: 'bot', content: 'Request failed: ' + e, meta: { status: 'error' } }])
+    }
     setLoading(false)
+  }
+
+  function onKey(e) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }
+
+  function onUcFile(e) {
+    const f = e.target.files?.[0]; if (!f) return
+    const r = new FileReader()
+    r.onload = () => setDemand(String(r.result || '').trim())
+    r.readAsText(f)
   }
 
   async function submitUsecase() {
@@ -56,9 +80,35 @@ export default function Ask() {
         <div className="eyebrow">Ask &amp; assess</div>
         <h1>{mode === 'ask' ? 'What do you want to know?' : 'Submit a demand'}</h1>
         <p>{mode === 'ask'
-          ? 'Ask in plain language. Answers are grounded in the ingested documents, with citations you can click.'
+          ? 'Ask in plain language, then follow up — the conversation keeps context. Answers are grounded in the ingested documents, with citations you can click.'
           : 'Submit a request against a use case. We answer what the knowledge base knows and list exactly what to provide for the rest.'}</p>
-      </div></div>
+      </div>{mode === 'ask' && msgs.length > 0 &&
+        <button className="btn" onClick={() => setMsgs([])}>New chat</button>}
+      </div>
+
+      {/* Ask-mode thread */}
+      {mode === 'ask' && msgs.length > 0 && (
+        <div className="thread">
+          {msgs.map((m, i) => (
+            <div key={i} className={'turn ' + (m.role === 'user' ? 'user' : 'bot')}>
+              <div className="bubble">
+                {m.role === 'bot' && m.meta && (
+                  <div className="answer-meta">
+                    <span className={'pill ' + (PILL[m.meta.status] || 'neutral')}>{m.meta.status}</span>
+                    {m.meta.route && <span className="route">via <b>{m.meta.route.strategy}</b></span>}
+                    {m.meta.citation_check && <span className="route">grounded <b>{String(m.meta.citation_check.grounded)}</b></span>}
+                  </div>
+                )}
+                {m.role === 'bot' && m.meta?.search_question && m.meta.search_question !== msgs[i - 1]?.content &&
+                  <div className="rewrite">interpreted as: “{m.meta.search_question}”</div>}
+                {m.role === 'bot' ? <Markdown md={m.content} /> : m.content}
+              </div>
+            </div>
+          ))}
+          {loading && <div className="turn bot pending"><div className="bubble">Thinking…</div></div>}
+          <div ref={endRef} />
+        </div>
+      )}
 
       <div className="card composer">
         <div className="modes" role="group" aria-label="Mode">
@@ -68,15 +118,16 @@ export default function Ask() {
 
         {mode === 'ask' ? (
           <>
-            <textarea className="ta" value={q} onChange={(e) => setQ(e.target.value)} />
+            <textarea className="ta" value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
+              placeholder={msgs.length ? 'Ask a follow-up…' : 'Ask about the architecture…'} />
             <div className="composer-row">
-              <button className="btn primary push" onClick={run} disabled={loading}>
-                {loading ? 'Thinking…' : 'Run'}
+              <button className="btn primary push" onClick={send} disabled={loading}>
+                {loading ? 'Thinking…' : (msgs.length ? 'Send' : 'Ask')}
               </button>
             </div>
-            <div className="chips">{EXAMPLES.map(([l, ex]) => (
+            {msgs.length === 0 && <div className="chips">{EXAMPLES.map(([l, ex]) => (
               <button key={l} className="chip" onClick={() => setQ(ex)}>{l}</button>
-            ))}</div>
+            ))}</div>}
           </>
         ) : (
           <>
@@ -92,6 +143,7 @@ export default function Ask() {
             <textarea className="ta" value={demand} onChange={e => setDemand(e.target.value)}
               placeholder={spec?.input?.placeholder || 'Describe the demand or change request in plain language…'} />
             <div className="composer-row">
+              <label className="attach">Upload file<input type="file" accept=".txt,.md,.csv" hidden onChange={onUcFile} /></label>
               <button className="btn primary push" onClick={submitUsecase} disabled={ucLoading}>
                 {ucLoading ? 'Assessing…' : 'Submit'}
               </button>
@@ -99,19 +151,6 @@ export default function Ask() {
           </>
         )}
       </div>
-
-      {mode === 'ask' && res && (
-        <div className="answer">
-          <div className="answer-meta">
-            <span className={'pill ' + (PILL[res.status] || 'neutral')}>{res.status}</span>
-            {res.route && <span className="route">routed via <b>{res.route.strategy}</b></span>}
-            {res.citation_check && <span className="route">grounded <b>{String(res.citation_check.grounded)}</b></span>}
-            {res.input_guard?.category && res.input_guard.category !== 'ok' &&
-              <span className="pill crit">{res.input_guard.category}</span>}
-          </div>
-          <div className="card answer-body"><Markdown md={res.answer} /></div>
-        </div>
-      )}
 
       {mode === 'usecase' && ucErr && <div className="card" style={{ padding: 12, color: 'var(--crit)', marginTop: 14 }}>{ucErr}</div>}
       {mode === 'usecase' && ucRes && <UseCaseResult res={ucRes} />}
