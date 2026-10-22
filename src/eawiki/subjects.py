@@ -73,12 +73,16 @@ def _openai_chat(prompt: str, url: str, key: str, model: str, timeout: int = 300
     req.add_header("Content-Type", "application/json")
     if key:
         req.add_header("Authorization", f"Bearer {key}")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as r:
-            data = json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        raise RuntimeError(f"openai chat HTTP {e.code}: {e.read().decode()[:200]}") from None
-    return (data["choices"][0]["message"]["content"] or "").strip()
+    from eawiki import obs
+    with obs.llm_span("llm.openai", prompt, model) as set_out:
+        try:
+            with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as r:
+                data = json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise RuntimeError(f"openai chat HTTP {e.code}: {e.read().decode()[:200]}") from None
+        content = (data["choices"][0]["message"]["content"] or "").strip()
+        set_out(content)
+        return content
 
 
 def llm_text(prompt: str, backend: str = "cli", model: Optional[str] = None) -> str:
@@ -86,10 +90,13 @@ def llm_text(prompt: str, backend: str = "cli", model: Optional[str] = None) -> 
         cmd = ["claude", "-p"]
         if model:
             cmd += ["--model", model]
-        r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=300)
-        if r.returncode != 0:
-            raise RuntimeError(f"claude CLI failed: {r.stderr.strip()[:200]}")
-        return r.stdout.strip()
+        from eawiki import obs
+        with obs.llm_span("llm.claude-cli", prompt, model or "claude -p") as set_out:
+            r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, timeout=300)
+            if r.returncode != 0:
+                raise RuntimeError(f"claude CLI failed: {r.stderr.strip()[:200]}")
+            set_out(r.stdout.strip())
+            return r.stdout.strip()
     if backend in ("openai", "openrouter", "pulse"):
         # OpenAI-compatible endpoint (OpenRouter now, Pulse in prod — base_url swap)
         url, key, mdl = _openai_env(model)

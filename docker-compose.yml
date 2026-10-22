@@ -36,7 +36,23 @@ services:
       retries: 5
       start_period: 20s
 
+  # Arize Phoenix — OpenTelemetry/OpenInference trace viewer for the LLM pipeline.
+  # UI at http://localhost:6006 ; the app exports spans here (OTLP).
+  phoenix:
+    # pin an explicit tag for the dev VM / prod (https://hub.docker.com/r/arizephoenix/phoenix/tags)
+    image: arizephoenix/phoenix:latest
+    container_name: eawiki-phoenix
+    restart: unless-stopped
+    ports:
+      - "6006:6006"   # web UI + OTLP HTTP collector (/v1/traces)
+      - "4317:4317"   # OTLP gRPC collector
+    environment:
+      - PHOENIX_WORKING_DIR=/mnt/data
+    volumes:
+      - phoenix_data:/mnt/data
+
 volumes:
   arcadedb_databases:
   arcadedb_config:
   arcadedb_backups:
+  phoenix_data:

@@ -24,11 +24,13 @@ from __future__ import annotations
 
 import functools
 import json
+import operator
 import re
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Optional, TypedDict
+from typing import Annotated, Any, Optional, TypedDict
 
 import numpy as np
 from langgraph.graph import END, START, StateGraph
@@ -134,7 +136,13 @@ class UCState(TypedDict, total=False):
     ctx: dict                    # id -> retrieval context (cache, rebuilt per stage)
     results: dict                # id -> {stage_id: {cells:[...]}}
     needs: list[dict]            # consolidated {id, column, status, needs}
+    t0: float                    # run start (monotonic)
+    trace: Annotated[list, operator.add]   # per-node run log (instrumentation)
     _final: dict                 # assembled output (declared so LangGraph keeps it)
+
+
+def _ms(s: "UCState") -> int:
+    return int((time.monotonic() - s.get("t0", time.monotonic())) * 1000)
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +170,8 @@ def n_load(s: UCState) -> dict:
     for i, it in enumerate(items):
         it.setdefault("_id", _item_id(it, i))
     return {"items": items, "stage_idx": 0, "valid": [], "rejected": [],
-            "results": {}, "needs": [], "ctx": {}}
+            "results": {}, "needs": [], "ctx": {}, "t0": time.monotonic(),
+            "trace": [{"node": "load", "ms": 0, "note": f"{len(items)} item(s) loaded"}]}
 
 
 def n_input_guard(s: UCState) -> dict:
@@ -181,14 +190,16 @@ def n_input_guard(s: UCState) -> dict:
         else:
             rejected.append({"id": it["_id"], "stage": "guard",
                              "reason": f"blocked ({v.get('category','unsafe')}): {v.get('reason','')}"})
-    return {"valid": passed, "rejected": rejected}
+    note = f"{len(passed)} passed, {len(s['items']) - len(passed)} blocked" + (" (NeMo)" if guard else " (deterministic)")
+    return {"valid": passed, "rejected": rejected,
+            "trace": [{"node": "input_guard", "ms": _ms(s), "note": note}]}
 
 
 def n_validate(s: UCState) -> dict:
     """BUSINESS gate: LLM answers the use case's intake questions per item."""
     val = (s["spec"].get("validation") or {})
     if not val.get("enabled") or not val.get("questions"):
-        return {}                                   # no gate configured
+        return {"trace": [{"node": "validate", "ms": _ms(s), "note": "no gate configured"}]}
     qs = "\n".join(f"  {i+1}. {q}" for i, q in enumerate(val["questions"]))
     valid, rejected = [], list(s.get("rejected", []))
     by_id = {it["_id"]: it for it in s["items"]}
@@ -210,7 +221,9 @@ def n_validate(s: UCState) -> dict:
                 rejected.append({"id": iid, "stage": "validation",
                                  "reason": val.get("fail_message", "Did not pass validation."),
                                  "failed": out.get("failed", [])})
-    return {"valid": valid, "rejected": rejected}
+    return {"valid": valid, "rejected": rejected,
+            "trace": [{"node": "validate", "ms": _ms(s),
+                       "note": f"{len(valid)} valid, {len(only_valid) - len(valid)} rejected"}]}
 
 
 def n_dedupe(s: UCState) -> dict:
@@ -247,7 +260,9 @@ def n_dedupe(s: UCState) -> dict:
         hits = r.vector_search(_item_text(s["spec"], by_id[i]), k=1)
         if hits and (hits[0].get("distance") is not None) and hits[0]["distance"] < 0.5:
             dup[i]["artefact"] = hits[0]["block_id"]
-    return {"dup_map": dup}
+    ngroups = len({d["group"] for d in dup.values()})
+    return {"dup_map": dup, "trace": [{"node": "dedupe", "ms": _ms(s),
+            "note": f"{len(ids)} demands → {ngroups} group(s)"}]}
 
 
 def n_retrieve(s: UCState) -> dict:
@@ -278,7 +293,9 @@ def n_retrieve(s: UCState) -> dict:
                     page = (page + "\n\n### " + ents[0]["node_id"] + "\n" + ep[:3500]).strip()
         ctx[i] = {"blocks": blocks, "subgraph": sub, "page": page,
                   "block_ids": block_ids, "full": full}
-    return {"ctx": ctx}
+    stname = s["spec"]["stages"][s["stage_idx"]]["name"]
+    return {"ctx": ctx, "trace": [{"node": "retrieve", "ms": _ms(s),
+            "note": f"stage '{stname}': {'full-wiki' if full else 'retrieval'} context for {len(ctx)} item(s)"}]}
 
 
 def _schema_hint(cols: list[dict]) -> str:
@@ -341,7 +358,8 @@ def n_generate(s: UCState) -> dict:
     with ThreadPoolExecutor(max_workers=6) as ex:
         for iid, cells in ex.map(do, s.get("valid", [])):
             results.setdefault(iid, {})[stage["id"]] = {"cells": cells}
-    return {"results": results}
+    return {"results": results, "trace": [{"node": "generate", "ms": _ms(s),
+            "note": f"stage '{stage['name']}': {len(s.get('valid', []))} item(s) × {len(cols)} columns"}]}
 
 
 def n_output_guard(s: UCState) -> dict:
@@ -361,7 +379,9 @@ def n_output_guard(s: UCState) -> dict:
             if cell.get("status") in ("needs_source", "needs_input"):
                 needs.append({"id": iid, "stage": stage["id"], "column": cell.get("column"),
                               "status": cell.get("status"), "needs": cell.get("needs", "")})
-    return {"results": results, "needs": needs}
+    new_needs = sum(1 for n in needs) - len(s.get("needs", []))
+    return {"results": results, "needs": needs, "trace": [{"node": "output_guard", "ms": _ms(s),
+            "note": f"stage '{stage['name']}': {new_needs} cell(s) need input/source"}]}
 
 
 def n_assemble(s: UCState) -> dict:
@@ -379,6 +399,7 @@ def n_assemble(s: UCState) -> dict:
         "rejected": s.get("rejected", []),
         "dup_map": s.get("dup_map", {}),
         "provide": provide,
+        "trace": s.get("trace", []),
     }}
 
 

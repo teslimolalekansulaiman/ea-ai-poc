@@ -22,6 +22,11 @@ langgraph>=0.2
 langchain-core>=0.3
 nemoguardrails>=0.24
 
+# Observability: OpenTelemetry / OpenInference traces -> Arize Phoenix (docker-compose).
+# Optional — the pipeline no-ops if absent or EAWIKI_TRACING=off.
+arize-phoenix-otel>=0.6
+openinference-instrumentation-langchain>=0.1
+
 # Serving: HTTP API (feeds the 5-view UI; serves the static frontend from the same app)
 fastapi>=0.159
 uvicorn[standard]>=0.54

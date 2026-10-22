@@ -32,6 +32,13 @@ API_BACKEND = os.environ.get("EAWIKI_API_BACKEND", "openrouter")
 
 app = FastAPI(title="EA GraphRAG Wiki API", version="1.0")
 
+# OpenTelemetry/OpenInference tracing -> Phoenix (no-op if Phoenix/libs absent).
+try:
+    from eawiki import obs
+    obs.init_tracing()
+except Exception:
+    pass
+
 
 # --- helpers -------------------------------------------------------------
 def _title(md: str, fallback: str) -> str:
@@ -270,8 +277,10 @@ def usecase_run(uc_id: str, body: RunBody):
     spec = uc.get(uc_id)
     if not spec:
         raise HTTPException(404, f"no use case '{uc_id}'")
-    return executor.run(spec, body.items, backend=API_BACKEND, safety_llm=body.safety,
-                        k=body.k, context_mode=body.context_mode)
+    from eawiki import obs
+    with obs.span(f"usecase:{uc_id}", kind="CHAIN", items=len(body.items)):
+        return executor.run(spec, body.items, backend=API_BACKEND, safety_llm=body.safety,
+                            k=body.k, context_mode=body.context_mode)
 
 
 # --- static frontend (mounted last so /api/* wins) -----------------------
