@@ -23,6 +23,7 @@ is config; this engine interprets it.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any, Optional, TypedDict
 
 import numpy as np
@@ -33,6 +34,16 @@ from eawiki.query.retrieve import Retriever
 from eawiki.subjects import llm_json
 
 DUP_THRESHOLD = 0.80   # cosine similarity between demands to call them duplicates
+PAGES = Path("data/pages")
+
+
+def _wiki_page(node_id: str) -> str:
+    """The synthesized Step-3a wiki page for an entity, if one exists (the 'LLM wiki')."""
+    for slug in (node_id, "landscape-" + node_id):
+        p = PAGES / f"{slug}.md"
+        if p.exists():
+            return p.read_text(encoding="utf-8")
+    return ""
 
 
 class UCState(TypedDict, total=False):
@@ -173,11 +184,12 @@ def n_retrieve(s: UCState) -> dict:
     for i in s.get("valid", []):
         text = _item_text(s["spec"], by_id[i])
         blocks = r.vector_search(text, k=s.get("k", 8))
-        sub = None
+        sub, page = None, ""
         ents = r.entities_in_question(text)
         if ents:
             sub = r.subgraph(ents[0]["node_id"])
-        ctx[i] = {"blocks": blocks, "subgraph": sub,
+            page = _wiki_page(ents[0]["node_id"])     # the synthesized wiki page
+        ctx[i] = {"blocks": blocks, "subgraph": sub, "page": page,
                   "block_ids": [b["block_id"] for b in blocks]}
     return {"ctx": ctx}
 
@@ -198,6 +210,10 @@ def n_generate(s: UCState) -> dict:
 
     def render_ctx(c):
         lines = []
+        if c.get("page"):
+            lines.append("WIKI PAGE (synthesized summary — cite the block ids it references, not the page):")
+            lines.append(c["page"][:1800])
+            lines.append("")
         sg = c.get("subgraph")
         if sg and (sg.get("out") or sg.get("in")):
             lines.append("GRAPH FACTS:")
