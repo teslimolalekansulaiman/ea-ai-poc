@@ -12,3 +12,7 @@ data/
 
 # Secrets
 .env
+
+# Node / React build
+ui/node_modules/
+ui/dist/

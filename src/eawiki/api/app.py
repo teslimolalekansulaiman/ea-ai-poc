@@ -25,7 +25,9 @@ from pydantic import BaseModel
 
 PAGES = Path(os.environ.get("EAWIKI_PAGES", "data/pages"))
 GRAPH = Path(os.environ.get("EAWIKI_GRAPH", "data/graph"))
-WEB = Path(os.environ.get("EAWIKI_WEB", "web"))
+# Prefer the built React app (ui/dist); fall back to the single-file UI (web/).
+_web_env = os.environ.get("EAWIKI_WEB")
+WEB = Path(_web_env) if _web_env else (Path("ui/dist") if Path("ui/dist").exists() else Path("web"))
 API_BACKEND = os.environ.get("EAWIKI_API_BACKEND", "openrouter")
 
 app = FastAPI(title="EA GraphRAG Wiki API", version="1.0")
