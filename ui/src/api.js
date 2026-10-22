@@ -32,4 +32,12 @@ export const api = {
     { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec) }),
   deleteUsecase: (id) => J('/api/usecases/' + encodeURIComponent(id), { method: 'DELETE' }),
   runUsecase: (id, body) => post('/api/usecases/' + encodeURIComponent(id) + '/run', body),
+
+  metamodel: () => J('/api/metamodel'),
+  mmNode: (key, obj) => J('/api/metamodel/node/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) }),
+  mmNodeDel: (key) => J('/api/metamodel/node/' + encodeURIComponent(key), { method: 'DELETE' }),
+  mmEdge: (key, obj) => J('/api/metamodel/edge/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) }),
+  mmEdgeDel: (key) => J('/api/metamodel/edge/' + encodeURIComponent(key), { method: 'DELETE' }),
+  reingestRun: () => post('/api/reingest', {}),
+  reingestStatus: () => J('/api/reingest/status'),
 }

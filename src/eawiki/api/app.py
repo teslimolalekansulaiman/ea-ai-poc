@@ -283,6 +283,58 @@ def usecase_run(uc_id: str, body: RunBody):
                             k=body.k, context_mode=body.context_mode)
 
 
+# --- metamodel (node & edge types) registry ------------------------------
+@app.get("/api/metamodel")
+def metamodel_get():
+    from eawiki import metamodel as mm
+    return mm.view()
+
+
+@app.put("/api/metamodel/node/{key}")
+def metamodel_node_put(key: str, obj: dict):
+    from eawiki import metamodel as mm
+    try:
+        mm.upsert_node(key, obj); return mm.view()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/metamodel/node/{key}")
+def metamodel_node_del(key: str):
+    from eawiki import metamodel as mm
+    try:
+        mm.delete_node(key); return mm.view()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.put("/api/metamodel/edge/{key}")
+def metamodel_edge_put(key: str, obj: dict):
+    from eawiki import metamodel as mm
+    try:
+        mm.upsert_edge(key, obj); return mm.view()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.delete("/api/metamodel/edge/{key}")
+def metamodel_edge_del(key: str):
+    from eawiki import metamodel as mm
+    mm.delete_edge(key); return mm.view()
+
+
+@app.get("/api/reingest/status")
+def reingest_status():
+    from eawiki import pipeline
+    return pipeline.status()
+
+
+@app.post("/api/reingest")
+def reingest_run():
+    from eawiki import pipeline
+    return pipeline.run_async()
+
+
 # --- static frontend (mounted last so /api/* wins) -----------------------
 if WEB.exists():
     app.mount("/", StaticFiles(directory=str(WEB), html=True), name="web")

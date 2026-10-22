@@ -8,6 +8,7 @@ const NAV = [
   ['kb', 'Sources', 'M3 5v14a9 3 0 0 0 18 0V5M3 5a9 3 0 0 0 18 0M3 5a9 3 0 0 1 18 0M3 12a9 3 0 0 0 18 0'],
   ['run', 'Run', 'M5 3l14 9-14 9V3z'],
   ['usecases', 'Config', 'M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6'],
+  ['model', 'Model', 'M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z'],
 ]
 
 function toggleTheme() {
