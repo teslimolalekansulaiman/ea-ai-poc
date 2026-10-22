@@ -526,12 +526,13 @@ async function loadLandscape(){lsLoaded=true; resolveColors();
       .concat(m.edges.filter(e=>ids.has(e.source)&&ids.has(e.target)).map((e,i)=>({data:{id:'e'+i,source:e.source,target:e.target,label:e.relation}})));
     cy=cytoscape({container:document.getElementById('cy'),elements:els,
       style:[
-        {selector:'node',style:{'background-color':'data(color)','label':'data(label)','font-size':'8px','color':CSSV['--fg'],'font-family':'IBM Plex Sans,sans-serif','text-valign':'center','text-halign':'right','text-margin-x':'3px','text-max-width':'90px','text-wrap':'ellipsis','width':'14px','height':'14px'}},
-        {selector:'edge',style:{'width':1,'line-color':CSSV['--border-strong'],'target-arrow-color':CSSV['--border-strong'],'target-arrow-shape':'triangle','arrow-scale':0.7,'curve-style':'bezier'}},
-        {selector:'node:selected',style:{'border-width':3,'border-color':CSSV['--accent'],'width':'20px','height':'20px'}},
-        {selector:'.faded',style:{'opacity':0.12}}
+        {selector:'node',style:{'background-color':'data(color)','label':'data(label)','font-size':'11px','color':CSSV['--fg'],'font-family':'IBM Plex Sans,sans-serif','text-valign':'bottom','text-halign':'center','text-margin-y':'3px','text-max-width':'120px','text-wrap':'ellipsis','text-outline-width':'2px','text-outline-color':CSSV['--surface'],'width':'30px','height':'30px','border-width':'2px','border-color':CSSV['--surface']}},
+        {selector:'edge',style:{'width':1.2,'line-color':CSSV['--border-strong'],'target-arrow-color':CSSV['--border-strong'],'target-arrow-shape':'triangle','arrow-scale':0.8,'curve-style':'bezier'}},
+        {selector:'node:selected',style:{'border-width':'4px','border-color':CSSV['--accent'],'width':'42px','height':'42px','font-size':'13px'}},
+        {selector:'.faded',style:{'opacity':0.1}}
       ],
-      layout:{name:'cose',animate:false,nodeRepulsion:9000,idealEdgeLength:75,padding:24,randomize:true}});
+      layout:{name:'cose',animate:false,nodeRepulsion:26000,idealEdgeLength:120,padding:30,randomize:true,componentSpacing:120}});
+    cy.one('layoutstop',function(){cy.fit(undefined,40);});
     cy.on('tap','node',function(ev){inspectNode(ev.target);});
     cy.on('tap',function(ev){if(ev.target===cy){cy.elements().removeClass('faded');cy.$(':selected').unselect();}});
     buildLegend();
@@ -540,10 +541,17 @@ async function loadLandscape(){lsLoaded=true; resolveColors();
       +'<div class="ilist">'+d.communities.filter(c=>c.has_page).map(c=>'<div><a href="#" onclick="openLandscape(\''+c.slug+'\');return false">'+esc(c.name)+'</a> <span style="color:var(--fg-faint)">· '+c.size+'</span></div>').join('')+'</div>';
   }catch(e){document.getElementById('cy').innerHTML='<div class="empty" style="padding:20px">Map error: '+e+'</div>';}}
 
+var activeDomains={};
 function buildLegend(){
   var doms=['Motivation','Business','Data','Application','Technology','Realization'];
-  document.getElementById('lsLegend').innerHTML='<span style="font-size:12px;color:var(--fg-faint);margin-right:4px">Domains:</span>'
-    +doms.map(d=>'<span class="lfilter" style="cursor:default"><span class="dot" style="background:'+domColor(d)+'"></span>'+d+'</span>').join('');
+  doms.forEach(d=>{if(!(d in activeDomains))activeDomains[d]=true;});
+  document.getElementById('lsLegend').innerHTML='<span style="font-size:12px;color:var(--fg-faint);margin-right:4px">Filter domains:</span>'
+    +doms.map(d=>'<button class="lfilter" aria-pressed="'+activeDomains[d]+'" data-d="'+d+'" onclick="toggleDomain(\''+d+'\')"><span class="dot" style="background:'+domColor(d)+'"></span>'+d+'</button>').join('');
+}
+function toggleDomain(d){
+  activeDomains[d]=!activeDomains[d];
+  document.querySelector('.lfilter[data-d="'+d+'"]').setAttribute('aria-pressed',activeDomains[d]);
+  if(cy)cy.nodes().forEach(function(n){n.style('display', activeDomains[n.data('domain')]?'element':'none');});
 }
 function inspectNode(node){
   var nb=node.closedNeighborhood();cy.elements().addClass('faded');nb.removeClass('faded');node.select();
