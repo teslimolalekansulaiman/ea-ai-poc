@@ -75,7 +75,7 @@ export default function Ask() {
   }
 
   return (
-    <div className="wrap">
+    <div className={'wrap' + (mode === 'ask' ? ' chat' : '')}>
       <div className="view-head"><div>
         <div className="eyebrow">Ask &amp; assess</div>
         <h1>{mode === 'ask' ? 'What do you want to know?' : 'Submit a demand'}</h1>
@@ -86,8 +86,8 @@ export default function Ask() {
         <button className="btn" onClick={() => setMsgs([])}>New chat</button>}
       </div>
 
-      {/* Ask-mode thread */}
-      {mode === 'ask' && msgs.length > 0 && (
+      {/* Ask-mode thread (always present in ask mode so the composer pins to the bottom) */}
+      {mode === 'ask' && (
         <div className="thread">
           {msgs.map((m, i) => (
             <div key={i} className={'turn ' + (m.role === 'user' ? 'user' : 'bot')}>

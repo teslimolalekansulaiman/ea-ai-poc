@@ -120,6 +120,12 @@ select{font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(
 .route{font-size:11.5px;color:var(--fg-muted)}
 .route b{color:var(--accent);font-weight:600}
 
+/* chat layout — composer pinned at bottom, thread scrolls (ask mode) */
+.wrap.chat{display:flex;flex-direction:column;height:100%;padding-block:0;box-sizing:border-box}
+.wrap.chat .view-head{padding-top:28px;flex:0 0 auto}
+.wrap.chat .thread{flex:1 1 auto;overflow-y:auto;min-height:0;margin:0;padding:8px 2px 16px}
+.wrap.chat .composer{flex:0 0 auto;margin-bottom:22px}
+
 /* conversational thread */
 .thread{display:flex;flex-direction:column;gap:14px;margin:20px 0}
 .turn{display:flex}
