@@ -180,7 +180,7 @@ export default function Ask() {
             </div>
           </div>
         ))}
-        {loading && <div className="turn bot pending"><div className="bubble">Thinking…</div></div>}
+        {loading && <div className="turn bot pending"><div className="bubble"><span className="typing"><i /><i /><i /></span></div></div>}
         <div ref={endRef} />
       </div>
 
