@@ -155,6 +155,14 @@ def n_graphquery(s: QAState) -> dict:
                 r = gq.neighbors(g, hits[0])
         except Exception:
             pass
+    # Middle tier: no template fit, but the question is structural → let the model WRITE a
+    # read-only query, guard it, run it; on any failure this returns None → vector search.
+    if r is None and s.get("use_llm", True) and (strat in ("graph", "browse")
+                                                  or any(h in q.lower() for h in _GQ_HINTS)):
+        try:
+            r = gq.generate(q, s.get("backend", "cli"), s.get("model"))
+        except Exception:
+            r = None
     if r and (r.get("found", True) or r.get("template") in ("path", "impact", "orphans", "filter")):
         return {"graph_result": r}
     return {}

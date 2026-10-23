@@ -40,7 +40,8 @@ class ArcadeDBStore:
         self._auth = base64.b64encode(f"{user}:{password}".encode()).decode()
 
     # --- low-level HTTP --------------------------------------------------
-    def _post(self, endpoint: str, command: str, params: Optional[dict] = None) -> Any:
+    def _post(self, endpoint: str, command: str, params: Optional[dict] = None,
+              timeout: Optional[float] = None) -> Any:
         payload: dict = {"language": "sql", "command": command}
         if params:
             payload["params"] = params
@@ -50,7 +51,7 @@ class ArcadeDBStore:
         req.add_header("Authorization", f"Basic {self._auth}")
         req.add_header("Content-Type", "application/json")
         try:
-            with urllib.request.urlopen(req) as r:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
                 return json.loads(r.read().decode()).get("result")
         except urllib.error.HTTPError as e:
             body = e.read().decode()[:400]
@@ -59,8 +60,8 @@ class ArcadeDBStore:
     def command(self, sql: str, params: Optional[dict] = None) -> Any:
         return self._post("command", sql, params)
 
-    def query(self, sql: str, params: Optional[dict] = None) -> Any:
-        return self._post("query", sql, params)
+    def query(self, sql: str, params: Optional[dict] = None, timeout: Optional[float] = None) -> Any:
+        return self._post("query", sql, params, timeout=timeout)
 
     def ping(self) -> str:
         return self.query("SELECT 1 AS ok") and "ok"

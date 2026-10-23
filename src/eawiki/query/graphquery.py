@@ -21,12 +21,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections import deque
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from eawiki.subjects import llm_json
+from eawiki.subjects import llm_json, llm_text
 
 GRAPH = Path(os.environ.get("EAWIKI_GRAPH", "data/graph"))
 MENU = Path(os.environ.get("EAWIKI_MENU", "data/togaf92_metamodel.json"))
@@ -69,6 +70,20 @@ class _Graph:
                 if t in n.get("name", "").lower() or n.get("name", "").lower() in t]
         subs.sort(key=lambda p: len(p[1]), reverse=True)
         return subs[0][0] if subs else None
+
+    def resolve_all(self, text: str) -> list[str]:
+        """Every entity whose name contains the term (plus node_id exacts) — so a name
+        that spans several nodes ('Oracle' = the vendor + two Oracle-19c DBs) seeds the
+        traversal from all of them, not just one. Used by impact."""
+        if not text:
+            return []
+        t = text.strip().lower()
+        hits = [nid for nid, n in self.by_id.items()
+                if n.get("name", "").lower() == t or t in n.get("name", "").lower()]
+        if t in self.by_id and t not in hits:
+            hits.append(t)
+        hits.sort(key=lambda nid: len(self.name(nid)))
+        return hits or ([self.resolve(text)] if self.resolve(text) else [])
 
 
 @lru_cache(maxsize=1)
@@ -167,12 +182,12 @@ def path(g: _Graph, a: str, b: str, max_hops: int = 6) -> dict:
 
 
 def impact(g: _Graph, node_id: str, direction: str = "both", max_hops: int = 3) -> dict:
-    sid = g.resolve(node_id)
-    if not sid:
+    seeds = g.resolve_all(node_id)          # multi-seed: a name may span several nodes
+    if not seeds:
         return _result(g, "impact", [], [], [], "", f"Could not find '{node_id}' in the graph.", found=False)
-    seen = {sid}
+    seen = set(seeds)
     used: list[dict] = []
-    frontier = deque([(sid, 0)])
+    frontier = deque([(s, 0) for s in seeds])
     while frontier:
         cur, d = frontier.popleft()
         if d >= max_hops:
@@ -188,14 +203,15 @@ def impact(g: _Graph, node_id: str, direction: str = "both", max_hops: int = 3) 
             if nxt not in seen:
                 seen.add(nxt)
                 frontier.append((nxt, d + 1))
-    affected = [n for n in seen if n != sid]
-    facts = (f"IMPACT — entities connected to {g.name(sid)} within {max_hops} hop(s) "
+    affected = [n for n in seen if n not in seeds]
+    label = " / ".join(g.name(s) for s in seeds)
+    facts = (f"IMPACT — entities connected to {label} within {max_hops} hop(s) "
              f"(direction={direction}): {len(affected)} affected.\n"
              + "\n".join(_edge_line(g, e) for e in used)) if used else \
-            f"{g.name(sid)} has no connected entities."
-    return _result(g, "impact", [sid], seen, used, facts,
-                   f"{len(affected)} entit{'y' if len(affected) == 1 else 'ies'} connected to {g.name(sid)} "
-                   f"within {max_hops} hop(s).")
+            f"{label} has no connected entities."
+    return _result(g, "impact", list(seeds), seen, used, facts,
+                   f"{len(affected)} entit{'y' if len(affected) == 1 else 'ies'} connected to {label} "
+                   f"within {max_hops} hop(s)" + (f" (seeded from {len(seeds)} nodes)" if len(seeds) > 1 else "") + ".")
 
 
 def orphans(g: _Graph, node_type: str, relation: str, direction: str = "out") -> dict:
@@ -367,6 +383,116 @@ def run_slots(slots: dict, backend: str = "cli", model=None) -> Optional[dict]:
     else:
         return None
     return r
+
+
+# --- guarded generated query (the middle tier, for questions no template covers) ------
+_WRITE_WORDS = re.compile(
+    r"\b(insert|update|delete|create|drop|alter|truncate|grant|revoke|import|export|"
+    r"merge|upsert|rename|set|remove)\b", re.IGNORECASE)
+
+
+def _extract_sql(text: str) -> str:
+    t = (text or "").strip()
+    t = re.sub(r"^```[a-zA-Z]*", "", t).strip().strip("`").strip()
+    m = re.search(r"(?is)\bselect\b.*", t)
+    return (m.group(0) if m else t).strip().rstrip(";").strip()
+
+
+def _guard_sql(sql: str) -> Optional[str]:
+    """Read-only guard: single SELECT statement, no write keywords, bounded by LIMIT.
+    (The ArcadeDB /query endpoint is read-only too, so this is defense-in-depth.)"""
+    if not sql or ";" in sql:                      # one statement only
+        return None
+    if not re.match(r"(?is)^\s*select\b", sql):    # must be a read
+        return None
+    if _WRITE_WORDS.search(sql):                   # no mutation verbs anywhere
+        return None
+    if not re.search(r"(?i)\blimit\b", sql):       # always bound the result size
+        sql += " LIMIT 50"
+    return sql
+
+
+def _rows_to_view(g: _Graph, rows: list) -> tuple[list, list]:
+    """Best-effort: turn result rows into a render graph. Rows with source/target become
+    edges; any entity names/ids found become nodes."""
+    ids: set[str] = set()
+    edges: list[dict] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        s = row.get("source") or row.get("src") or row.get("a")
+        t = row.get("target") or row.get("dst") or row.get("b")
+        if s and t:
+            si, ti = g.resolve(str(s)), g.resolve(str(t))
+            if si and ti:
+                edges.append({"source": si, "target": ti, "relation": str(row.get("relation") or "related")})
+                ids.update((si, ti))
+                continue
+        for v in row.values():
+            if isinstance(v, str):
+                nid = g.resolve(v)
+                if nid:
+                    ids.add(nid)
+    return [_node_view(g, nid, 0) for nid in ids], edges
+
+
+def generate(question: str, backend: str = "cli", model=None, g: Optional[_Graph] = None) -> Optional[dict]:
+    """Middle tier: the model WRITES a read-only ArcadeDB query, we guard it, run it, and
+    fall back (return None) on any failure. Used only when no template matched."""
+    g = g or _load()
+    types = sorted({n.get("type", "") for n in g.by_id.values() if n.get("type")})
+    rels = sorted({e.get("relation", "") for e in g.edges if e.get("relation")})
+    ex1 = ("SELECT a.name AS source, e.relation AS relation, b.name AS target FROM "
+           "(MATCH {type:Entity, where:(name='Payment Gateway'), as:a}.outE('REL'){as:e}"
+           ".inV(){as:b} RETURN a, e, b) LIMIT 50")
+    ex2 = ("SELECT cap.name AS source FROM (MATCH {type:Entity, as:cap}"
+           ".outE('REL'){where:(relation='is_owned_by'), as:e}"
+           ".inV(){where:(name='Licensing Department')} RETURN cap) LIMIT 50")
+    prompt = f"""Write ONE read-only ArcadeDB SQL query that answers the question over this graph. Output ONLY the SQL — no prose, no backticks.
+
+Schema:
+- Vertex Entity(node_id, name, type)
+- Edge REL(relation)  from Entity to Entity. There is ONLY ONE edge type, "REL".
+  The relationship name (e.g. 'is_owned_by') is a PROPERTY of REL, NOT an edge class.
+Valid node types: {', '.join(types)}
+Valid relations: {', '.join(rels)}
+Entity names — use these EXACT strings in where:(name='...') clauses (do not invent or paraphrase):
+{', '.join(sorted(n.get('name', '') for n in g.by_id.values() if n.get('name')))}
+
+Rules:
+- SELECT only. No INSERT/UPDATE/DELETE/CREATE/DROP. One statement.
+- Traverse with .outE('REL')/.inV()/.bothE('REL') — NEVER .in('is_owned_by') or .out('<relation>'); the relation is filtered as a property: .outE('REL'){{where:(relation='is_owned_by'), as:e}}.
+- Wrap the MATCH in SELECT ... FROM ( MATCH ... RETURN ... ).
+- When returning relationships, name the columns source, relation, target (entity NAMES).
+- Always include LIMIT.
+
+Example — "what does the Payment Gateway connect to":
+{ex1}
+Example — "which capabilities are owned by the Licensing Department" (relation as a property filter):
+{ex2}
+
+Question: {question}
+SQL:"""
+    try:
+        sql = _guard_sql(_extract_sql(llm_text(prompt, backend, model)))
+    except Exception:
+        return None
+    if not sql:
+        return None
+    try:
+        from eawiki.store import ArcadeDBStore
+        rows = ArcadeDBStore().query(sql, timeout=6)
+    except Exception:
+        return None
+    if not rows:
+        return None
+    nodes, edges = _rows_to_view(g, rows)
+    shown = rows[:40]
+    facts = (f"GENERATED QUERY (ArcadeDB SQL, read-only):\n{sql}\n\nRESULTS ({len(rows)}):\n"
+             + "\n".join(json.dumps(r, ensure_ascii=False) for r in shown))
+    return {"template": "generated", "found": True, "query": sql,
+            "summary": f"generated query → {len(rows)} row(s)", "facts": facts,
+            "centers": [], "nodes": nodes, "edges": edges, "block_ids": []}
 
 
 def answer(question: str, backend: str = "cli", model=None) -> Optional[dict]:
