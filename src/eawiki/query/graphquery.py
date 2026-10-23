@@ -308,7 +308,7 @@ def classify(question: str, backend: str = "cli", model=None, g: Optional[_Graph
 Templates:
 - "neighbors": what is directly related to one entity. Slots: a (entity), direction (in|out|both).
 - "path": how two entities are connected. Slots: a (entity), b (entity).
-- "impact": what is affected by / connected to one entity across multiple hops (e.g. "what breaks if we retire X"). Slots: a (entity), direction (in|out|both).
+- "impact": what is affected across multiple hops. Slots: a (entity), direction. Use direction "in" for what DEPENDS ON / is affected by X (the right choice for "what breaks if we retire/remove X"); "out" for what X itself depends on; "both" only when the question is genuinely non-directional.
 - "orphans": entities of a type that are MISSING a relationship (e.g. "capabilities with no owner"). Slots: node_type, relation, direction (in|out).
 - "aggregate": count or rank by number of connections (e.g. "most connected system", "how many capabilities does Finance own"). Slots: a (entity, only when counting ONE entity's links), node_type (to rank within a type), relation, target_type (the type of the things being counted — e.g. for "how many CAPABILITIES does X own", target_type = business_capability), direction.
 - "filter": all relationships matching a structural pattern (e.g. "which applications send data to a data store"). Slots: source_type, relation, target_type.
@@ -369,11 +369,22 @@ def run_slots(slots: dict, backend: str = "cli", model=None) -> Optional[dict]:
     return r
 
 
+# Retirement / removal wording → impact means "what DEPENDS ON X" (direction "in"),
+# not the undirected blob. Deterministic guard so the flagship case is right even if the
+# classifier picks "both".
+_RETIRE_WORDS = ("retire", "remove", "decommission", "shut down", "shutdown", "sunset",
+                 "deprecate", "turn off", "break if", "breaks if", "impacted if",
+                 "affected if", "if we lose", "if we drop")
+
+
 def answer(question: str, backend: str = "cli", model=None) -> Optional[dict]:
     """Classify + run in one call. Returns a GraphResult or None (no template applied)."""
     slots = classify(question, backend, model)
     if not slots:
         return None
+    if (slots.get("template") == "impact" and (slots.get("direction") in (None, "both"))
+            and any(w in question.lower() for w in _RETIRE_WORDS)):
+        slots["direction"] = "in"
     r = run_slots(slots, backend, model)
     if r is not None:
         r["slots"] = {k: slots.get(k) for k in
