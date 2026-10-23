@@ -23,6 +23,7 @@ from langgraph.graph import END, START, StateGraph
 
 from eawiki.query import answer as ans
 from eawiki.query import executor as ew
+from eawiki.query import graphquery as gq
 from eawiki.query import guardrails as det
 from eawiki.query import route as rt
 from eawiki.query.retrieve import Retriever
@@ -61,6 +62,7 @@ class QAState(TypedDict, total=False):
     status: str
     input_guard: dict
     route: dict
+    graph_result: dict       # structured graph-query result (facts + render + evidence)
     blocks: list
     _block_objs: list
     subgraph: Optional[dict]
@@ -109,12 +111,57 @@ def n_route(s: QAState) -> dict:
     return {"route": rt.route(s.get("search_question") or s["question"])}
 
 
+# Analytic wording that warrants a structured graph query even when the keyword router
+# did not pick the "graph" strategy (e.g. "capabilities with no owner" routes vector).
+_GQ_HINTS = ("retire", "impact", "affect", "depend", "break", "without", "no owner",
+             "no owning", "missing", "orphan", "path", "connect", "related", "reach",
+             "how does", "owned by", "who owns", "upstream", "downstream")
+
+
+def n_graphquery(s: QAState) -> dict:
+    """Try a whitelisted graph template (path / impact / orphans / neighbors). The LLM
+    only classifies + fills typed slots; the traversal is fixed code over graph.json.
+    One result feeds the answer (facts), the citations (block_ids) and the UI (nodes)."""
+    if not s.get("use_llm", True):
+        return {}
+    q = (s.get("search_question") or s["question"])
+    strat = s.get("route", {}).get("strategy")
+    if strat not in ("graph", "browse") and not any(h in q.lower() for h in _GQ_HINTS):
+        return {}
+    r = None
+    try:
+        r = gq.answer(q, s.get("backend", "cli"), s.get("model"))
+    except Exception:
+        r = None
+    # Deterministic fallback for a plain entity question the classifier didn't template.
+    if (r is None or r.get("template") == "neighbors" and not r.get("found")) and strat in ("graph", "browse"):
+        try:
+            g = gq._load()
+            hits = sorted((nid for nid, n in g.by_id.items()
+                           if n.get("name", "").lower() in q.lower()),
+                          key=lambda x: len(g.name(x)), reverse=True)
+            if hits:
+                r = gq.neighbors(g, hits[0])
+        except Exception:
+            pass
+    if r and (r.get("found", True) or r.get("template") in ("path", "impact", "orphans")):
+        return {"graph_result": r}
+    return {}
+
+
 def n_retrieve(s: QAState) -> dict:
     r = _retriever()
     q = s.get("search_question") or s["question"]
     blocks = r.vector_search(q, k=s.get("k", 8), kinds=s.get("kinds"))
     subgraph = None
-    if s["route"]["strategy"] in ("graph", "browse"):
+    gqr = s.get("graph_result")
+    if gqr and gqr.get("block_ids"):
+        # Structured graph answer: lead with its cited blocks, keep vector hits as backup.
+        ev = r.blocks_by_ids(gqr["block_ids"])
+        if ev:
+            seen = {b["block_id"] for b in ev}
+            blocks = ev + [b for b in blocks if b["block_id"] not in seen]
+    elif s["route"]["strategy"] in ("graph", "browse"):
         ents = r.entities_in_question(q)
         if ents:
             subgraph = r.subgraph(ents[0]["node_id"])
@@ -134,13 +181,19 @@ def n_retrieve(s: QAState) -> dict:
 
 
 def n_relevance(s: QAState) -> dict:
-    if s.get("subgraph") is None and not s.get("page") and not det.relevance_ok(
-            s.get("_block_objs", []), max_distance=s.get("max_distance", 0.95)):
+    gqr = s.get("graph_result")
+    if (gqr is None and s.get("subgraph") is None and not s.get("page")
+            and not det.relevance_ok(s.get("_block_objs", []), max_distance=s.get("max_distance", 0.95))):
         return {"status": "abstained", "answer": det.ABSTAIN}
     context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"))
     if s.get("page"):
         context = ("WIKI (synthesized, connected context — cite the block ids it references, "
                    "not the page):\n" + s["page"] + "\n\n" + context)
+    if gqr:
+        # The structured result is the authoritative answer to a graph question; put it first.
+        context = (f"GRAPH QUERY RESULT ({gqr.get('template')}, authoritative — this is the "
+                   f"structural answer; use the source blocks below for wording and citations):\n"
+                   + gqr.get("facts", "") + "\n\n" + context)
     return {"context": context}
 
 
@@ -182,6 +235,7 @@ def build_app():
     g.add_node("input_guard", n_input_guard)
     g.add_node("condense", n_condense)
     g.add_node("route", n_route)
+    g.add_node("graphquery", n_graphquery)
     g.add_node("retrieve", n_retrieve)
     g.add_node("relevance", n_relevance)
     g.add_node("answer", n_answer)
@@ -190,7 +244,8 @@ def build_app():
     g.add_edge(START, "input_guard")
     g.add_conditional_edges("input_guard", _after_input, {"refused": END, "ok": "condense"})
     g.add_edge("condense", "route")
-    g.add_edge("route", "retrieve")
+    g.add_edge("route", "graphquery")
+    g.add_edge("graphquery", "retrieve")
     g.add_edge("retrieve", "relevance")
     g.add_conditional_edges("relevance", _after_relevance, {"abstained": END, "ok": "answer"})
     g.add_edge("answer", "output_guard")

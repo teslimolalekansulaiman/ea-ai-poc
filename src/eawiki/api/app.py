@@ -116,11 +116,19 @@ def ask(req: AskReq):
     from eawiki.query.ask import ask as run
     out = run(req.question, k=req.k, backend=API_BACKEND, kinds=req.kinds,
               use_llm=True, safety_llm=req.safety, history=req.history)
-    sg = out.get("subgraph") or {}
-    if sg.get("node_id"):                       # graph-routed: attach the slice it used
-        gv = _subgraph_view(sg["node_id"])
-        if gv:
-            out["graph"] = gv
+    # One graph for display, from a single source. A structured graph-query result
+    # already carries render-ready nodes/edges; otherwise fall back to the 1-hop slice.
+    gr = out.get("graph_result")
+    if gr and gr.get("nodes"):
+        out["graph"] = {"nodes": gr["nodes"], "edges": gr["edges"],
+                        "center": (gr.get("centers") or [None])[0],
+                        "template": gr.get("template"), "summary": gr.get("summary")}
+    else:
+        sg = out.get("subgraph") or {}
+        if sg.get("node_id"):
+            gv = _subgraph_view(sg["node_id"])
+            if gv:
+                out["graph"] = gv
     return {k: v for k, v in out.items() if k != "context"}
 
 

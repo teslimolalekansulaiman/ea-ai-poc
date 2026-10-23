@@ -105,7 +105,10 @@ export default function Ask() {
                 {m.role === 'bot' ? <Markdown md={m.content} /> : m.content}
                 {m.role === 'bot' && m.meta?.graph?.nodes?.length > 1 && (
                   <div className="ans-graph">
-                    <div className="ans-graph-cap">Graph used for this answer · {m.meta.graph.nodes.length} nodes, {m.meta.graph.edges.length} relationships</div>
+                    <div className="ans-graph-cap">
+                      {m.meta.graph.template && <span className="pill info" style={{ marginRight: 8 }}>{m.meta.graph.template}</span>}
+                      {m.meta.graph.summary || 'Graph used for this answer'} · {m.meta.graph.nodes.length} nodes, {m.meta.graph.edges.length} relationships
+                    </div>
                     <Graph nodes={m.meta.graph.nodes} edges={m.meta.graph.edges} height={300} mini={false} />
                   </div>
                 )}
