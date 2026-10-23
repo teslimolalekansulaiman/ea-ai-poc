@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { Markdown } from '../cite'
 import UseCaseResult from '../components/UseCaseResult'
+import Graph from '../components/Graph'
 
 const EXAMPLES = [
   ['⚡ Impact: retire Oracle', 'What would be impacted if we retired Oracle as a vendor?'],
@@ -91,7 +92,7 @@ export default function Ask() {
         <div className="thread">
           {msgs.map((m, i) => (
             <div key={i} className={'turn ' + (m.role === 'user' ? 'user' : 'bot')}>
-              <div className="bubble">
+              <div className={'bubble' + (m.meta?.graph?.nodes?.length > 1 ? ' wide' : '')}>
                 {m.role === 'bot' && m.meta && (
                   <div className="answer-meta">
                     <span className={'pill ' + (PILL[m.meta.status] || 'neutral')}>{m.meta.status}</span>
@@ -102,6 +103,12 @@ export default function Ask() {
                 {m.role === 'bot' && m.meta?.search_question && m.meta.search_question !== msgs[i - 1]?.content &&
                   <div className="rewrite">interpreted as: “{m.meta.search_question}”</div>}
                 {m.role === 'bot' ? <Markdown md={m.content} /> : m.content}
+                {m.role === 'bot' && m.meta?.graph?.nodes?.length > 1 && (
+                  <div className="ans-graph">
+                    <div className="ans-graph-cap">Graph used for this answer · {m.meta.graph.nodes.length} nodes, {m.meta.graph.edges.length} relationships</div>
+                    <Graph nodes={m.meta.graph.nodes} edges={m.meta.graph.edges} height={300} mini={false} />
+                  </div>
+                )}
               </div>
             </div>
           ))}

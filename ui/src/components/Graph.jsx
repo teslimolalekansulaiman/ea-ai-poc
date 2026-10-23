@@ -35,7 +35,7 @@ function layout(nodes, edges) {
   })
 }
 
-export default function Graph({ nodes, edges, onNodeClick }) {
+export default function Graph({ nodes, edges, onNodeClick, height = 560, mini = true }) {
   const { rfNodes, rfEdges } = useMemo(() => {
     const ids = new Set(nodes.map((n) => n.id))
     const es = edges.filter((e) => ids.has(e.source) && ids.has(e.target))
@@ -52,13 +52,13 @@ export default function Graph({ nodes, edges, onNodeClick }) {
   }, [nodes, edges])
 
   return (
-    <div style={{ width: '100%', height: 560 }}>
+    <div style={{ width: '100%', height }}>
       <ReactFlow key={rfNodes.length + '-' + rfEdges.length} nodes={rfNodes} edges={rfEdges}
         nodeTypes={nodeTypes} fitView minZoom={0.15} proOptions={{ hideAttribution: true }}
         onNodeClick={(_, n) => onNodeClick && onNodeClick(n.id)}>
         <Background gap={16} color="var(--border)" />
         <Controls showInteractive={false} />
-        <MiniMap nodeColor={(n) => resolved(n.data?.domain)} pannable zoomable />
+        {mini && <MiniMap nodeColor={(n) => resolved(n.data?.domain)} pannable zoomable />}
       </ReactFlow>
     </div>
   )
