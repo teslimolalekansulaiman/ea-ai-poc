@@ -31,7 +31,7 @@ from eawiki.subjects import llm_json
 GRAPH = Path(os.environ.get("EAWIKI_GRAPH", "data/graph"))
 MENU = Path(os.environ.get("EAWIKI_MENU", "data/togaf92_metamodel.json"))
 
-TEMPLATES = ("neighbors", "path", "impact", "orphans")
+TEMPLATES = ("neighbors", "path", "impact", "orphans", "aggregate", "filter")
 
 
 # --- graph model ---------------------------------------------------------
@@ -215,6 +215,70 @@ def orphans(g: _Graph, node_type: str, relation: str, direction: str = "out") ->
                    f"{len(hits)} {pretty} with no '{relation}'.")
 
 
+def _degree_edges(g: _Graph, nid: str, relation: Optional[str], direction: str) -> list[dict]:
+    es: list[dict] = []
+    if direction in ("out", "both"):
+        es += g.out.get(nid, [])
+    if direction in ("in", "both"):
+        es += g.inc.get(nid, [])
+    return [e for e in es if not relation or e.get("relation") == relation]
+
+
+def aggregate(g: _Graph, node_type: Optional[str] = None, relation: Optional[str] = None,
+              direction: str = "both", entity: Optional[str] = None, top: int = 10) -> dict:
+    """Count / rank. With `entity`: how many matching links it has (e.g. 'how many
+    systems does Finance own'). Without: rank entities by connection count, optionally
+    scoped to a node type and/or relation (e.g. 'most connected application')."""
+    if entity:
+        sid = g.resolve(entity)
+        if not sid:
+            return _result(g, "aggregate", [], [], [], "", f"Could not find '{entity}'.", found=False)
+        pool = []
+        if direction in ("out", "both"):
+            pool += [(e, e["target"]) for e in g.out.get(sid, []) if not relation or e.get("relation") == relation]
+        if direction in ("in", "both"):
+            pool += [(e, e["source"]) for e in g.inc.get(sid, []) if not relation or e.get("relation") == relation]
+        used = [e for e, _ in pool]
+        ids = {sid} | {o for _, o in pool}
+        rel = relation or "any"
+        facts = (f"{g.name(sid)} has {len(used)} '{rel}' relationship(s) ({direction}):\n"
+                 + "\n".join(_edge_line(g, e) for e in used)) if used else \
+                f"{g.name(sid)} has no '{rel}' relationships ({direction})."
+        return _result(g, "aggregate", [sid], ids, used, facts,
+                       f"{g.name(sid)}: {len(used)} '{rel}' link(s).")
+    cand = [nid for nid, n in g.by_id.items() if not node_type or n.get("type") == node_type]
+    scored = [(nid, len(_degree_edges(g, nid, relation, direction))) for nid in cand]
+    scored = sorted([s for s in scored if s[1] > 0], key=lambda s: s[1], reverse=True)[:max(1, top)]
+    label = (node_type.replace("_", " ") + " ") if node_type else ""
+    rel = f" by '{relation}'" if relation else ""
+    facts = (f"{label}entities ranked by connection count{rel} ({direction}):\n"
+             + "\n".join(f"- {g.name(nid)}: {n}" for nid, n in scored)) if scored else \
+            f"No {label}entities with '{relation or 'any'}' relationships."
+    ids = {nid for nid, _ in scored}
+    used = [e for e in g.edges if e["source"] in ids and e["target"] in ids]
+    return _result(g, "aggregate", [scored[0][0]] if scored else [], ids, used, facts,
+                   f"Top {len(scored)} {label}by connections{rel}.")
+
+
+def filter_edges(g: _Graph, source_type: Optional[str] = None, relation: Optional[str] = None,
+                 target_type: Optional[str] = None) -> dict:
+    """All relationships matching a structural pattern source_type --relation--> target_type
+    (any slot may be a wildcard), e.g. 'which applications send data to a data store'."""
+    matches = [e for e in g.edges
+               if (not relation or e.get("relation") == relation)
+               and (not source_type or g.by_id.get(e["source"], {}).get("type") == source_type)
+               and (not target_type or g.by_id.get(e["target"], {}).get("type") == target_type)]
+    ids = set()
+    for e in matches:
+        ids.update((e["source"], e["target"]))
+    desc = f"{source_type or 'any'} --{relation or 'any'}--> {target_type or 'any'}"
+    facts = (f"Relationships matching [{desc}] — {len(matches)}:\n"
+             + "\n".join(_edge_line(g, e) for e in matches)) if matches else \
+            f"No relationships match [{desc}]."
+    return _result(g, "filter", [], ids, matches, facts,
+                   f"{len(matches)} relationship(s) matching {desc}.", found=bool(matches))
+
+
 # --- classifier (text -> template + typed slots) -------------------------
 def _catalog(g: _Graph) -> str:
     names = sorted({n.get("name", "") for n in g.by_id.values() if n.get("name")})
@@ -235,6 +299,8 @@ Templates:
 - "path": how two entities are connected. Slots: a (entity), b (entity).
 - "impact": what is affected by / connected to one entity across multiple hops (e.g. "what breaks if we retire X"). Slots: a (entity), direction (in|out|both).
 - "orphans": entities of a type that are MISSING a relationship (e.g. "capabilities with no owner"). Slots: node_type, relation, direction (in|out).
+- "aggregate": count or rank by number of connections (e.g. "most connected system", "how many systems does Finance own"). Slots: a (entity, only when counting ONE entity's links), node_type (to rank within a type), relation, direction.
+- "filter": all relationships matching a structural pattern (e.g. "which applications send data to a data store"). Slots: source_type, relation, target_type.
 - "none": the question is not a structural graph query (summaries, definitions, free text).
 
 Fill slots using ONLY values from this catalogue (copy names/types/relations verbatim; use null when a slot does not apply):
@@ -242,7 +308,7 @@ Fill slots using ONLY values from this catalogue (copy names/types/relations ver
 
 Question: {question}
 
-JSON: {{"template": "neighbors|path|impact|orphans|none", "a": <entity name or null>, "b": <entity name or null>, "node_type": <node type or null>, "relation": <relation or null>, "direction": "in|out|both|null"}}"""
+JSON: {{"template": "neighbors|path|impact|orphans|aggregate|filter|none", "a": <entity or null>, "b": <entity or null>, "node_type": <node type or null>, "source_type": <node type or null>, "target_type": <node type or null>, "relation": <relation or null>, "direction": "in|out|both|null"}}"""
     try:
         out = llm_json(prompt, backend, model)
     except Exception:
@@ -259,17 +325,33 @@ def run_slots(slots: dict, backend: str = "cli", model=None) -> Optional[dict]:
     direction = (slots.get("direction") or "both")
     if direction not in ("in", "out", "both"):
         direction = "both"
+    types = {n.get("type") for n in g.by_id.values()}
+    rels = {e.get("relation") for e in g.edges}
+
+    def ok_type(v):   # a provided type slot must be a real node type
+        return v is None or v in types
+
+    def ok_rel(v):    # a provided relation slot must be a real edge relation
+        return v is None or v in rels
+
     if t == "neighbors" and slots.get("a"):
         r = neighbors(g, slots["a"], direction)
     elif t == "path" and slots.get("a") and slots.get("b"):
         r = path(g, slots["a"], slots["b"])
     elif t == "impact" and slots.get("a"):
-        r = impact(g, slots["a"], direction if direction != "both" else "both")
+        r = impact(g, slots["a"], direction)
     elif t == "orphans" and slots.get("node_type") and slots.get("relation"):
-        nt, rel = slots["node_type"], slots["relation"]
-        if nt not in {n.get("type") for n in g.by_id.values()}:   # validate against the graph
+        if not (ok_type(slots["node_type"]) and ok_rel(slots["relation"])):
             return None
-        r = orphans(g, nt, rel, "out" if direction == "both" else direction)
+        r = orphans(g, slots["node_type"], slots["relation"], "out" if direction == "both" else direction)
+    elif t == "aggregate" and (slots.get("a") or slots.get("node_type") or slots.get("relation")):
+        if not (ok_type(slots.get("node_type")) and ok_rel(slots.get("relation"))):
+            return None
+        r = aggregate(g, slots.get("node_type"), slots.get("relation"), direction, slots.get("a"))
+    elif t == "filter" and (slots.get("source_type") or slots.get("relation") or slots.get("target_type")):
+        if not (ok_type(slots.get("source_type")) and ok_type(slots.get("target_type")) and ok_rel(slots.get("relation"))):
+            return None
+        r = filter_edges(g, slots.get("source_type"), slots.get("relation"), slots.get("target_type"))
     else:
         return None
     return r
@@ -282,5 +364,6 @@ def answer(question: str, backend: str = "cli", model=None) -> Optional[dict]:
         return None
     r = run_slots(slots, backend, model)
     if r is not None:
-        r["slots"] = {k: slots.get(k) for k in ("template", "a", "b", "node_type", "relation", "direction")}
+        r["slots"] = {k: slots.get(k) for k in
+                      ("template", "a", "b", "node_type", "source_type", "target_type", "relation", "direction")}
     return r

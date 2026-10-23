@@ -63,37 +63,6 @@ def _load_json(name: str, default):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else default
 
 
-def _menu_node_types() -> dict:
-    mpath = Path(os.environ.get("EAWIKI_MENU", "data/togaf92_metamodel.json"))
-    return json.loads(mpath.read_text(encoding="utf-8")).get("node_types", {}) if mpath.exists() else {}
-
-
-def _subgraph_view(node_id: str):
-    """A render-ready 1-hop neighbourhood of `node_id` (same {nodes,edges} shape as
-    /api/map) so a graph-routed answer can show the slice of the graph it used. Built
-    from graph.json (the source of truth), not the live traversal — the centre node is
-    flagged member:1, its neighbours member:0 (drawn as context)."""
-    g = _load_json("graph.json", {"nodes": [], "edges": []})
-    by_id = {n["node_id"]: n for n in g["nodes"]}
-    if node_id not in by_id:
-        return None
-    menu = _menu_node_types()
-    touch = [e for e in g["edges"]
-             if (e.get("source") == node_id or e.get("target") == node_id)
-             and e.get("source") != e.get("target")]
-    ids = {node_id}
-    for e in touch:
-        ids.update((e["source"], e["target"]))
-    nodes = [{"id": nid, "name": by_id[nid].get("name", nid),
-              "type": by_id[nid].get("type", "element"),
-              "domain": (menu.get(by_id[nid].get("type", ""), {}) or {}).get("domain", "Other"),
-              "member": 1 if nid == node_id else 0}
-             for nid in ids if nid in by_id]
-    edges = [{"source": e["source"], "target": e["target"],
-              "relation": e.get("relation", "associated_with")} for e in touch]
-    return {"nodes": nodes, "edges": edges, "center": node_id} if len(nodes) > 1 else None
-
-
 # --- models --------------------------------------------------------------
 class AskReq(BaseModel):
     question: str
@@ -116,19 +85,13 @@ def ask(req: AskReq):
     from eawiki.query.ask import ask as run
     out = run(req.question, k=req.k, backend=API_BACKEND, kinds=req.kinds,
               use_llm=True, safety_llm=req.safety, history=req.history)
-    # One graph for display, from a single source. A structured graph-query result
-    # already carries render-ready nodes/edges; otherwise fall back to the 1-hop slice.
+    # One graph for display, from the SAME result the answer was grounded in (the graph
+    # query engine), so the picture and the answer can never disagree.
     gr = out.get("graph_result")
     if gr and gr.get("nodes"):
         out["graph"] = {"nodes": gr["nodes"], "edges": gr["edges"],
                         "center": (gr.get("centers") or [None])[0],
                         "template": gr.get("template"), "summary": gr.get("summary")}
-    else:
-        sg = out.get("subgraph") or {}
-        if sg.get("node_id"):
-            gv = _subgraph_view(sg["node_id"])
-            if gv:
-                out["graph"] = gv
     return {k: v for k, v in out.items() if k != "context"}
 
 

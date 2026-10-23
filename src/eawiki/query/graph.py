@@ -113,28 +113,39 @@ def n_route(s: QAState) -> dict:
 
 # Analytic wording that warrants a structured graph query even when the keyword router
 # did not pick the "graph" strategy (e.g. "capabilities with no owner" routes vector).
-_GQ_HINTS = ("retire", "impact", "affect", "depend", "break", "without", "no owner",
-             "no owning", "missing", "orphan", "path", "connect", "related", "reach",
-             "how does", "owned by", "who owns", "upstream", "downstream")
+# Covers impact/path language, the relation vocabulary (own/suppl/send/serve/access/…),
+# and aggregation words (most/how many/count/rank) so filter + aggregate questions fire.
+_GQ_HINTS = (
+    "retire", "impact", "affect", "depend", "break", "without", "missing", "orphan",
+    "path", "connect", "related", "relationship", "reach", "upstream", "downstream",
+    "how does", "no owner", "no owning",
+    # relation vocabulary
+    "own", "suppl", "send", "data to", "resid", "access", "serve", "realiz",
+    "communicat", "trigger", "contribut",
+    # aggregation
+    "most", "least", "how many", "number of", "count", "rank", "top ", "list all",
+)
 
 
 def n_graphquery(s: QAState) -> dict:
-    """Try a whitelisted graph template (path / impact / orphans / neighbors). The LLM
-    only classifies + fills typed slots; the traversal is fixed code over graph.json.
-    One result feeds the answer (facts), the citations (block_ids) and the UI (nodes)."""
-    if not s.get("use_llm", True):
-        return {}
+    """The single graph layer for both the answer and the UI. Try a whitelisted template
+    (path / impact / orphans / aggregate / filter / neighbors): the LLM only classifies +
+    fills typed slots; the traversal is fixed code over graph.json. One result feeds the
+    answer (facts), the citations (block_ids) and the UI (nodes) — so view and retrieval
+    cannot disagree."""
     q = (s.get("search_question") or s["question"])
     strat = s.get("route", {}).get("strategy")
-    if strat not in ("graph", "browse") and not any(h in q.lower() for h in _GQ_HINTS):
-        return {}
     r = None
-    try:
-        r = gq.answer(q, s.get("backend", "cli"), s.get("model"))
-    except Exception:
-        r = None
-    # Deterministic fallback for a plain entity question the classifier didn't template.
-    if (r is None or r.get("template") == "neighbors" and not r.get("found")) and strat in ("graph", "browse"):
+    # LLM slot-fill for analytic questions (skipped in no-llm mode).
+    if s.get("use_llm", True) and (strat in ("graph", "browse")
+                                   or any(h in q.lower() for h in _GQ_HINTS)):
+        try:
+            r = gq.answer(q, s.get("backend", "cli"), s.get("model"))
+        except Exception:
+            r = None
+    # Deterministic 1-hop fallback for a plain entity question (no LLM needed) — this is
+    # what replaced the old ArcadeDB subgraph + _subgraph_view two-source path.
+    if (r is None or (r.get("template") == "neighbors" and not r.get("found"))) and strat in ("graph", "browse"):
         try:
             g = gq._load()
             hits = sorted((nid for nid, n in g.by_id.items()
@@ -144,7 +155,7 @@ def n_graphquery(s: QAState) -> dict:
                 r = gq.neighbors(g, hits[0])
         except Exception:
             pass
-    if r and (r.get("found", True) or r.get("template") in ("path", "impact", "orphans")):
+    if r and (r.get("found", True) or r.get("template") in ("path", "impact", "orphans", "filter")):
         return {"graph_result": r}
     return {}
 
@@ -153,7 +164,6 @@ def n_retrieve(s: QAState) -> dict:
     r = _retriever()
     q = s.get("search_question") or s["question"]
     blocks = r.vector_search(q, k=s.get("k", 8), kinds=s.get("kinds"))
-    subgraph = None
     gqr = s.get("graph_result")
     if gqr and gqr.get("block_ids"):
         # Structured graph answer: lead with its cited blocks, keep vector hits as backup.
@@ -161,13 +171,6 @@ def n_retrieve(s: QAState) -> dict:
         if ev:
             seen = {b["block_id"] for b in ev}
             blocks = ev + [b for b in blocks if b["block_id"] not in seen]
-    elif s["route"]["strategy"] in ("graph", "browse"):
-        ents = r.entities_in_question(q)
-        if ents:
-            subgraph = r.subgraph(ents[0]["node_id"])
-            ev = r.blocks_by_ids(subgraph.get("blocks", []))
-            if ev:
-                blocks = ev
     block_ids = [b["block_id"] for b in blocks]
     # Context by question type: GLOBAL → the Step-8 community summaries (condensed,
     # thematic — the right source for whole-landscape questions), falling back to the
@@ -177,7 +180,7 @@ def n_retrieve(s: QAState) -> dict:
         page = ew._community_summaries() or (ew._all_wiki() if ew._wiki_fits() else "")
     else:
         page = ew._pages_from_blocks(block_ids, limit=2)
-    return {"_block_objs": blocks, "blocks": block_ids, "subgraph": subgraph, "page": page}
+    return {"_block_objs": blocks, "blocks": block_ids, "subgraph": None, "page": page}
 
 
 def n_relevance(s: QAState) -> dict:
