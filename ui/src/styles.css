@@ -1,13 +1,13 @@
 /* Layout: slim left icon-rail + a single scrolling view area; each feature is one view. */
 :root{
-  --bg:#f7f8fc; --surface:#fff; --surface-2:#eef0f7; --surface-3:#e4e7f1;
-  --border:#e4e6f1; --border-strong:#cdd1e3;
-  --fg:#171a2b; --fg-muted:#5a6078; --fg-faint:#8b90a8;
-  --accent:#6d5efc; --accent-2:#8b5cf6; --accent-fg:#fff; --accent-soft:#ece9ff;
-  --grad:linear-gradient(135deg,#6d5efc,#8b5cf6);
+  --bg:#f3f8f7; --surface:#fff; --surface-2:#e8f1ef; --surface-3:#dde9e6;
+  --border:#dce8e5; --border-strong:#c2d5d0;
+  --fg:#16211f; --fg-muted:#566460; --fg-faint:#869490;
+  --accent:#0d9488; --accent-2:#10b981; --accent-fg:#fff; --accent-soft:#d6f1eb;
+  --grad:linear-gradient(135deg,#0d9488,#10b981);
   --ok:#1f9d57; --ok-soft:#e3f5ea; --warn:#bd7d12; --warn-soft:#f8efd9;
   --crit:#e2483a; --crit-soft:#fbe6e3;
-  --l-strategy:#8b5cf6; --l-business:#0ea5a3; --l-application:#6d5efc;
+  --l-strategy:#8b5cf6; --l-business:#2563eb; --l-application:#0d9488;
   --l-technology:#c07d12; --l-security:#db2777;
   --shadow:0 1px 2px rgba(30,25,70,.05),0 8px 24px rgba(30,25,70,.08);
   --radius:12px; --radius-sm:8px;
@@ -17,27 +17,27 @@
   --serif:"IBM Plex Serif",Georgia,serif;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0f1117; --surface:#171a23; --surface-2:#1f2330; --surface-3:#282d3d;
-  --border:#2a2f3e; --border-strong:#3a4053;
-  --fg:#e8eaf2; --fg-muted:#9aa0b6; --fg-faint:#6b7187;
-  --accent:#8b7cff; --accent-2:#a78bfa; --accent-fg:#0b0d14; --accent-soft:#201d3a;
-  --grad:linear-gradient(135deg,#8b7cff,#a78bfa);
+  --bg:#0b1413; --surface:#11201d; --surface-2:#192b27; --surface-3:#233a34;
+  --border:#233631; --border-strong:#35504a;
+  --fg:#e6efec; --fg-muted:#93a49f; --fg-faint:#657772;
+  --accent:#2dd4bf; --accent-2:#34d399; --accent-fg:#06110f; --accent-soft:#11302b;
+  --grad:linear-gradient(135deg,#2dd4bf,#34d399);
   --ok:#4fc07d; --ok-soft:#133022; --warn:#d79a3f; --warn-soft:#2f2611;
   --crit:#e86a5a; --crit-soft:#331814;
-  --l-strategy:#a78bfa; --l-business:#2dd4bf; --l-application:#8b7cff;
+  --l-strategy:#a78bfa; --l-business:#60a5fa; --l-application:#2dd4bf;
   --l-technology:#e0a94f; --l-security:#f472b6;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.4);
   color-scheme:dark;
 }}
 :root[data-theme="dark"]{
-  --bg:#0f1117; --surface:#171a23; --surface-2:#1f2330; --surface-3:#282d3d;
-  --border:#2a2f3e; --border-strong:#3a4053;
-  --fg:#e8eaf2; --fg-muted:#9aa0b6; --fg-faint:#6b7187;
-  --accent:#8b7cff; --accent-2:#a78bfa; --accent-fg:#0b0d14; --accent-soft:#201d3a;
-  --grad:linear-gradient(135deg,#8b7cff,#a78bfa);
+  --bg:#0b1413; --surface:#11201d; --surface-2:#192b27; --surface-3:#233a34;
+  --border:#233631; --border-strong:#35504a;
+  --fg:#e6efec; --fg-muted:#93a49f; --fg-faint:#657772;
+  --accent:#2dd4bf; --accent-2:#34d399; --accent-fg:#06110f; --accent-soft:#11302b;
+  --grad:linear-gradient(135deg,#2dd4bf,#34d399);
   --ok:#4fc07d; --ok-soft:#133022; --warn:#d79a3f; --warn-soft:#2f2611;
   --crit:#e86a5a; --crit-soft:#331814;
-  --l-strategy:#a78bfa; --l-business:#2dd4bf; --l-application:#8b7cff;
+  --l-strategy:#a78bfa; --l-business:#60a5fa; --l-application:#2dd4bf;
   --l-technology:#e0a94f; --l-security:#f472b6;
   --shadow:0 1px 2px rgba(0,0,0,.3),0 8px 26px rgba(0,0,0,.4);
   color-scheme:dark;
