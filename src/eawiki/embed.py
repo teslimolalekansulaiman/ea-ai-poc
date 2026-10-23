@@ -298,6 +298,30 @@ def write_index(records: list[dict], embedder: Embedder, out_path: Path,
     meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+def _reuse_index(out_path: Path, meta_path: Path, embedder: "Embedder", params: dict) -> dict:
+    """Load the previous index as {unit_id: record}, but ONLY if its embedder config
+    matches the current one — a vector from a different model/dim/chunking is not
+    comparable and must not be reused."""
+    if not (out_path.exists() and meta_path.exists()):
+        return {}
+    try:
+        m = json.loads(meta_path.read_text(encoding="utf-8"))
+        mp = m.get("params") or {}
+        if (m.get("backend") != embedder.name or m.get("model") != embedder.model
+                or int(m.get("dim", 0)) != embedder.dim
+                or mp.get("max_chars") != params["max_chars"]
+                or mp.get("overlap") != params["overlap"]):
+            return {}
+        reuse: dict = {}
+        with out_path.open(encoding="utf-8") as f:
+            for line in f:
+                r = json.loads(line)
+                reuse[r["id"]] = r
+        return reuse
+    except Exception:
+        return {}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Step 5 — embed blocks into a vector index")
     ap.add_argument("--in", dest="in_dir", default="data/blocks")
@@ -316,6 +340,8 @@ def main() -> None:
     ap.add_argument("--max-chars", type=int, default=MAX_CHARS)
     ap.add_argument("--overlap", type=int, default=OVERLAP)
     ap.add_argument("--only-doc", default=None, help="embed only this doc_id (incremental)")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="re-embed every unit even if an unchanged vector exists in the old index")
     args = ap.parse_args()
 
     blocks: list[Block] = []
@@ -330,9 +356,28 @@ def main() -> None:
     embedder = get_embedder(args.backend, args.model, args.dim, args.batch_size)
     print(f"model: {embedder.model}   dim: {embedder.dim}")
 
-    records = embed_units(units, embedder)
     params = {"max_chars": args.max_chars, "overlap": args.overlap,
               "skip_types": list(SKIP_TYPES), "only_doc": args.only_doc}
+
+    # Cache: a unit's vector depends only on its text and the embedder config, so reuse
+    # the old index's vector for any unit whose id + text are unchanged (only when the
+    # embedder model/dim/chunking match). Only the misses hit the model — so adding or
+    # removing one document re-embeds that document's blocks, not all of them.
+    reuse = _reuse_index(Path(args.out), Path(args.meta), embedder, params) if not args.no_cache else {}
+    hit_ids = {u["id"] for u in units
+               if u["id"] in reuse and reuse[u["id"]].get("text") == u["text"]
+               and reuse[u["id"]].get("embedding")}
+    miss = [u for u in units if u["id"] not in hit_ids]
+    fresh = {r["id"]: r for r in embed_units(miss, embedder)}
+    records = []
+    for u in units:
+        if u["id"] in hit_ids:
+            rec = dict(u); rec["embedding"] = reuse[u["id"]]["embedding"]
+            records.append(rec)
+        else:
+            records.append(fresh[u["id"]])
+    print(f"cache: reused {len(hit_ids)}   embedded {len(miss)}")
+
     write_index(records, embedder, Path(args.out), Path(args.meta), params)
 
     n_chunked = sum(1 for r in records if r["n_chunks"] > 1)

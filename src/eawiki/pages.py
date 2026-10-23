@@ -26,7 +26,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from eawiki.blocks import Block, load_blocks
+from eawiki.blocks import Block, content_hash, load_blocks
 from eawiki.subjects import llm_text, _extract_json, _norm, llm_json
 from eawiki.tables import _vocab, _validate_llm_facts, _SECURITY_RULE, _PREDICATE_RULE
 
@@ -68,10 +68,9 @@ def _injected_facts(name: str, facts_1b: dict) -> str:
     return "\n".join(out) or "(none from tables)"
 
 
-def extract_page(subject: dict, by_id: dict[str, Block], facts_1b: dict,
-                 menu: dict, backend: str, model) -> dict:
+def _page_prompt(subject: dict, by_id: dict[str, Block], facts_1b: dict, menu: dict) -> str:
     name, stype, kind = subject["name"], subject.get("type"), subject.get("kind")
-    prompt = f"""You are writing ONE page of an enterprise-architecture wiki, and extracting the relationships it states. Output ONE JSON object and nothing else.
+    return f"""You are writing ONE page of an enterprise-architecture wiki, and extracting the relationships it states. Output ONE JSON object and nothing else.
 
 Subject: "{name}"  (type: {stype}, kind: {kind})
 
@@ -103,6 +102,8 @@ Rules:
 {_SECURITY_RULE}
 {_PREDICATE_RULE}"""
 
+
+def _run_page(prompt: str, menu: dict, backend: str, model) -> dict:
     out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):
         raise ValueError("page extractor did not return a JSON object")
@@ -111,6 +112,11 @@ Rules:
     out.setdefault("nodes", [])
     _validate_llm_facts(menu, out["nodes"], out["edges"])
     return out
+
+
+def extract_page(subject: dict, by_id: dict[str, Block], facts_1b: dict,
+                 menu: dict, backend: str, model) -> dict:
+    return _run_page(_page_prompt(subject, by_id, facts_1b, menu), menu, backend, model)
 
 
 def main() -> None:
@@ -127,6 +133,9 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0, help="cap number of subjects (0 = all)")
     ap.add_argument("--workers", type=int, default=6,
                     help="concurrent subjects (each is one claude -p call); 1 = sequential")
+    ap.add_argument("--cache-dir", default="data/graph/pages_cache",
+                    help="reuse a subject's page+triples when its prompt is unchanged")
+    ap.add_argument("--no-cache", action="store_true", help="regenerate every page")
     args = ap.parse_args()
 
     menu = json.loads(Path(args.menu).read_text(encoding="utf-8"))
@@ -145,11 +154,28 @@ def main() -> None:
 
     pages_dir = Path(args.pages_dir)
     pages_dir.mkdir(parents=True, exist_ok=True)
+    cache_dir = Path(args.cache_dir)
     results: list[tuple[dict, dict]] = []  # (subject, out)
     written = 0
+    cached = 0
 
-    def _do(s: dict) -> tuple[dict, dict]:
-        return s, extract_page(s, by_id, facts_1b, menu, args.backend, args.model)
+    # Cache key = the fully rendered prompt + backend/model. It folds in the subject's
+    # blocks, its table facts and the metamodel vocabulary, so the page is reused only
+    # when none of those changed — a document add/remove regenerates just the subjects it
+    # touched, and a metamodel edit (changing the vocabulary) regenerates all of them.
+    def _do(s: dict) -> tuple[dict, dict, bool]:
+        prompt = _page_prompt(s, by_id, facts_1b, menu)
+        key = content_hash(prompt, args.backend, args.model or "")
+        cf = cache_dir / f"{key}.json"
+        if not args.no_cache and cf.exists():
+            try:
+                return s, json.loads(cf.read_text(encoding="utf-8")), True
+            except Exception:
+                pass
+        out = _run_page(prompt, menu, args.backend, args.model)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        cf.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")
+        return s, out, False
 
     # Each subject is an independent claude -p call -> run them concurrently.
     # Page files have distinct paths (write in worker); facts are collected and
@@ -160,16 +186,17 @@ def main() -> None:
         for fut in as_completed(futs):
             s = futs[fut]
             try:
-                _, out = fut.result()
+                _, out, hit = fut.result()
             except Exception as exc:
                 print(f"  ! {s['name']}: failed ({type(exc).__name__}: {str(exc)[:90]}) — skipped")
                 continue
+            cached += 1 if hit else 0
             page = out["page_markdown"].strip()
             if page:
                 (pages_dir / f"{_slug(s['name'])}.md").write_text(page + "\n", encoding="utf-8")
                 written += 1
             results.append((s, out))
-            print(f"  {s['name']:32s} page={'yes' if page else 'no ':3}  "
+            print(f"  {s['name']:32s} {'cache' if hit else 'fresh'}  page={'yes' if page else 'no ':3}  "
                   f"edges={len(out['edges']):2d}  nodes+={len(out['nodes'])}")
 
     # Stable, review-friendly output: order facts by subject, not completion order.
@@ -184,7 +211,7 @@ def main() -> None:
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(
         {"nodes": all_nodes, "edges": all_edges}, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\npages written: {written} -> {pages_dir}")
+    print(f"\npages written: {written} -> {pages_dir}  (cache: {cached} reused, {len(results) - cached} generated)")
     print(f"3a text facts: {len(all_nodes)} nodes, {len(all_edges)} edges -> {args.out}")
 
 
