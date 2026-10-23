@@ -4,6 +4,7 @@ import { HashRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './styles.css'
 import App from './App'
 import { CiteProvider } from './cite'
+import { ChatsProvider } from './chats'
 import Ask from './views/Ask'
 import Wiki from './views/Wiki'
 import MapView from './views/MapView'
@@ -17,6 +18,7 @@ createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <CiteProvider>
       <HashRouter>
+       <ChatsProvider>
         <Routes>
           <Route path="/" element={<App />}>
             <Route index element={<Navigate to="/ask" replace />} />
@@ -31,6 +33,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="model" element={<Model />} />
           </Route>
         </Routes>
+       </ChatsProvider>
       </HashRouter>
     </CiteProvider>
   </React.StrictMode>

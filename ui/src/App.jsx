@@ -1,4 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { useState } from 'react'
+import { useChats } from './chats'
 
 const NAV = [
   ['ask', 'Ask', 'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'],
@@ -21,23 +23,48 @@ function toggleTheme() {
 try { const t = localStorage.getItem('aa-theme'); if (t) document.documentElement.setAttribute('data-theme', t) } catch {}
 
 export default function App() {
+  const { chats, activeChatId, openChat, newChat } = useChats()
+  const [recents, setRecents] = useState(true)
+
   return (
     <div className="app">
-      <nav className="rail" aria-label="Primary">
-        <div className="brand" title="Architecture Atlas">AA</div>
-        {NAV.map(([to, label, d]) => (
-          <NavLink key={to} to={'/' + to} className="navbtn" title={label}>
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={d} /></svg>{label}
-          </NavLink>
-        ))}
-        <div className="spacer" />
-        <button className="iconbtn" onClick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
+      <aside className="sidebar" aria-label="Primary">
+        <div className="side-brand"><span className="brand">AA</span><span className="side-title">Architecture Atlas</span></div>
+
+        <button className="btn primary side-new" onClick={newChat}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 5v14M5 12h14" /></svg>
+          New chat
+        </button>
+
+        <nav className="side-nav">
+          {NAV.map(([to, label, d]) => (
+            <NavLink key={to} to={'/' + to} className="side-link" title={label}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d={d} /></svg>
+              <span>{label}</span>
+            </NavLink>
+          ))}
+        </nav>
+
+        <button className="side-recents" onClick={() => setRecents(r => !r)} aria-expanded={recents}>
+          <span>Recents</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={recents ? 'open' : ''}><path d="M6 9l6 6 6-6" /></svg>
+        </button>
+
+        <div className="side-history">
+          {recents && (chats.length === 0
+            ? <div className="chat-empty">No conversations yet.</div>
+            : chats.map(c => (
+              <button key={c.id} className={'chat-item' + (c.id === activeChatId ? ' active' : '')} onClick={() => openChat(c.id)}>
+                <span className="t">{c.title}</span>
+              </button>
+            )))}
+        </div>
+
+        <button className="iconbtn side-theme" onClick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>
         </button>
-      </nav>
-      <div className="view-area">
-        <Outlet />
-      </div>
+      </aside>
+      <div className="view-area"><Outlet /></div>
     </div>
   )
 }
