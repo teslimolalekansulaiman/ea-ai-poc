@@ -225,39 +225,50 @@ def _degree_edges(g: _Graph, nid: str, relation: Optional[str], direction: str) 
 
 
 def aggregate(g: _Graph, node_type: Optional[str] = None, relation: Optional[str] = None,
-              direction: str = "both", entity: Optional[str] = None, top: int = 10) -> dict:
+              direction: str = "both", entity: Optional[str] = None,
+              target_type: Optional[str] = None, top: int = 10) -> dict:
     """Count / rank. With `entity`: how many matching links it has (e.g. 'how many
-    systems does Finance own'). Without: rank entities by connection count, optionally
-    scoped to a node type and/or relation (e.g. 'most connected application')."""
+    capabilities does Finance own'). Without: rank entities by connection count. In both
+    cases `relation` and `target_type` (the type of the OTHER endpoint) narrow what counts,
+    so 'how many capabilities' only tallies edges whose other end is a capability."""
+    def other(e: dict, cur: str) -> str:
+        return e["target"] if e["source"] == cur else e["source"]
+
+    def keep(e: dict, cur: str) -> bool:
+        return ((not relation or e.get("relation") == relation)
+                and (not target_type or g.by_id.get(other(e, cur), {}).get("type") == target_type))
+
+    tt = f" {target_type.replace('_', ' ')}" if target_type else ""
     if entity:
         sid = g.resolve(entity)
         if not sid:
             return _result(g, "aggregate", [], [], [], "", f"Could not find '{entity}'.", found=False)
         pool = []
         if direction in ("out", "both"):
-            pool += [(e, e["target"]) for e in g.out.get(sid, []) if not relation or e.get("relation") == relation]
+            pool += [(e, e["target"]) for e in g.out.get(sid, []) if keep(e, sid)]
         if direction in ("in", "both"):
-            pool += [(e, e["source"]) for e in g.inc.get(sid, []) if not relation or e.get("relation") == relation]
+            pool += [(e, e["source"]) for e in g.inc.get(sid, []) if keep(e, sid)]
         used = [e for e, _ in pool]
         ids = {sid} | {o for _, o in pool}
         rel = relation or "any"
-        facts = (f"{g.name(sid)} has {len(used)} '{rel}' relationship(s) ({direction}):\n"
+        facts = (f"{g.name(sid)} has {len(used)} '{rel}'{tt} relationship(s) ({direction}):\n"
                  + "\n".join(_edge_line(g, e) for e in used)) if used else \
-                f"{g.name(sid)} has no '{rel}' relationships ({direction})."
+                f"{g.name(sid)} has no '{rel}'{tt} relationships ({direction})."
         return _result(g, "aggregate", [sid], ids, used, facts,
-                       f"{g.name(sid)}: {len(used)} '{rel}' link(s).")
+                       f"{g.name(sid)}: {len(used)} '{rel}'{tt} link(s).")
+
     cand = [nid for nid, n in g.by_id.items() if not node_type or n.get("type") == node_type]
-    scored = [(nid, len(_degree_edges(g, nid, relation, direction))) for nid in cand]
-    scored = sorted([s for s in scored if s[1] > 0], key=lambda s: s[1], reverse=True)[:max(1, top)]
+    scored = [(nid, [e for e in _degree_edges(g, nid, relation, direction) if keep(e, nid)]) for nid in cand]
+    scored = sorted([(nid, es) for nid, es in scored if es], key=lambda s: len(s[1]), reverse=True)[:max(1, top)]
     label = (node_type.replace("_", " ") + " ") if node_type else ""
     rel = f" by '{relation}'" if relation else ""
-    facts = (f"{label}entities ranked by connection count{rel} ({direction}):\n"
-             + "\n".join(f"- {g.name(nid)}: {n}" for nid, n in scored)) if scored else \
-            f"No {label}entities with '{relation or 'any'}' relationships."
+    facts = (f"{label}entities ranked by{tt} connection count{rel} ({direction}):\n"
+             + "\n".join(f"- {g.name(nid)}: {len(es)}" for nid, es in scored)) if scored else \
+            f"No {label}entities with matching relationships."
     ids = {nid for nid, _ in scored}
     used = [e for e in g.edges if e["source"] in ids and e["target"] in ids]
     return _result(g, "aggregate", [scored[0][0]] if scored else [], ids, used, facts,
-                   f"Top {len(scored)} {label}by connections{rel}.")
+                   f"Top {len(scored)} {label}by{tt} connections{rel}.")
 
 
 def filter_edges(g: _Graph, source_type: Optional[str] = None, relation: Optional[str] = None,
@@ -299,7 +310,7 @@ Templates:
 - "path": how two entities are connected. Slots: a (entity), b (entity).
 - "impact": what is affected by / connected to one entity across multiple hops (e.g. "what breaks if we retire X"). Slots: a (entity), direction (in|out|both).
 - "orphans": entities of a type that are MISSING a relationship (e.g. "capabilities with no owner"). Slots: node_type, relation, direction (in|out).
-- "aggregate": count or rank by number of connections (e.g. "most connected system", "how many systems does Finance own"). Slots: a (entity, only when counting ONE entity's links), node_type (to rank within a type), relation, direction.
+- "aggregate": count or rank by number of connections (e.g. "most connected system", "how many capabilities does Finance own"). Slots: a (entity, only when counting ONE entity's links), node_type (to rank within a type), relation, target_type (the type of the things being counted — e.g. for "how many CAPABILITIES does X own", target_type = business_capability), direction.
 - "filter": all relationships matching a structural pattern (e.g. "which applications send data to a data store"). Slots: source_type, relation, target_type.
 - "none": the question is not a structural graph query (summaries, definitions, free text).
 
@@ -345,9 +356,10 @@ def run_slots(slots: dict, backend: str = "cli", model=None) -> Optional[dict]:
             return None
         r = orphans(g, slots["node_type"], slots["relation"], "out" if direction == "both" else direction)
     elif t == "aggregate" and (slots.get("a") or slots.get("node_type") or slots.get("relation")):
-        if not (ok_type(slots.get("node_type")) and ok_rel(slots.get("relation"))):
+        if not (ok_type(slots.get("node_type")) and ok_type(slots.get("target_type")) and ok_rel(slots.get("relation"))):
             return None
-        r = aggregate(g, slots.get("node_type"), slots.get("relation"), direction, slots.get("a"))
+        r = aggregate(g, slots.get("node_type"), slots.get("relation"), direction,
+                      slots.get("a"), slots.get("target_type"))
     elif t == "filter" and (slots.get("source_type") or slots.get("relation") or slots.get("target_type")):
         if not (ok_type(slots.get("source_type")) and ok_type(slots.get("target_type")) and ok_rel(slots.get("relation"))):
             return None
