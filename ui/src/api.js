@@ -23,6 +23,8 @@ export const api = {
   graph: (name) => J('/api/graph?name=' + encodeURIComponent(name)),
   kb: (q, k = 8) => J('/api/kb?q=' + encodeURIComponent(q) + '&k=' + k),
   docs: () => J('/api/docs'),
+  addDoc: (file) => { const fd = new FormData(); fd.append('file', file); return J('/api/docs/add', { method: 'POST', body: fd }) },
+  removeDoc: (docId) => J('/api/docs/' + encodeURIComponent(docId), { method: 'DELETE' }),
   block: (id) => J('/api/block/' + encodeURIComponent(id)),
 
   usecases: () => J('/api/usecases'),

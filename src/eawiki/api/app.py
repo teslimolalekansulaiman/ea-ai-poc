@@ -19,7 +19,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -189,10 +189,13 @@ def kb(q: str, k: int = 10, kinds: Optional[str] = None):
 
 
 BLOCKS_DIR = Path(os.environ.get("EAWIKI_BLOCKS", "data/blocks"))
+SAMPLES = Path(os.environ.get("EAWIKI_SAMPLES", "docs/samples"))
+ARCHIVE = Path(os.environ.get("EAWIKI_ARCHIVE", "docs/_archive"))
 
 
-@lru_cache(maxsize=1)
 def _block_files():
+    # Read fresh each call — a re-ingest rewrites this directory, so caching would
+    # serve a stale document list after an add/remove.
     return sorted(glob.glob(f"{BLOCKS_DIR}/*.blocks.json"))
 
 
@@ -208,6 +211,44 @@ def docs():
                     "blocks": len(blocks), "kind": kind,
                     "counts": d.get("counts", {})})
     return {"docs": out}
+
+
+@app.post("/api/docs/add")
+async def docs_add(file: UploadFile = File(...)):
+    """Add a source .docx to the ingest set and kick off a (clean) full re-ingest.
+    Add is not purely additive: the graph is deduped and the wiki/community summaries
+    are cross-document, so everything downstream is rebuilt from the whole set."""
+    from eawiki import pipeline
+    if pipeline.status().get("running"):
+        raise HTTPException(409, "A re-ingest is already running; wait for it to finish.")
+    name = Path(file.filename or "").name            # strip any path components
+    if not name.lower().endswith(".docx"):
+        raise HTTPException(400, "Only .docx documents are supported.")
+    SAMPLES.mkdir(parents=True, exist_ok=True)
+    (SAMPLES / name).write_bytes(await file.read())
+    return {"ok": True, "doc_id": Path(name).stem, "reingest": pipeline.run_async()}
+
+
+@app.delete("/api/docs/{doc_id}")
+def docs_remove(doc_id: str):
+    """Remove a document: archive its source .docx out of the ingest set and rebuild.
+    The re-ingest clears derived outputs first, so the doc's blocks, graph contribution
+    and wiki page all disappear; shared entities keep their other evidence."""
+    from eawiki import pipeline
+    if pipeline.status().get("running"):
+        raise HTTPException(409, "A re-ingest is already running; wait for it to finish.")
+    safe = Path(doc_id).name
+    matches = [p for p in SAMPLES.rglob("*.docx") if p.stem == safe]
+    if not matches:
+        raise HTTPException(404, f"no source document '{doc_id}'")
+    remaining = [p for p in SAMPLES.rglob("*.docx") if p.stem != safe]
+    if not remaining:
+        raise HTTPException(400, "Cannot remove the last document — the knowledge base would be empty.")
+    ARCHIVE.mkdir(parents=True, exist_ok=True)
+    for p in matches:
+        p.rename(ARCHIVE / p.name)
+    return {"ok": True, "doc_id": safe, "archived": [p.name for p in matches],
+            "reingest": pipeline.run_async()}
 
 
 @app.get("/api/block/{block_id:path}")

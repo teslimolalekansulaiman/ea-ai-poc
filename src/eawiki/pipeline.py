@@ -11,6 +11,7 @@ re-run `eawiki.figures` separately with a vision-capable setup if diagrams chang
 
 from __future__ import annotations
 
+import glob
 import os
 import subprocess
 import sys
@@ -18,6 +19,21 @@ import threading
 import time
 
 _STATUS: dict = {"running": False, "done": False, "error": None, "steps": [], "started": None}
+
+# Per-item outputs that parse/pages WRITE but never clean up. Clearing them before a
+# rebuild keeps the projection consistent: parse regenerates a block file only for each
+# .docx still in docs/samples/, and pages regenerates a page only for each current
+# subject — so a removed document's blocks and wiki page disappear instead of lingering.
+_CLEAN_GLOBS = ("data/blocks/*.blocks.json", "data/pages/*.md")
+
+
+def _clean_derived() -> None:
+    for pat in _CLEAN_GLOBS:
+        for f in glob.glob(pat):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
 
 STEPS = [
     ("parse",     [sys.executable, "-m", "eawiki.parse"]),
@@ -42,6 +58,7 @@ def run_async() -> dict:
         _STATUS.update(running=True, done=False, error=None,
                        steps=[{"step": n, "state": "pending"} for n, _ in STEPS],
                        started=time.time())
+        _clean_derived()   # start from a clean slate so removed docs leave nothing behind
         env = {**os.environ, "PYTHONPATH": os.environ.get("PYTHONPATH", "src")}
         for i, (name, cmd) in enumerate(STEPS):
             _STATUS["steps"][i]["state"] = "running"

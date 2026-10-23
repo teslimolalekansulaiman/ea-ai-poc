@@ -89,6 +89,10 @@ button{font-family:inherit}
 .btn:hover{background:var(--surface-2)}
 .btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .btn.primary:hover{filter:brightness(1.07)}
+.btn.danger{color:var(--crit);border-color:var(--border)}
+.btn.danger:hover{background:var(--crit);color:#fff;border-color:var(--crit)}
+.btn.sm{padding:4px 10px;font-size:12px}
+.btn.disabled,.btn:disabled{opacity:.5;pointer-events:none}
 .btn svg{width:15px;height:15px}
 
 /* ---- ASK ---- */
