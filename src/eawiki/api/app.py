@@ -332,8 +332,66 @@ def usecase_run(uc_id: str, body: RunBody):
         raise HTTPException(404, f"no use case '{uc_id}'")
     from eawiki import obs
     with obs.span(f"usecase:{uc_id}", kind="CHAIN", items=len(body.items)):
-        return executor.run(spec, body.items, backend=API_BACKEND, safety_llm=body.safety,
-                            k=body.k, context_mode=body.context_mode)
+        result = executor.run(spec, body.items, backend=API_BACKEND, safety_llm=body.safety,
+                              k=body.k, context_mode=body.context_mode)
+    try:        # persist the run for the audit trail / History view (best-effort)
+        from eawiki import history
+        status = result.get("status", "done") if isinstance(result, dict) else "done"
+        rec = history.save_run(uc_id, body.items, result, status=status)
+        if isinstance(result, dict):
+            result["run_id"] = rec["id"]
+    except Exception:
+        pass
+    return result
+
+
+# --- history: chats + runs (operational records, SQLite) -----------------
+class ChatBody(BaseModel):
+    id: Optional[str] = None
+    title: Optional[str] = None
+    messages: list
+
+
+@app.post("/api/chats")
+def chat_save(body: ChatBody):
+    from eawiki import history
+    return history.save_chat(body.messages, chat_id=body.id, title=body.title)
+
+
+@app.get("/api/chats")
+def chat_list():
+    from eawiki import history
+    return {"chats": history.list_chats()}
+
+
+@app.get("/api/chats/{chat_id}")
+def chat_get(chat_id: str):
+    from eawiki import history
+    c = history.get_chat(chat_id)
+    if not c:
+        raise HTTPException(404, f"no chat '{chat_id}'")
+    return c
+
+
+@app.delete("/api/chats/{chat_id}")
+def chat_delete(chat_id: str):
+    from eawiki import history
+    return {"deleted": history.delete_chat(chat_id)}
+
+
+@app.get("/api/runs")
+def runs_list(use_case: Optional[str] = None):
+    from eawiki import history
+    return {"runs": history.list_runs(use_case)}
+
+
+@app.get("/api/runs/{run_id}")
+def run_get(run_id: str):
+    from eawiki import history
+    r = history.get_run(run_id)
+    if not r:
+        raise HTTPException(404, f"no run '{run_id}'")
+    return r
 
 
 # --- metamodel (node & edge types) registry ------------------------------

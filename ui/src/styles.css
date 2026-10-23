@@ -126,9 +126,28 @@ select{font-family:inherit;font-size:13px;padding:7px 10px;border:1px solid var(
 
 /* chat layout — composer pinned at bottom, thread scrolls (ask mode) */
 .wrap.chat{display:flex;flex-direction:column;height:100%;padding-block:0;box-sizing:border-box}
-.wrap.chat .view-head{padding-top:28px;flex:0 0 auto}
+.wrap.chat .view-head{padding-top:28px;flex:0 0 auto;margin-bottom:14px}
 .wrap.chat .thread{flex:1 1 auto;overflow-y:auto;min-height:0;margin:0;padding:8px 2px 16px}
 .wrap.chat .composer{flex:0 0 auto;margin-bottom:22px}
+
+/* chat history drawer */
+.chat-shell{display:flex;height:100%;min-height:0}
+.chat-main{flex:1 1 auto;display:flex;flex-direction:column;min-width:0;min-height:0}
+.chat-drawer{flex:0 0 232px;display:flex;flex-direction:column;gap:10px;padding:24px 16px 16px 0;margin-right:16px;border-right:1px solid var(--border);min-height:0}
+.chat-new{justify-content:center;flex:0 0 auto}
+.chat-list{overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:2px}
+.chat-empty{font-size:12px;color:var(--fg-faint);padding:8px 4px}
+.chat-item{display:flex;align-items:center;gap:6px;width:100%;text-align:left;border:none;background:transparent;color:var(--fg-muted);padding:8px 10px;border-radius:var(--radius-sm);cursor:pointer;font-size:12.5px}
+.chat-item:hover{background:var(--surface-2);color:var(--fg)}
+.chat-item.active{background:var(--surface-2);color:var(--fg);font-weight:600}
+.chat-item .t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-item .d{font-size:11px;color:var(--fg-faint);flex:0 0 auto}
+.chat-item .del{flex:0 0 auto;opacity:0;color:var(--fg-faint);font-size:15px;line-height:1;padding:0 2px}
+.chat-item:hover .del{opacity:.7}
+.chat-item .del:hover{opacity:1;color:var(--crit)}
+@media(max-width:720px){
+  .chat-drawer{position:absolute;left:0;top:0;z-index:20;height:100%;width:232px;background:var(--surface);padding-left:16px;box-shadow:var(--shadow)}
+}
 
 /* conversational thread */
 .thread{display:flex;flex-direction:column;gap:14px;margin:20px 0}

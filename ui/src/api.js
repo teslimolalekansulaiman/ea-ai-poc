@@ -42,4 +42,12 @@ export const api = {
   mmEdgeDel: (key) => J('/api/metamodel/edge/' + encodeURIComponent(key), { method: 'DELETE' }),
   reingestRun: () => post('/api/reingest', {}),
   reingestStatus: () => J('/api/reingest/status'),
+
+  // history (chats + runs)
+  chatsList: () => J('/api/chats'),
+  chatGet: (id) => J('/api/chats/' + encodeURIComponent(id)),
+  chatSave: (body) => post('/api/chats', body),
+  chatDelete: (id) => J('/api/chats/' + encodeURIComponent(id), { method: 'DELETE' }),
+  runsList: (useCase) => J('/api/runs' + (useCase ? '?use_case=' + encodeURIComponent(useCase) : '')),
+  runGet: (id) => J('/api/runs/' + encodeURIComponent(id)),
 }
