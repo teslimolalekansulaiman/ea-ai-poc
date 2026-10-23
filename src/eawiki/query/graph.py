@@ -200,11 +200,17 @@ def n_relevance(s: QAState) -> dict:
     if s.get("page"):
         context = ("WIKI (synthesized, connected context — cite the block ids it references, "
                    "not the page):\n" + s["page"] + "\n\n" + context)
-    if gqr:
-        # The structured result is the authoritative answer to a graph question; put it first.
+    if gqr and gqr.get("authoritative", True):
+        # Templates (and VERIFIED generated queries) are the authoritative answer; put first.
         context = (f"GRAPH QUERY RESULT ({gqr.get('template')}, authoritative — this is the "
                    f"structural answer; use the source blocks below for wording and citations):\n"
                    + gqr.get("facts", "") + "\n\n" + context)
+    elif gqr:
+        # Unverified generated query → ABSTAIN from using it: answer from the blocks instead,
+        # and tell the model not to rely on the (surfaced-for-the-human) query.
+        context = ("NOTE: a generated graph query was attempted but could NOT be verified, so "
+                   "do not rely on it; answer only from the source blocks below, and if they are "
+                   "insufficient say so.\n\n" + context)
     return {"context": context}
 
 

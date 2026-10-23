@@ -92,7 +92,7 @@ export default function Ask() {
         <div className="thread">
           {msgs.map((m, i) => (
             <div key={i} className={'turn ' + (m.role === 'user' ? 'user' : 'bot')}>
-              <div className={'bubble' + (m.meta?.graph?.nodes?.length > 1 ? ' wide' : '')}>
+              <div className={'bubble' + (m.meta?.graph ? ' wide' : '')}>
                 {m.role === 'bot' && m.meta && (
                   <div className="answer-meta">
                     <span className={'pill ' + (PILL[m.meta.status] || 'neutral')}>{m.meta.status}</span>
@@ -103,13 +103,29 @@ export default function Ask() {
                 {m.role === 'bot' && m.meta?.search_question && m.meta.search_question !== msgs[i - 1]?.content &&
                   <div className="rewrite">interpreted as: “{m.meta.search_question}”</div>}
                 {m.role === 'bot' ? <Markdown md={m.content} /> : m.content}
-                {m.role === 'bot' && m.meta?.graph?.nodes?.length > 1 && (
+                {m.role === 'bot' && m.meta?.graph && (
                   <div className="ans-graph">
                     <div className="ans-graph-cap">
-                      {m.meta.graph.template && <span className="pill info" style={{ marginRight: 8 }}>{m.meta.graph.template}</span>}
-                      {m.meta.graph.summary || 'Graph used for this answer'} · {m.meta.graph.nodes.length} nodes, {m.meta.graph.edges.length} relationships
+                      {m.meta.graph.template === 'generated' ? (
+                        <>
+                          <span className="pill warn" style={{ marginRight: 6 }}>generated query</span>
+                          <span className={'pill ' + (m.meta.graph.verified ? 'ok' : 'crit')} style={{ marginRight: 8 }}>
+                            {m.meta.graph.verified ? '✓ verified' : '⚠ unverified'}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="pill info" style={{ marginRight: 8 }}>via {m.meta.graph.template} template</span>
+                      )}
+                      {m.meta.graph.summary}
                     </div>
-                    <Graph nodes={m.meta.graph.nodes} edges={m.meta.graph.edges} height={300} mini={false} />
+                    {m.meta.graph.nodes?.length > 1 &&
+                      <Graph nodes={m.meta.graph.nodes} edges={m.meta.graph.edges} height={300} mini={false} />}
+                    {m.meta.graph.facts && (
+                      <details className="explain">
+                        <summary>{m.meta.graph.query ? 'Query & results — verify' : 'Graph facts used'}</summary>
+                        <pre>{m.meta.graph.facts}</pre>
+                      </details>
+                    )}
                   </div>
                 )}
               </div>

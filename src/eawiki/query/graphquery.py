@@ -436,9 +436,33 @@ def _rows_to_view(g: _Graph, rows: list) -> tuple[list, list]:
     return [_node_view(g, nid, 0) for nid in ids], edges
 
 
+def _verify(question: str, sql: str, backend: str, model) -> dict:
+    """Back-translation check: describe what the SQL returns, then judge whether that
+    matches the question's intent. Catches 'valid but logically wrong' queries."""
+    prompt = f"""Check whether a database query correctly answers a question.
+
+Question: {question}
+
+ArcadeDB SQL query (graph of Entity vertices + REL edges; REL.relation holds the relationship name):
+{sql}
+
+In ONE sentence, say what rows this query returns, then judge whether that is what the question asks for. Return ONE JSON object:
+{{"paraphrase": "<what the query returns, in plain English>", "match": true or false, "reason": "<short why>"}}"""
+    try:
+        out = llm_json(prompt, backend, model)
+        if isinstance(out, dict) and "match" in out:
+            return {"paraphrase": out.get("paraphrase", ""), "match": bool(out.get("match")),
+                    "reason": out.get("reason", "")}
+    except Exception:
+        pass
+    return {"paraphrase": "", "match": False, "reason": "verification call failed"}
+
+
 def generate(question: str, backend: str = "cli", model=None, g: Optional[_Graph] = None) -> Optional[dict]:
     """Middle tier: the model WRITES a read-only ArcadeDB query, we guard it, run it, and
-    fall back (return None) on any failure. Used only when no template matched."""
+    fall back (return None) on any failure. Used only when no template matched. The query
+    is back-translation-verified; on mismatch the result is marked unverified (the pipeline
+    then abstains from using it as the authoritative answer but still surfaces it)."""
     g = g or _load()
     types = sorted({n.get("type", "") for n in g.by_id.values() if n.get("type")})
     rels = sorted({e.get("relation", "") for e in g.edges if e.get("relation")})
@@ -486,13 +510,16 @@ SQL:"""
         return None
     if not rows:
         return None
+    v = _verify(question, sql, backend, model)       # back-translation verify
     nodes, edges = _rows_to_view(g, rows)
     shown = rows[:40]
     facts = (f"GENERATED QUERY (ArcadeDB SQL, read-only):\n{sql}\n\nRESULTS ({len(rows)}):\n"
              + "\n".join(json.dumps(r, ensure_ascii=False) for r in shown))
     return {"template": "generated", "found": True, "query": sql,
             "summary": f"generated query → {len(rows)} row(s)", "facts": facts,
-            "centers": [], "nodes": nodes, "edges": edges, "block_ids": []}
+            "centers": [], "nodes": nodes, "edges": edges, "block_ids": [],
+            "verified": v["match"], "verification": v,
+            "authoritative": v["match"]}       # unverified → not used as the answer source
 
 
 def answer(question: str, backend: str = "cli", model=None) -> Optional[dict]:

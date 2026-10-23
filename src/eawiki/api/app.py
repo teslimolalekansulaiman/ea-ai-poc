@@ -86,12 +86,16 @@ def ask(req: AskReq):
     out = run(req.question, k=req.k, backend=API_BACKEND, kinds=req.kinds,
               use_llm=True, safety_llm=req.safety, history=req.history)
     # One graph for display, from the SAME result the answer was grounded in (the graph
-    # query engine), so the picture and the answer can never disagree.
+    # query engine), so the picture and the answer can never disagree. Surface provenance
+    # (which template / generated), the query + facts (so a human can verify), and whether
+    # a generated query passed back-translation verification.
     gr = out.get("graph_result")
-    if gr and gr.get("nodes"):
-        out["graph"] = {"nodes": gr["nodes"], "edges": gr["edges"],
+    if gr:
+        out["graph"] = {"nodes": gr.get("nodes", []), "edges": gr.get("edges", []),
                         "center": (gr.get("centers") or [None])[0],
-                        "template": gr.get("template"), "summary": gr.get("summary")}
+                        "template": gr.get("template"), "summary": gr.get("summary"),
+                        "facts": gr.get("facts"), "query": gr.get("query"),
+                        "verified": gr.get("verified")}
     return {k: v for k, v in out.items() if k != "context"}
 
 
