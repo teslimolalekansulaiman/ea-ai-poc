@@ -1,0 +1,26 @@
+# Keep the build context (and image) small, and keep the KB OUT of the image — it's served
+# from GCS at runtime, never baked in.
+data/
+data-prod/
+docs/
+.venv/
+venv/
+.git/
+**/__pycache__/
+*.pyc
+*.pyo
+.env
+.env.*
+!.env.example
+*.tar.gz
+
+# The UI is rebuilt in the Node stage; don't ship local build artifacts or deps.
+ui/node_modules/
+ui/dist/
+
+# Dev-only
+.vscode/
+.idea/
+.DS_Store
+tests/
+eval/

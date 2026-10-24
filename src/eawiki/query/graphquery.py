@@ -23,14 +23,14 @@ import json
 import os
 import re
 from collections import deque
-from functools import lru_cache
-from pathlib import Path
 from typing import Optional
 
+from eawiki.storage import filestore
 from eawiki.subjects import llm_json, llm_text
 
-GRAPH = Path(os.environ.get("EAWIKI_GRAPH", "data/graph"))
-MENU = Path(os.environ.get("EAWIKI_MENU", "data/togaf92_metamodel.json"))
+# KB keys, relative to the data root (local ./data, or the GCS bucket in prod).
+GRAPH_KEY = "graph/graph.json"
+MENU_KEY = "togaf92_metamodel.json"
 
 TEMPLATES = ("neighbors", "path", "impact", "orphans", "aggregate", "filter")
 
@@ -86,13 +86,17 @@ class _Graph:
         return hits or ([self.resolve(text)] if self.resolve(text) else [])
 
 
-@lru_cache(maxsize=1)
 def _menu_types() -> dict:
-    return json.loads(MENU.read_text(encoding="utf-8")).get("node_types", {}) if MENU.exists() else {}
+    txt = filestore().read_text(MENU_KEY)
+    return json.loads(txt).get("node_types", {}) if txt else {}
 
 
 def _load() -> _Graph:
-    g = json.loads((GRAPH / "graph.json").read_text(encoding="utf-8")) if (GRAPH / "graph.json").exists() else {"nodes": [], "edges": []}
+    # Read fresh per call. graph.json is small (~100KB) and only the graph-template queries
+    # touch it, so re-reading costs little — and it means a bucket upload is reflected
+    # immediately with no restart, so local and prod behave identically.
+    txt = filestore().read_text(GRAPH_KEY)
+    g = json.loads(txt) if txt else {"nodes": [], "edges": []}
     return _Graph(g.get("nodes", []), g.get("edges", []), _menu_types())
 
 

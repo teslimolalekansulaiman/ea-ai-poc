@@ -18,3 +18,6 @@ __pycache__/
 # Node / React build
 ui/node_modules/
 ui/dist/
+
+# Archived source docs — generated when a document is removed via the UI (like data/).
+docs/_archive/

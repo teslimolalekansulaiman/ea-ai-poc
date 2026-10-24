@@ -11,10 +11,8 @@ record); ask / graph / kb use the query layer over ArcadeDB.
 
 from __future__ import annotations
 
-import glob
 import json
 import os
-import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -23,8 +21,13 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-PAGES = Path(os.environ.get("EAWIKI_PAGES", "data/pages"))
-GRAPH = Path(os.environ.get("EAWIKI_GRAPH", "data/graph"))
+from eawiki.storage import filestore, rel_key, serve_only
+
+# The generated KB is addressed by key relative to the data root (local ./data, or the
+# GCS bucket in prod). Reads go through the FileStore; FILE_BACKEND picks local vs gcs.
+PAGES_KEY = "pages"
+BLOCKS_KEY = "blocks"
+MENU_KEY = os.environ.get("EAWIKI_MENU_KEY", "togaf92_metamodel.json")
 # Prefer the built React app (ui/dist); fall back to the single-file UI (web/).
 _web_env = os.environ.get("EAWIKI_WEB")
 WEB = Path(_web_env) if _web_env else (Path("ui/dist") if Path("ui/dist").exists() else Path("web"))
@@ -48,10 +51,6 @@ def _title(md: str, fallback: str) -> str:
     return fallback
 
 
-def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8") if path.exists() else ""
-
-
 @lru_cache(maxsize=1)
 def _retriever():
     from eawiki.query.retrieve import Retriever
@@ -59,8 +58,16 @@ def _retriever():
 
 
 def _load_json(name: str, default):
-    p = GRAPH / name
-    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else default
+    txt = filestore().read_text(f"graph/{name}")
+    return json.loads(txt) if txt else default
+
+
+def _require_writable():
+    """KB-mutating endpoints are disabled in read-only serving (Cloud Run); ingestion
+    runs offline there and the built data/ is published to the bucket."""
+    if serve_only():
+        raise HTTPException(403, "This deployment is read-only; the knowledge base is "
+                                 "built offline and published. KB edits are disabled.")
 
 
 # --- models --------------------------------------------------------------
@@ -76,7 +83,7 @@ class AskReq(BaseModel):
 @app.get("/api/health")
 def health():
     return {"ok": True, "backend": API_BACKEND,
-            "pages": len(list(PAGES.glob("*.md"))) if PAGES.exists() else 0}
+            "pages": len(filestore().list(PAGES_KEY, ".md"))}
 
 
 @app.post("/api/ask")
@@ -107,7 +114,7 @@ def ask(req: AskReq):
         b = _find_block(bid)
         if b and b.get("type") == "figure":
             ip = (b.get("figure") or {}).get("image_path")
-            if ip and Path(ip).exists():
+            if ip and filestore().exists(rel_key(ip)):
                 figs.append({"block_id": bid, "image_url": "/api/image/" + bid,
                              "description": b.get("description"),
                              "section": " / ".join(b.get("section_path", []))})
@@ -119,20 +126,21 @@ def ask(req: AskReq):
 @app.get("/api/pages")
 def pages():
     """Subject wiki pages (the 'wiki' view)."""
+    fs = filestore()
     out = []
-    for fp in sorted(PAGES.glob("*.md")):
-        if fp.name.startswith("landscape-"):
+    for key in fs.list(PAGES_KEY, ".md"):
+        slug = Path(key).stem
+        if slug.startswith("landscape-"):
             continue
-        out.append({"slug": fp.stem, "title": _title(_read(fp), fp.stem)})
+        out.append({"slug": slug, "title": _title(fs.read_text(key) or "", slug)})
     return {"pages": out}
 
 
 @app.get("/api/pages/{slug}")
 def page(slug: str):
-    fp = PAGES / f"{slug}.md"
-    if not fp.exists():
+    md = filestore().read_text(f"{PAGES_KEY}/{Path(slug).name}.md")
+    if md is None:
         raise HTTPException(404, f"no page '{slug}'")
-    md = _read(fp)
     return {"slug": slug, "title": _title(md, slug), "markdown": md}
 
 
@@ -140,9 +148,10 @@ def page(slug: str):
 def landscape():
     """Communities + their landscape pages (the 'landscape' view)."""
     comms = _load_json("communities.json", {"communities": []}).get("communities", [])
+    fs = filestore()
     out = []
     for c in comms:
-        has_page = (PAGES / f"landscape-{c['slug']}.md").exists()
+        has_page = fs.exists(f"{PAGES_KEY}/landscape-{c['slug']}.md")
         out.append({"slug": c["slug"], "name": c["name"], "size": c["size"],
                     "domain": c.get("dominant_domain"), "summary": c.get("summary", ""),
                     "has_page": has_page, "members": c.get("member_names", [])})
@@ -151,10 +160,9 @@ def landscape():
 
 @app.get("/api/landscape/{slug}")
 def landscape_page(slug: str):
-    fp = PAGES / f"landscape-{slug}.md"
-    if not fp.exists():
+    md = filestore().read_text(f"{PAGES_KEY}/landscape-{Path(slug).name}.md")
+    if md is None:
         raise HTTPException(404, f"no landscape page '{slug}'")
-    md = _read(fp)
     return {"slug": slug, "title": _title(md, slug), "markdown": md}
 
 
@@ -181,10 +189,8 @@ def coverage():
 def graph_map():
     """The whole graph for the Map view: nodes (with domain + community) + edges."""
     g = _load_json("graph.json", {"nodes": [], "edges": []})
-    menu = {}
-    mpath = Path(os.environ.get("EAWIKI_MENU", "data/togaf92_metamodel.json"))
-    if mpath.exists():
-        menu = json.loads(mpath.read_text(encoding="utf-8")).get("node_types", {})
+    menu_txt = filestore().read_text(MENU_KEY)
+    menu = json.loads(menu_txt).get("node_types", {}) if menu_txt else {}
     comm_of: dict[str, str] = {}
     for c in _load_json("communities.json", {"communities": []}).get("communities", []):
         for mid in c.get("member_ids", []):
@@ -216,26 +222,28 @@ def kb(q: str, k: int = 10, kinds: Optional[str] = None):
     return {"results": _retriever().vector_search(q, k=k, kinds=kinds_list)}
 
 
-BLOCKS_DIR = Path(os.environ.get("EAWIKI_BLOCKS", "data/blocks"))
+# Source .docx + archive live OUTSIDE the data root (local-only; touched only by the
+# offline/local ingest path, never in read-only serving).
 SAMPLES = Path(os.environ.get("EAWIKI_SAMPLES", "docs/samples"))
 ARCHIVE = Path(os.environ.get("EAWIKI_ARCHIVE", "docs/_archive"))
 
 
 def _block_files():
-    # Read fresh each call — a re-ingest rewrites this directory, so caching would
-    # serve a stale document list after an add/remove.
-    return sorted(glob.glob(f"{BLOCKS_DIR}/*.blocks.json"))
+    # Read fresh each call — a re-ingest rewrites these, so caching would serve a stale
+    # document list after an add/remove. Returns store keys ("blocks/<doc>.blocks.json").
+    return filestore().list(BLOCKS_KEY, ".blocks.json")
 
 
 @app.get("/api/docs")
 def docs():
     """Source documents (the 'knowledge base' view): one card per ingested doc."""
+    fs = filestore()
     out = []
-    for fp in _block_files():
-        d = json.loads(Path(fp).read_text(encoding="utf-8"))
+    for key in _block_files():
+        d = json.loads(fs.read_text(key) or "{}")
         blocks = d.get("blocks", [])
         kind = blocks[0].get("kind", "architecture") if blocks else "architecture"
-        out.append({"doc_id": d.get("doc_id", Path(fp).stem),
+        out.append({"doc_id": d.get("doc_id", Path(key).stem.replace(".blocks", "")),
                     "blocks": len(blocks), "kind": kind,
                     "counts": d.get("counts", {})})
     return {"docs": out}
@@ -246,6 +254,7 @@ async def docs_add(file: UploadFile = File(...)):
     """Add a source .docx to the ingest set and kick off a (clean) full re-ingest.
     Add is not purely additive: the graph is deduped and the wiki/community summaries
     are cross-document, so everything downstream is rebuilt from the whole set."""
+    _require_writable()
     from eawiki import pipeline
     if pipeline.status().get("running"):
         raise HTTPException(409, "A re-ingest is already running; wait for it to finish.")
@@ -262,6 +271,7 @@ def docs_remove(doc_id: str):
     """Remove a document: archive its source .docx out of the ingest set and rebuild.
     The re-ingest clears derived outputs first, so the doc's blocks, graph contribution
     and wiki page all disappear; shared entities keep their other evidence."""
+    _require_writable()
     from eawiki import pipeline
     if pipeline.status().get("running"):
         raise HTTPException(409, "A re-ingest is already running; wait for it to finish.")
@@ -280,8 +290,9 @@ def docs_remove(doc_id: str):
 
 
 def _find_block(block_id: str):
-    for fp in _block_files():
-        for b in json.loads(Path(fp).read_text(encoding="utf-8")).get("blocks", []):
+    fs = filestore()
+    for key in _block_files():
+        for b in json.loads(fs.read_text(key) or "{}").get("blocks", []):
             if b.get("block_id") == block_id:
                 return b
     return None
@@ -306,30 +317,39 @@ def block(block_id: str):
 def _usable_image(path) -> bool:
     """True only for a real figure image. These sample .docx diagrams are drawn with
     Office shapes (no embedded raster), so Docling exports a ~21px sliver — we don't show
-    those misleading strips. A usable image is at least 40px tall."""
+    those misleading strips. A usable image is at least 40px tall. Reads the bytes through
+    the FileStore, so it works against local disk or the GCS bucket alike."""
     try:
-        if not path or not Path(path).exists():
+        if not path:
             return False
-        import struct
-        with open(path, "rb") as f:
-            head = f.read(24)
-        if head[:8] != b"\x89PNG\r\n\x1a\n":
+        data = filestore().read_bytes(rel_key(path))
+        if data is None:
+            return False
+        if data[:8] != b"\x89PNG\r\n\x1a\n":
             return True                      # non-PNG: assume usable
-        _, h = struct.unpack(">II", head[16:24])
+        import struct
+        _, h = struct.unpack(">II", data[16:24])
         return h >= 40
     except Exception:
         return False
 
 
+_IMG_MEDIA = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+              ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml"}
+
+
 @app.get("/api/image/{block_id:path}")
 def block_image(block_id: str):
-    """The actual image file for a figure block (referenced by /api/block's image_url)."""
-    from fastapi.responses import FileResponse
+    """The actual image for a figure block (referenced by /api/block's image_url). Served
+    from bytes (not FileResponse) so GCS-backed images work the same as local ones."""
+    from fastapi.responses import Response
     b = _find_block(block_id)
     ip = (b or {}).get("figure", {}).get("image_path") if b else None
-    if not ip or not Path(ip).exists():
+    data = filestore().read_bytes(rel_key(ip)) if ip else None
+    if data is None:
         raise HTTPException(404, f"no image for '{block_id}'")
-    return FileResponse(ip)
+    media = _IMG_MEDIA.get(Path(ip).suffix.lower(), "application/octet-stream")
+    return Response(content=data, media_type=media)
 
 
 # --- use-case registry (the UI builder's CRUD) ---------------------------
@@ -350,6 +370,7 @@ def usecase_get(uc_id: str):
 
 @app.post("/api/usecases")
 def usecase_create(spec: dict):
+    _require_writable()
     from eawiki import usecases as uc
     try:
         return uc.save(spec)
@@ -359,6 +380,7 @@ def usecase_create(spec: dict):
 
 @app.put("/api/usecases/{uc_id}")
 def usecase_update(uc_id: str, spec: dict):
+    _require_writable()
     from eawiki import usecases as uc
     try:
         return uc.save(spec, uc_id=uc_id)
@@ -368,6 +390,7 @@ def usecase_update(uc_id: str, spec: dict):
 
 @app.delete("/api/usecases/{uc_id}")
 def usecase_delete(uc_id: str):
+    _require_writable()
     from eawiki import usecases as uc
     return {"deleted": uc.delete(uc_id)}
 
@@ -460,6 +483,7 @@ def metamodel_get():
 
 @app.put("/api/metamodel/node/{key}")
 def metamodel_node_put(key: str, obj: dict):
+    _require_writable()
     from eawiki import metamodel as mm
     try:
         mm.upsert_node(key, obj); return mm.view()
@@ -469,6 +493,7 @@ def metamodel_node_put(key: str, obj: dict):
 
 @app.delete("/api/metamodel/node/{key}")
 def metamodel_node_del(key: str):
+    _require_writable()
     from eawiki import metamodel as mm
     try:
         mm.delete_node(key); return mm.view()
@@ -478,6 +503,7 @@ def metamodel_node_del(key: str):
 
 @app.put("/api/metamodel/edge/{key}")
 def metamodel_edge_put(key: str, obj: dict):
+    _require_writable()
     from eawiki import metamodel as mm
     try:
         mm.upsert_edge(key, obj); return mm.view()
@@ -487,6 +513,7 @@ def metamodel_edge_put(key: str, obj: dict):
 
 @app.delete("/api/metamodel/edge/{key}")
 def metamodel_edge_del(key: str):
+    _require_writable()
     from eawiki import metamodel as mm
     mm.delete_edge(key); return mm.view()
 
@@ -499,6 +526,7 @@ def reingest_status():
 
 @app.post("/api/reingest")
 def reingest_run():
+    _require_writable()
     from eawiki import pipeline
     return pipeline.run_async()
 

@@ -19,8 +19,12 @@ from eawiki.store import ArcadeDBStore
 class Retriever:
     def __init__(self, store: Optional[ArcadeDBStore] = None,
                  meta_path: str = "data/graph/embeddings_meta.json"):
+        from eawiki.storage import filestore, rel_key
         self.store = store or ArcadeDBStore()
-        meta = json.loads(Path(meta_path).read_text(encoding="utf-8"))
+        txt = filestore().read_text(rel_key(meta_path))
+        if txt is None:
+            raise FileNotFoundError(f"embeddings meta not found: {meta_path}")
+        meta = json.loads(txt)
         self.backend = meta.get("backend", "hash")
         self.model = meta.get("model")
         self.dim = int(meta.get("dim", 384))

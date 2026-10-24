@@ -27,6 +27,13 @@ nemoguardrails>=0.24
 arize-phoenix-otel>=0.6
 openinference-instrumentation-langchain>=0.1
 
+# Storage seams (eawiki/storage.py, eawiki/history.py) are PLUGGABLE and default to the
+# local filesystem + SQLite (zero extra deps). Install these only for the Cloud Run split:
+#   FILE_BACKEND=gcs        google-cloud-storage>=2.18   (wiki pages/blocks/images in a bucket)
+#   HISTORY_BACKEND=postgres  psycopg[binary]>=3.2       (chats + runs in Cloud SQL)
+# google-cloud-storage>=2.18
+# psycopg[binary]>=3.2
+
 # Serving: HTTP API (feeds the 5-view UI; serves the static frontend from the same app)
 fastapi>=0.159
 uvicorn[standard]>=0.54

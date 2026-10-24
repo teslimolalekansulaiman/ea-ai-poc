@@ -1,0 +1,26 @@
+# Slim dependency set for the Cloud Run SERVING image (eawiki.api.app).
+#
+# Ingestion runs OFFLINE, so the heavy ingest-only libraries in requirements.txt are
+# deliberately left out here: docling (pulls torch/CUDA), anthropic (the `cli` backend
+# isn't used in prod — Pulse is), arize-phoenix (tracing is off in prod), openpyxl (eval
+# tooling). The serving path's LLM + ArcadeDB calls go over stdlib urllib, so no HTTP
+# client dep is needed either.
+
+fastapi>=0.159
+uvicorn[standard]>=0.54
+python-multipart
+numpy>=1.26
+certifi>=2024.0
+
+# Ask pipeline (LangGraph orchestration + the injected BackendLLM).
+langgraph>=0.2
+langchain-core>=0.3
+
+# Storage backends for the split (selected by FILE_BACKEND / HISTORY_BACKEND; see .env.example).
+google-cloud-storage>=2.18        # FILE_BACKEND=gcs   — wiki pages/blocks/images from the bucket
+psycopg[binary]>=3.2              # HISTORY_BACKEND=postgres — chats + runs in Cloud SQL
+
+# Query-side embeddings — install the ONE that matches your index (embeddings_meta.json).
+# openai/pulse embeddings and the hash backend need nothing beyond the above (urllib+numpy).
+# sentence-transformers>=3.0      # EAWIKI_EMBED_BACKEND=st     (pulls torch — much larger image)
+# google-cloud-aiplatform>=1.60   # EAWIKI_EMBED_BACKEND=vertex
