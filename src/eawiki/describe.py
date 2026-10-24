@@ -20,7 +20,7 @@ import glob
 import json
 from pathlib import Path
 
-from eawiki.blocks import load_blocks
+from eawiki.blocks import content_hash, load_blocks
 from eawiki.subjects import llm_text, llm_vision
 
 
@@ -47,25 +47,72 @@ def describe_figure(b, backend: str, model) -> str:
     return llm_vision(prompt, fig.get("image_path"), backend, model).strip()
 
 
-def run(backend: str = "cli", model=None, in_dir: str = "data/blocks", force: bool = False) -> dict:
-    n_t = n_f = n_skip = 0
+def run(backend: str = "cli", model=None, in_dir: str = "data/blocks",
+        cache_dir: str = "data/graph/desc_cache", use_cache: bool = True, force: bool = False) -> dict:
+    # Sidecar cache keyed by the block's content_hash (+ backend/model): it lives OUTSIDE
+    # data/blocks, so it survives the clean-rebuild wipe and an unchanged table/figure is
+    # not re-described (no repeat vision calls) on re-ingest. Same idea as pages_cache.
+    cdir = Path(cache_dir)
+    gen = cached = n_skip = 0
+
+    def _key(b):
+        # content_hash alone collides for figures with identical/empty captions, so key
+        # on block_id too, plus the image bytes for figures (so an image change invalidates).
+        parts = [b.content_hash or "", b.block_id, b.type, backend, str(model)]
+        if b.type == "figure":
+            ip = (b.figure or {}).get("image_path")
+            try:
+                import hashlib
+                parts.append(hashlib.sha1(Path(ip).read_bytes()).hexdigest()[:16]
+                             if ip and Path(ip).exists() else "")
+            except Exception:
+                parts.append("")
+        return content_hash(*parts)
+
+    def _cache_get(b):
+        cf = cdir / f"{_key(b)}.json"
+        if cf.exists():
+            try:
+                return json.loads(cf.read_text(encoding="utf-8")).get("description")
+            except Exception:
+                return None
+        return None
+
+    def _cache_put(b):
+        cdir.mkdir(parents=True, exist_ok=True)
+        (cdir / f"{_key(b)}.json").write_text(
+            json.dumps({"block_id": b.block_id, "type": b.type, "description": b.description},
+                       ensure_ascii=False), encoding="utf-8")
+
     for fp in sorted(glob.glob(f"{in_dir}/*.blocks.json")):
         blocks = load_blocks(Path(fp))
         by_id = {}
         for b in blocks:
             if b.type not in ("table", "figure"):
                 continue
+            is_fig_no_img = b.type == "figure" and not ((b.figure or {}).get("image_path") and Path((b.figure or {}).get("image_path")).exists())
+            if is_fig_no_img:
+                n_skip += 1; continue
+
+            # already in the file: warm the cache for future rebuilds, then move on
             if b.description and not force:
+                if use_cache and not _cache_get(b):
+                    _cache_put(b)
                 continue
+            # reuse a cached description (survives the block wipe)
+            if use_cache and not force:
+                hit = _cache_get(b)
+                if hit:
+                    b.description = hit; by_id[b.block_id] = hit; cached += 1
+                    continue
             try:
-                if b.type == "table":
-                    b.description = describe_table(b, backend, model); n_t += 1
-                elif (b.figure or {}).get("image_path") and Path((b.figure or {}).get("image_path")).exists():
-                    b.description = describe_figure(b, backend, model); n_f += 1
-                else:
-                    n_skip += 1; continue
+                b.description = describe_table(b, backend, model) if b.type == "table" \
+                    else describe_figure(b, backend, model)
                 by_id[b.block_id] = b.description
-                print(f"  {b.block_id:20s} {b.type:6s} {b.description[:90]}")
+                if use_cache:
+                    _cache_put(b)
+                gen += 1
+                print(f"  {b.block_id:20s} {b.type:6s} {b.description[:88]}")
             except Exception as e:
                 n_skip += 1
                 print(f"  ! {b.block_id}: {type(e).__name__}: {str(e)[:110]}")
@@ -75,8 +122,8 @@ def run(backend: str = "cli", model=None, in_dir: str = "data/blocks", force: bo
                 if bd["block_id"] in by_id:
                     bd["description"] = by_id[bd["block_id"]]
             Path(fp).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"described: {n_t} tables, {n_f} figures  (skipped {n_skip})")
-    return {"tables": n_t, "figures": n_f, "skipped": n_skip}
+    print(f"described: {gen} generated, {cached} from cache  (skipped {n_skip})")
+    return {"generated": gen, "cached": cached, "skipped": n_skip}
 
 
 def main() -> None:
@@ -84,9 +131,11 @@ def main() -> None:
     ap.add_argument("--backend", default="cli")
     ap.add_argument("--model", default=None)
     ap.add_argument("--in", dest="in_dir", default="data/blocks")
+    ap.add_argument("--cache-dir", default="data/graph/desc_cache")
+    ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--force", action="store_true", help="re-describe even if a description exists")
     a = ap.parse_args()
-    run(a.backend, a.model, a.in_dir, a.force)
+    run(a.backend, a.model, a.in_dir, a.cache_dir, not a.no_cache, a.force)
 
 
 if __name__ == "__main__":
