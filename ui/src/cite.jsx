@@ -5,6 +5,17 @@ import { mdToHtml } from './lib/markdown'
 const CiteCtx = createContext(null)
 export const useCite = () => useContext(CiteCtx)
 
+// Parse a markdown table ("| a | b |\n|---|---|\n| 1 | 2 |") into {header, rows}.
+function parseMdTable(md) {
+  const lines = (md || '').split(/\n/).map(l => l.trim()).filter(l => l.includes('|'))
+  if (lines.length < 2) return null
+  const cells = (l) => l.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map(s => s.trim())
+  const isSep = (l) => /^[\s|:-]+$/.test(l)
+  const header = cells(lines[0])
+  const rows = lines.slice(1).filter(l => !isSep(l)).map(cells)
+  return rows.length ? { header, rows } : null
+}
+
 export function CiteProvider({ children }) {
   const [block, setBlock] = useState(null)   // null = closed
   const open = useCallback(async (id) => {
@@ -39,8 +50,14 @@ export function CiteProvider({ children }) {
                   {block.type === 'figure' && block.description && (
                     <div className="src-desc"><span className="k">AI description</span>{block.description}</div>
                   )}
-                  {block.text && block.text !== block.description &&
-                    <div className={'block' + (block.type === 'table' ? ' mono' : '')}>{block.text}</div>}
+                  {block.type === 'table' && parseMdTable(block.text) ? (
+                    (() => { const t = parseMdTable(block.text); return (
+                      <div className="src-tablewrap"><table className="data src-table">
+                        <thead><tr>{t.header.map((h, i) => <th key={i}>{h}</th>)}</tr></thead>
+                        <tbody>{t.rows.map((r, ri) => <tr key={ri}>{t.header.map((_, ci) => <td key={ci}>{r[ci] || ''}</td>)}</tr>)}</tbody>
+                      </table></div>) })()
+                  ) : (block.text && block.text !== block.description &&
+                    <div className={'block' + (block.type === 'table' ? ' mono' : '')}>{block.text}</div>)}
                 </>
               )}
             </div>

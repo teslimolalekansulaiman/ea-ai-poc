@@ -316,6 +316,8 @@ svg .edge{stroke:var(--border-strong);stroke-width:1.5}
 .modal .src-img{display:block;max-width:100%;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:12px;background:#fff}
 .modal .src-desc{background:var(--accent-soft);border-radius:var(--radius-sm);padding:12px 14px;font-size:13px;margin-bottom:12px}
 .modal .src-desc .k{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--accent);margin-bottom:5px}
+.modal .src-tablewrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius-sm)}
+.modal .src-table{margin:0}
 
 /* ---- responsive ---- */
 @media (max-width:860px){
