@@ -24,6 +24,7 @@ grant. `google-cloud-storage` is imported lazily, so local dev never needs the d
 from __future__ import annotations
 
 import os
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -168,3 +169,26 @@ def serve_only() -> bool:
     """Read-only serving: KB-mutating endpoints (add/remove/re-ingest/metamodel) are
     disabled. Set EAWIKI_SERVE_ONLY on Cloud Run, where ingestion runs offline instead."""
     return os.environ.get("EAWIKI_SERVE_ONLY", "").lower() in ("1", "true", "yes", "on")
+
+
+def ttl_cached(seconds: Optional[float] = None):
+    """Cache a no-argument reader of the KB for a short time. A plain lru_cache would pin
+    whatever the first request saw until the instance restarts, so a re-ingest published to
+    the bucket would never show up in the planner or wiki context; a short TTL keeps the read
+    cheap and the staleness bounded (EAWIKI_CACHE_TTL, default 30s)."""
+    ttl = float(os.environ.get("EAWIKI_CACHE_TTL", 30)) if seconds is None else seconds
+
+    def deco(fn):
+        box: dict = {}
+
+        def wrapper():
+            hit = box.get("v")
+            if hit is not None and time.monotonic() - hit[0] < ttl:
+                return hit[1]
+            val = fn()
+            box["v"] = (time.monotonic(), val)
+            return val
+
+        wrapper.cache_clear = box.clear
+        return wrapper
+    return deco

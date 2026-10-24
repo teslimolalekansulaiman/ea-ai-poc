@@ -14,14 +14,12 @@ from __future__ import annotations
 
 import glob
 import json
-from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
+from eawiki.storage import filestore, ttl_cached
 from eawiki.subjects import llm_json
 
-PAGES = Path("data/pages")
-GRAPH = Path("data/graph")
 LOAD_LAYERS = {"blocks", "graph", "wiki", "landscape", "full"}
 TYPES = {"pointed", "relationship", "summary", "browse"}
 
@@ -33,18 +31,20 @@ def _title(md: str, fallback: str) -> str:
     return fallback
 
 
-@lru_cache(maxsize=1)
+@ttl_cached()
 def catalog() -> dict:
     """The names the planner may target: subject pages + communities/areas."""
+    fs = filestore()
     subjects = []
-    for fp in sorted(PAGES.glob("*.md")):
-        if fp.name.startswith("landscape-"):
+    for key in fs.list("pages", ".md"):
+        stem = Path(key).stem
+        if stem.startswith("landscape-"):
             continue
-        subjects.append(_title(fp.read_text(encoding="utf-8"), fp.stem))
+        subjects.append(_title(fs.read_text(key) or "", stem))
     communities = []
-    cp = GRAPH / "communities.json"
-    if cp.exists():
-        communities = [c["name"] for c in json.loads(cp.read_text(encoding="utf-8")).get("communities", [])
+    raw = fs.read_text("graph/communities.json")
+    if raw:
+        communities = [c["name"] for c in json.loads(raw).get("communities", [])
                        if c.get("size", 0) >= 3]
     return {"subjects": subjects, "communities": communities}
 

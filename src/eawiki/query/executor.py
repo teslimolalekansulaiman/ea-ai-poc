@@ -22,7 +22,6 @@ is config; this engine interprets it.
 
 from __future__ import annotations
 
-import functools
 import json
 import operator
 import re
@@ -37,10 +36,10 @@ from langgraph.graph import END, START, StateGraph
 
 from eawiki.query import guardrails as det
 from eawiki.query.retrieve import Retriever
+from eawiki.storage import filestore, ttl_cached
 from eawiki.subjects import llm_json
 
 DUP_THRESHOLD = 0.80   # cosine similarity between demands to call them duplicates
-PAGES = Path("data/pages")
 
 
 WIKI_BUDGET = 150_000   # chars (~37K tokens): load the WHOLE wiki if it fits this
@@ -51,54 +50,65 @@ def _slug(name: str) -> str:
     return s or "subject"
 
 
+def _page_text(slug: str) -> Optional[str]:
+    """One wiki page by slug, from the configured file store (local folder or bucket)."""
+    return filestore().read_text(f"pages/{Path(slug).name}.md")
+
+
 def _wiki_page(node_id: str) -> str:
     """One synthesized Step-3a wiki page for an entity (name-anchored)."""
     for slug in (node_id, "landscape-" + node_id):
-        p = PAGES / f"{slug}.md"
-        if p.exists():
-            return p.read_text(encoding="utf-8")
+        txt = _page_text(slug)
+        if txt is not None:
+            return txt
     return ""
 
 
-@functools.lru_cache(maxsize=1)
+@ttl_cached()
 def _community_summaries() -> str:
     """The Step-8 community summaries — the condensed, thematic source for GLOBAL
     questions (classic GraphRAG map-reduce input), far smaller than the full wiki."""
-    cp = Path("data/graph/communities.json")
-    if not cp.exists():
+    raw = filestore().read_text("graph/communities.json")
+    if not raw:
         return ""
     out = []
-    for c in json.loads(cp.read_text(encoding="utf-8")).get("communities", []):
+    for c in json.loads(raw).get("communities", []):
         if c.get("summary"):
             out.append(f"## {c['name']} ({c.get('dominant_domain','')}, {c.get('size',0)} members)\n{c['summary']}")
     return "\n\n".join(out)
 
 
-@functools.lru_cache(maxsize=1)
+@ttl_cached()
+def _wiki_pages() -> list:
+    """Every wiki page as (stem, text), in name order."""
+    fs = filestore()
+    return [(Path(k).stem, fs.read_text(k) or "") for k in fs.list("pages", ".md")]
+
+
+@ttl_cached()
 def _all_wiki() -> str:
     """The ENTIRE wiki concatenated (subject + landscape pages), capped at WIKI_BUDGET.
-    Cached in memory. Used by the 'full' context mode — a normal in-context LLM wiki."""
+    Used by the 'full' context mode — a normal in-context LLM wiki."""
     parts, total = [], 0
-    for p in sorted(PAGES.glob("*.md")):
-        t = p.read_text(encoding="utf-8")
+    for stem, t in _wiki_pages():
         if total + len(t) > WIKI_BUDGET:
             break
-        parts.append(f"### PAGE: {p.stem}\n{t}")
+        parts.append(f"### PAGE: {stem}\n{t}")
         total += len(t)
     return "\n\n".join(parts)
 
 
 def _wiki_fits() -> bool:
-    return sum(p.stat().st_size for p in PAGES.glob("*.md")) <= WIKI_BUDGET
+    return sum(len(t) for _, t in _wiki_pages()) <= WIKI_BUDGET
 
 
-@functools.lru_cache(maxsize=1)
+@ttl_cached()
 def _subject_index():
     """block_id -> [subject page slug] (for semantic page selection in retrieval mode)."""
     idx: dict[str, list[str]] = {}
-    sp = Path("data/graph/subjects.json")
-    if sp.exists():
-        for s in json.loads(sp.read_text(encoding="utf-8")):
+    raw = filestore().read_text("graph/subjects.json")
+    if raw:
+        for s in json.loads(raw):
             slug = _slug(s.get("name", ""))
             for b in s.get("block_ids", []):
                 idx.setdefault(b, []).append(slug)
@@ -115,9 +125,9 @@ def _pages_from_blocks(block_ids: list[str], limit: int = 2) -> str:
             votes[slug] += 1
     out = []
     for slug, _ in votes.most_common(limit):
-        p = PAGES / f"{slug}.md"
-        if p.exists():
-            out.append(f"### {slug}\n{p.read_text(encoding='utf-8')[:3500]}")
+        txt = _page_text(slug)
+        if txt is not None:
+            out.append(f"### {slug}\n{txt[:3500]}")
     return "\n\n".join(out)
 
 
