@@ -52,7 +52,9 @@ EMBED_BATCH="${EMBED_BATCH:-1}"
 [ "$FROM_STEP" = parse ] && rm -f data/blocks/*.blocks.json data/pages/*.md
 
 started=""
+[ "$FROM_STEP" = publish ] && started=skip   # FROM_STEP=publish: skip the build, just publish
 for step in parse tables subjects pages reconcile describe embed; do
+  [ "$started" = skip ] && break
   [ "$step" = "$FROM_STEP" ] && started=1
   [ -n "$started" ] || continue
   echo; echo "==> $step"
