@@ -41,6 +41,7 @@ STEPS = [
     ("subjects",  [sys.executable, "-m", "eawiki.subjects", "--backend", "openrouter"]),
     ("pages",     [sys.executable, "-m", "eawiki.pages", "--backend", "openrouter", "--workers", "8"]),
     ("reconcile", [sys.executable, "-m", "eawiki.reconcile"]),
+    ("describe",  [sys.executable, "-m", "eawiki.describe", "--backend", "openrouter"]),
     ("embed",     [sys.executable, "-m", "eawiki.embed", "--backend", "openrouter"]),
     ("load",      [sys.executable, "-m", "eawiki.load"]),
 ]

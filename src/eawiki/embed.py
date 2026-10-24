@@ -110,6 +110,28 @@ def embeddable_units(blocks: Iterable[Block], skip_types=SKIP_TYPES,
     for b in blocks:
         if b.type in skip_types:
             continue
+        desc = (getattr(b, "description", None) or "").strip()
+        header = b.doc_id + (" > " + " / ".join(b.section_path) if b.section_path else "")
+
+        # Tables & figures: store the real CONTENT as the block text (a figure shows its
+        # description, since the model can't see the image), but embed the DESCRIPTION so
+        # search matches on meaning. One unit each (no chunking).
+        if b.type in ("table", "figure"):
+            content = (desc if b.type == "figure" and desc else (b.text or "")).strip()
+            if b.type == "figure" and not content:
+                content = ((b.figure or {}).get("caption") or "").strip()
+            if not content:
+                continue
+            text = f"{header}\n\n{content}"
+            embed_text = f"{header}\n\n{desc}" if desc else text
+            units.append({
+                "id": b.block_id, "block_id": b.block_id, "doc_id": b.doc_id, "type": b.type,
+                "kind": getattr(b, "kind", "architecture"), "section_path": b.section_path,
+                "ordinal": b.ordinal, "chunk": 0, "n_chunks": 1,
+                "text": text, "embed_text": embed_text,
+            })
+            continue
+
         text = enrich(b)
         if not text:
             continue
@@ -120,7 +142,7 @@ def embeddable_units(blocks: Iterable[Block], skip_types=SKIP_TYPES,
                 "block_id": b.block_id, "doc_id": b.doc_id, "type": b.type,
                 "kind": getattr(b, "kind", "architecture"),
                 "section_path": b.section_path, "ordinal": b.ordinal,
-                "chunk": i, "n_chunks": len(chunks), "text": c,
+                "chunk": i, "n_chunks": len(chunks), "text": c, "embed_text": c,
             })
     return units
 
@@ -274,7 +296,7 @@ def get_embedder(backend: str, model: Optional[str], dim: int,
 # ---------------------------------------------------------------------------
 def embed_units(units: list[dict], embedder: Embedder) -> list[dict]:
     """Attach an `embedding` (list[float]) to every unit, in place-ish (new dicts)."""
-    vecs = embedder.encode([u["text"] for u in units]) if units else np.zeros((0,))
+    vecs = embedder.encode([u.get("embed_text", u["text"]) for u in units]) if units else np.zeros((0,))
     out = []
     for u, v in zip(units, vecs):
         rec = dict(u)
@@ -365,8 +387,8 @@ def main() -> None:
     # removing one document re-embeds that document's blocks, not all of them.
     reuse = _reuse_index(Path(args.out), Path(args.meta), embedder, params) if not args.no_cache else {}
     hit_ids = {u["id"] for u in units
-               if u["id"] in reuse and reuse[u["id"]].get("text") == u["text"]
-               and reuse[u["id"]].get("embedding")}
+               if u["id"] in reuse and reuse[u["id"]].get("embedding")
+               and reuse[u["id"]].get("embed_text", reuse[u["id"]].get("text")) == u.get("embed_text", u["text"])}
     miss = [u for u in units if u["id"] not in hit_ids]
     fresh = {r["id"]: r for r in embed_units(miss, embedder)}
     records = []

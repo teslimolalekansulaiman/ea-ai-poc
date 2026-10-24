@@ -59,14 +59,28 @@ def _openai_env(model: Optional[str] = None):
     return url, key, mdl
 
 
+def _image_data_url(image_path: str) -> str:
+    import base64
+    import mimetypes
+    from pathlib import Path
+    mt = mimetypes.guess_type(image_path)[0] or "image/png"
+    b64 = base64.b64encode(Path(image_path).read_bytes()).decode()
+    return f"data:{mt};base64,{b64}"
+
+
 def _openai_chat(prompt: str, url: str, key: str, model: str, timeout: int = 300,
-                 response_format: Optional[dict] = None) -> str:
+                 response_format: Optional[dict] = None, image_path: Optional[str] = None) -> str:
     """One OpenAI-compatible /chat/completions call (OpenRouter locally, Pulse in
     prod — same wire format). Plain urllib, no SDK. `response_format` enables
-    structured outputs (json_object / json_schema)."""
+    structured outputs; `image_path` sends a base64 image for vision models."""
     if not url:
         raise RuntimeError("openai backend: set VLM_PROXY_URL (the /chat/completions URL)")
-    payload = {"model": model, "messages": [{"role": "user", "content": prompt}]}
+    if image_path:
+        content = [{"type": "text", "text": prompt},
+                   {"type": "image_url", "image_url": {"url": _image_data_url(image_path)}}]
+    else:
+        content = prompt
+    payload = {"model": model, "messages": [{"role": "user", "content": content}]}
     if response_format:
         payload["response_format"] = response_format
     req = urllib.request.Request(url, data=json.dumps(payload).encode(), method="POST")
@@ -109,6 +123,15 @@ def llm_text(prompt: str, backend: str = "cli", model: Optional[str] = None) -> 
             messages=[{"role": "user", "content": prompt}])
         return resp.content[0].text.strip()
     raise ValueError(f"unknown backend: {backend}")
+
+
+def llm_vision(prompt: str, image_path: str, backend: str = "cli", model: Optional[str] = None) -> str:
+    """Describe/read an image. OpenAI-compatible backends send the image as base64
+    (works with Pulse/OpenRouter vision models); the cli backend reads the file by path."""
+    if backend in ("openai", "openrouter", "pulse"):
+        url, key, mdl = _openai_env(model)
+        return _openai_chat(prompt, url, key, mdl, image_path=image_path).strip()
+    return llm_text(f"{prompt}\n\nRead the image file at: {image_path}", backend, model).strip()
 
 
 def llm_json(prompt: str, backend: str = "cli", model: Optional[str] = None,
