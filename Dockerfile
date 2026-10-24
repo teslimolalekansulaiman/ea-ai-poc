@@ -28,6 +28,9 @@ RUN pip install --no-cache-dir -r requirements-serve.txt
 
 # App code + the built UI. No data/ (read from GCS), no docs/ (ingest sources).
 COPY src/ ./src/
+# Use-case definitions are read by relative path (use_cases/<id>.json); without them the
+# use-case view is empty.
+COPY use_cases/ ./use_cases/
 COPY --from=ui /ui/dist ./ui/dist
 
 EXPOSE 8080

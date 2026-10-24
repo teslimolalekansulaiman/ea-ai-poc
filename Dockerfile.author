@@ -35,6 +35,11 @@ COPY requirements-serve.txt ./
 RUN pip install --no-cache-dir -r requirements-serve.txt docling==2.139.0
 
 COPY src/ ./src/
+# Files the pipeline and the use-case view read by relative path from the working directory.
+COPY menu.json ./
+COPY use_cases/ ./use_cases/
+COPY scripts/ ./scripts/
+COPY prompts/ ./prompts/
 COPY --from=ui /ui/dist ./ui/dist
 # data/ and docs/samples are restored from buckets at start-up; create them so the
 # pipeline's relative paths resolve.
