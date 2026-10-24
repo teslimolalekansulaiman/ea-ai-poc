@@ -364,7 +364,9 @@ def main() -> None:
                     help="embedding model name; overrides the backend default (env: EAWIKI_EMBED_MODEL)")
     ap.add_argument("--dim", type=int, default=int(os.environ.get("EAWIKI_EMBED_DIM", HASH_DIM)),
                     help="vector dim for the hash backend (env: EAWIKI_EMBED_DIM)")
-    ap.add_argument("--batch-size", type=int, default=64)
+    ap.add_argument("--batch-size", type=int, default=int(os.environ.get("EAWIKI_EMBED_BATCH", 64)),
+                    help="texts per embeddings request (env: EAWIKI_EMBED_BATCH); use 1 if the "
+                         "route returns fewer vectors than inputs")
     ap.add_argument("--max-chars", type=int, default=MAX_CHARS)
     ap.add_argument("--overlap", type=int, default=OVERLAP)
     ap.add_argument("--only-doc", default=None, help="embed only this doc_id (incremental)")
