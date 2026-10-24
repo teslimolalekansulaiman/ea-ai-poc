@@ -1,0 +1,18 @@
+# Build the serving image and push it to Artifact Registry (repo `ea`, me-central2).
+#
+#   gcloud builds submit . --config=deploy/cloudbuild-ea-wiki.yaml \
+#     --gcs-source-staging-dir=gs://<compliant-bucket>/source --substitutions=_TAG=v1
+#
+# Runs as the compute service account with Cloud Logging only, because the default Cloud
+# Build setup is not usable in this project. Edit serviceAccount if yours differs.
+serviceAccount: projects/${PROJECT_ID}/serviceAccounts/${PROJECT_NUMBER}-compute@developer.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _TAG: v1
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki:${_TAG}", "."]
+images:
+  - me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki:${_TAG}
