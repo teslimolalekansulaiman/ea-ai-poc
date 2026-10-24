@@ -2,6 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useCite } from '../cite'
 
+const STEP_LABEL = {
+  parse: 'Parsing documents', tables: 'Reading tables', subjects: 'Finding subjects',
+  pages: 'Writing wiki pages', reconcile: 'Reconciling the graph',
+  describe: 'Describing tables & figures', embed: 'Embedding for search', load: 'Loading the index',
+}
+const fmtElapsed = (secs) => {
+  if (!secs || secs < 0) return ''
+  const m = Math.floor(secs / 60), s = Math.floor(secs % 60)
+  return m ? `${m}m ${s}s` : `${s}s`
+}
+
 export default function KB() {
   const [docs, setDocs] = useState([])
   const [q, setQ] = useState('')
@@ -9,6 +20,8 @@ export default function KB() {
   const [reing, setReing] = useState(null)      // null = idle, else the reingest status
   const [busy, setBusy] = useState(false)       // during the add/remove request itself
   const [err, setErr] = useState('')
+  const [pendingRemove, setPendingRemove] = useState(null)   // custom confirm dialog
+  const [now, setNow] = useState(Date.now())
   const fileRef = useRef(null)
   const { open } = useCite()
 
@@ -48,9 +61,8 @@ export default function KB() {
     setBusy(false)
   }
 
-  async function onRemove(docId) {
-    if (!window.confirm(`Remove “${docId}” from the knowledge base?\n\nIts source document is archived and the wiki, graph and vector index are rebuilt from the remaining documents.`)) return
-    setErr(''); setBusy(true)
+  async function doRemove(docId) {
+    setPendingRemove(null); setErr(''); setBusy(true)
     try { const r = await api.removeDoc(docId); setReing(r.reingest) }
     catch (e) { setErr(String(e).replace('Error: ', '')) }
     setBusy(false)
@@ -58,6 +70,16 @@ export default function KB() {
 
   const running = !!reing?.running
   const steps = reing?.steps || []
+  const doneSteps = steps.filter(s => s.state === 'ok').length
+  const pct = steps.length ? Math.round(((doneSteps + (running ? 0.4 : 0)) / steps.length) * 100) : (reing && !reing.error ? 100 : 0)
+  const elapsed = reing?.started ? fmtElapsed(now / 1000 - reing.started) : ''
+
+  // tick a clock while rebuilding, for the elapsed timer
+  useEffect(() => {
+    if (!running) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [running])
 
   return (
     <div className="wrap">
@@ -76,21 +98,28 @@ export default function KB() {
       {err && <div className="card" style={{ padding: 12, color: 'var(--crit)', marginBottom: 14 }}>{err}</div>}
 
       {reing && (
-        <div className="card" style={{ padding: 14, marginBottom: 16, borderLeft: '3px solid ' + (running ? 'var(--accent)' : reing.error ? 'var(--crit)' : 'var(--ok)') }}>
-          <div style={{ fontWeight: 600, marginBottom: running || steps.length ? 8 : 0 }}>
-            {running ? 'Rebuilding knowledge base…' : reing.error ? 'Rebuild failed' : 'Rebuild complete'}
-            {running && <span className="meta" style={{ marginLeft: 8 }}>wiki · graph · vector are being regenerated</span>}
+        <div className={'card reing' + (running ? ' running' : reing.error ? ' failed' : ' done')}>
+          <div className="reing-head">
+            <div className="reing-title">
+              {running ? <span className="spin" /> : <span className="dot">{reing.error ? '!' : '✓'}</span>}
+              {running ? 'Rebuilding your knowledge base' : reing.error ? 'Rebuild failed' : 'Rebuild complete'}
+            </div>
+            <span className="meta">{running ? `${pct}%${elapsed ? ' · ' + elapsed : ''}` : (reing.error ? '' : `done in ${elapsed || '—'}`)}</span>
           </div>
+          <div className="progress"><i style={{ width: pct + '%', background: reing.error ? 'var(--crit)' : undefined }} /></div>
           {steps.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <div className="reing-steps">
               {steps.map(s => (
-                <span key={s.step} className={'pill ' + (s.state === 'ok' ? 'ok' : s.state === 'running' ? 'info' : s.state === 'failed' ? 'crit' : 'neutral')}>
-                  {s.state === 'ok' ? '✓ ' : s.state === 'running' ? '… ' : ''}{s.step}
-                </span>
+                <div key={s.step} className={'reing-step ' + s.state}>
+                  <span className="ic">{s.state === 'ok' ? '✓' : s.state === 'running' ? <span className="spin sm" /> : s.state === 'failed' ? '✕' : '○'}</span>
+                  <span className="lbl">{STEP_LABEL[s.step] || s.step}</span>
+                  {s.ms != null && <span className="t">{(s.ms / 1000).toFixed(1)}s</span>}
+                </div>
               ))}
             </div>
           )}
-          {!running && !reing.error && <div className="meta" style={{ marginTop: 6 }}>Hard-refresh the Wiki/Map tabs to see the updated graph.</div>}
+          {reing.error && <div className="meta" style={{ marginTop: 8, color: 'var(--crit)' }}>{reing.error}</div>}
+          {!running && !reing.error && <div className="meta" style={{ marginTop: 8 }}>The wiki, graph and vector index are updated. Reopen the Wiki/Map tabs to see the changes.</div>}
         </div>
       )}
 
@@ -118,10 +147,26 @@ export default function KB() {
           <div><span className="pill ok">✓ Parsed</span> <span className="pill neutral">{doc.kind}</span></div>
           <div className="stats">
             <span><b>{doc.blocks}</b> blocks</span>
-            <button className="btn danger sm push" disabled={running || busy} onClick={() => onRemove(doc.doc_id)}>Remove</button>
+            <button className="btn danger sm push" disabled={running || busy} onClick={() => setPendingRemove(doc.doc_id)}>Remove</button>
           </div>
         </div>
       ))}</div>
+
+      {pendingRemove && (
+        <div className="modal-bg open" onClick={(e) => { if (e.target === e.currentTarget) setPendingRemove(null) }}>
+          <div className="modal confirm" role="dialog" aria-modal="true">
+            <div className="mh"><strong>Remove document</strong><button className="x" onClick={() => setPendingRemove(null)}>×</button></div>
+            <div className="mb">
+              <p>Remove <b>{pendingRemove}</b> from the knowledge base?</p>
+              <p className="meta">Its source file is archived (not deleted), and the wiki, graph and vector index are rebuilt from the remaining documents. This takes a few minutes.</p>
+              <div className="confirm-row">
+                <button className="btn" onClick={() => setPendingRemove(null)}>Cancel</button>
+                <button className="btn danger" onClick={() => doRemove(pendingRemove)}>Remove &amp; rebuild</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
