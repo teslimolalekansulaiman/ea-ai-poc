@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api'
-import { Markdown } from '../cite'
+import { Markdown, useCite } from '../cite'
 import { useChats } from '../chats'
 import UseCaseResult from '../components/UseCaseResult'
 import Graph from '../components/Graph'
@@ -15,6 +15,7 @@ const EXAMPLES = [
 const PILL = { answered: 'ok', refused: 'crit', abstained: 'warn', blocked_output: 'crit', retrieved: 'info', error: 'crit' }
 
 export default function Ask() {
+  const { open: openCite } = useCite()
   const { activeChatId, setActiveChatId, refreshChats } = useChats()
   const [mode, setMode] = useState('ask')              // 'ask' | 'usecase'
   const [q, setQ] = useState('')
@@ -152,6 +153,16 @@ export default function Ask() {
               {m.role === 'bot' && m.meta?.search_question && m.meta.search_question !== msgs[i - 1]?.content &&
                 <div className="rewrite">interpreted as: “{m.meta.search_question}”</div>}
               {m.role === 'bot' ? <Markdown md={m.content} /> : m.content}
+              {m.role === 'bot' && m.meta?.figures?.length > 0 && (
+                <div className="ans-figs">
+                  {m.meta.figures.map(f => (
+                    <figure key={f.block_id} className="ans-fig" onClick={() => openCite(f.block_id)} title="Open source">
+                      <img src={f.image_url} alt={f.block_id} onError={(e) => { e.currentTarget.closest('.ans-fig').style.display = 'none' }} />
+                      <figcaption>{f.section || 'Figure'} <span className="cite">{f.block_id}</span></figcaption>
+                    </figure>
+                  ))}
+                </div>
+              )}
               {m.role === 'bot' && m.meta?.graph && (
                 <div className="ans-graph">
                   <div className="ans-graph-cap">

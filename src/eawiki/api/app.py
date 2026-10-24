@@ -96,6 +96,23 @@ def ask(req: AskReq):
                         "template": gr.get("template"), "summary": gr.get("summary"),
                         "facts": gr.get("facts"), "query": gr.get("query"),
                         "verified": gr.get("verified")}
+    # Figures the answer actually cited → shown inline under the answer (image + desc),
+    # so a diagram shows up in the output, not only in the citation popup.
+    answer_text = out.get("answer", "") or ""
+    figs, seen = [], set()
+    for bid in out.get("blocks", []):
+        if bid in seen or bid not in answer_text:
+            continue
+        seen.add(bid)
+        b = _find_block(bid)
+        if b and b.get("type") == "figure":
+            ip = (b.get("figure") or {}).get("image_path")
+            if ip and Path(ip).exists():
+                figs.append({"block_id": bid, "image_url": "/api/image/" + bid,
+                             "description": b.get("description"),
+                             "section": " / ".join(b.get("section_path", []))})
+    if figs:
+        out["figures"] = figs
     return {k: v for k, v in out.items() if k != "context"}
 
 
