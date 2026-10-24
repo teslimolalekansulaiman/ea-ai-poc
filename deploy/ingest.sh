@@ -41,18 +41,30 @@ VLM_PROXY_KEY="$(gcloud secrets versions access latest --secret=pulse-key)"
 EAWIKI_ARCADE_PASSWORD="$(gcloud secrets versions access latest --secret=arcadedb-root-password)"
 export VLM_PROXY_KEY EAWIKI_ARCADE_PASSWORD
 
-# Start from a clean slate for per-document outputs so a removed document leaves nothing
-# behind (the same thing the app's own re-ingest does). Step caches are kept.
-rm -f data/blocks/*.blocks.json data/pages/*.md
+# FROM_STEP lets you resume (e.g. FROM_STEP=embed) after a failure without re-running the
+# earlier stages. EMBED_BATCH=1 sends one text per request: some embedding routes fold a
+# multi-text batch into fewer vectors.
+FROM_STEP="${FROM_STEP:-parse}"
+EMBED_BATCH="${EMBED_BATCH:-1}"
 
-run() { echo; echo "==> $*"; python -m "$@"; }
-run eawiki.parse --in "$INPUT_DIR"
-run eawiki.tables   --backend pulse
-run eawiki.subjects --backend pulse
-run eawiki.pages    --backend pulse --workers "$WORKERS"
-run eawiki.reconcile
-run eawiki.describe --backend pulse
-run eawiki.embed    --backend openai
+# A full run starts from a clean slate for per-document outputs so a removed document
+# leaves nothing behind (what the app's own re-ingest does). Step caches are kept.
+[ "$FROM_STEP" = parse ] && rm -f data/blocks/*.blocks.json data/pages/*.md
+
+started=""
+for step in parse tables subjects pages reconcile describe embed; do
+  [ "$step" = "$FROM_STEP" ] && started=1
+  [ -n "$started" ] || continue
+  echo; echo "==> $step"
+  case "$step" in
+    parse)     python -m eawiki.parse --in "$INPUT_DIR" ;;
+    pages)     python -m eawiki.pages --backend pulse --workers "$WORKERS" ;;
+    reconcile) python -m eawiki.reconcile ;;
+    embed)     python -m eawiki.embed --backend openai --batch-size "$EMBED_BATCH" ;;
+    *)         python -m "eawiki.$step" --backend pulse ;;
+  esac
+done
+[ -n "$started" ] || { echo "unknown FROM_STEP: $FROM_STEP" >&2; exit 1; }
 
 echo; echo "==> opening IAP tunnel to ArcadeDB"
 gcloud compute start-iap-tunnel ea-dev-vm 2480 --local-host-port=localhost:2480 \

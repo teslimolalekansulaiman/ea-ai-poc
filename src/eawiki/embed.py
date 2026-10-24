@@ -252,7 +252,13 @@ class OpenAICompatEmbedder:
                 data = json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
             raise RuntimeError(f"embeddings HTTP {e.code}: {e.read().decode()[:200]}") from None
-        return [d["embedding"] for d in data["data"]]
+        vecs = [d["embedding"] for d in data["data"]]
+        if len(vecs) != len(texts):
+            # A proxy that folds a batch into fewer vectors would otherwise be dropped by
+            # zip() downstream and surface later as a KeyError on a unit id.
+            raise RuntimeError(f"embeddings returned {len(vecs)} vectors for {len(texts)} inputs "
+                               f"(model {self.model}); retry with --batch-size 1")
+        return vecs
 
     def encode(self, texts: list[str]) -> np.ndarray:
         out: list[list[float]] = []
