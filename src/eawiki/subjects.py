@@ -32,7 +32,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Optional
 
-from eawiki.blocks import Block, load_blocks
+from eawiki.blocks import Block, content_hash, load_blocks
 
 PROSE_TYPES = {"heading", "paragraph", "list_item", "caption"}
 
@@ -331,6 +331,9 @@ def main() -> None:
     ap.add_argument("--coverage", dest="coverage", default="data/graph/coverage.json")
     ap.add_argument("--backend", default="cli", choices=["cli", "sdk", "openai", "openrouter", "pulse"])
     ap.add_argument("--model", default=None)
+    ap.add_argument("--cache-dir", default="data/graph/subject_cache",
+                    help="cache prose discovery per doc so unchanged docs aren't re-discovered")
+    ap.add_argument("--no-cache", action="store_true")
     args = ap.parse_args()
 
     menu = json.loads(Path(args.menu).read_text(encoding="utf-8"))
@@ -355,11 +358,37 @@ def main() -> None:
                              "catalogue_block": s["block_id"], "_llm_blocks": set()}
     seed_names = [v["name"] for v in subjects.values()]
 
-    # 2) DISCOVER from prose, per document
+    # 2) DISCOVER from prose, per document (cached by the doc's prose + schema, so an
+    # unchanged document is not re-discovered on re-ingest — the key deliberately excludes
+    # the global seed list, so adding one doc doesn't bust every other doc's cache; any
+    # overlap with a new seed just merges below).
+    cdir = Path(args.cache_dir)
+    node_types_sig = ", ".join(sorted(menu["node_types"]))
+
+    def _disc_key(blocks):
+        return content_hash(_prose_preview(blocks), node_types_sig, args.backend, str(args.model))
+
+    def _discover(doc_id, blocks):
+        if args.no_cache:
+            return discover_in_doc(blocks, seed_names, menu, args.backend, args.model), False
+        cf = cdir / f"{_disc_key(blocks)}.json"
+        if cf.exists():
+            try:
+                return json.loads(cf.read_text(encoding="utf-8")), True
+            except Exception:
+                pass
+        ds = discover_in_doc(blocks, seed_names, menu, args.backend, args.model)
+        cdir.mkdir(parents=True, exist_ok=True)
+        cf.write_text(json.dumps(ds, ensure_ascii=False), encoding="utf-8")
+        return ds, False
+
     print(f"discovering prose subjects via backend={args.backend} over {len(docs)} docs…")
     discovered = 0
+    n_cached = 0
     for doc_id, blocks in docs.items():
-        for d in discover_in_doc(blocks, seed_names, menu, args.backend, args.model):
+        ds, hit = _discover(doc_id, blocks)
+        n_cached += 1 if hit else 0
+        for d in ds:
             name = d.get("name", "").strip()
             if not name:
                 continue
@@ -398,7 +427,7 @@ def main() -> None:
 
     n_theme = sum(1 for s in out_list if s["kind"] == "theme")
     print(f"\nsubjects: {len(out_list)}  (seeds {len(seed_names)}, +{discovered} from prose, "
-          f"+{len(fig_subjects)} diagrams; {n_theme} themes)")
+          f"+{len(fig_subjects)} diagrams; {n_theme} themes)  [discovery: {n_cached}/{len(docs)} docs from cache]")
     print(f"-> {args.out}  (reviewable)")
     print(f"coverage: {cov['covered']}/{cov['total_blocks']} blocks covered, "
           f"{cov['orphans']} orphan ({cov['orphan_headings_ignorable']} headings ignorable, "
