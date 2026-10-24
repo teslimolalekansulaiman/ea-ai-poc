@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+# Build the knowledge base in Cloud Shell and publish it (bucket + ArcadeDB on the VM).
+#
+# Why here: the ingest stages need docling (heavy), Pulse, and — for the final load — the
+# VM's ArcadeDB, which is reachable from Cloud Shell only through an IAP tunnel.
+#
+#   cd ~/ea-ai-poc && git pull origin claude/ea-deploy
+#   tmux new -s ingest            # survives a dropped Cloud Shell connection
+#   ./deploy/ingest.sh
+#
+# Adding a document for a demo: put the .docx in INPUT_DIR (default docs/samples; use a folder
+# outside the repo for real documents, e.g. INPUT_DIR=$HOME/ea-inputs) and run this again.
+# The pipeline is a full rebuild; per-step caches under data/graph/ make unchanged work cheap.
+#
+# Secrets are read from Secret Manager into this process only; nothing is printed or written.
+set -euo pipefail
+
+PROJECT="${PROJECT:-$(gcloud config get-value project 2>/dev/null)}"
+GCS_BUCKET="${GCS_BUCKET:-$PROJECT-ea-kb}"
+INPUT_DIR="${INPUT_DIR:-docs/samples}"
+VENV="${VENV:-/tmp/ea-venv}"      # outside $HOME: Cloud Shell's home is small, /tmp is not
+WORKERS="${WORKERS:-4}"
+
+export HF_HOME="${HF_HOME:-/tmp/hf}" PYTHONPATH=src
+export VLM_PROXY_URL="${VLM_PROXY_URL:-https://pulse.deloitte.com/chat/completions}"
+export VLM_MODEL="${VLM_MODEL:-claude-sonnet-5-5}"
+export EMBED_MODEL="${EMBED_MODEL:-gemini-embedding-2}"
+export EAWIKI_TRACING=off
+
+[ -d "$INPUT_DIR" ] || { echo "no such input dir: $INPUT_DIR" >&2; exit 1; }
+
+if [ ! -x "$VENV/bin/python" ]; then
+  echo "==> creating venv at $VENV (CPU torch first, to avoid the CUDA download)"
+  python3 -m venv "$VENV"
+  "$VENV/bin/pip" install -q torch torchvision --index-url https://download.pytorch.org/whl/cpu
+  "$VENV/bin/pip" install -q docling==2.139.0 numpy certifi
+fi
+export PATH="$VENV/bin:$PATH"
+
+VLM_PROXY_KEY="$(gcloud secrets versions access latest --secret=pulse-key)"
+EAWIKI_ARCADE_PASSWORD="$(gcloud secrets versions access latest --secret=arcadedb-root-password)"
+export VLM_PROXY_KEY EAWIKI_ARCADE_PASSWORD
+
+# Start from a clean slate for per-document outputs so a removed document leaves nothing
+# behind (the same thing the app's own re-ingest does). Step caches are kept.
+rm -f data/blocks/*.blocks.json data/pages/*.md
+
+run() { echo; echo "==> $*"; python -m "$@"; }
+run eawiki.parse --in "$INPUT_DIR"
+run eawiki.tables   --backend pulse
+run eawiki.subjects --backend pulse
+run eawiki.pages    --backend pulse --workers "$WORKERS"
+run eawiki.reconcile
+run eawiki.describe --backend pulse
+run eawiki.embed    --backend openai
+
+echo; echo "==> opening IAP tunnel to ArcadeDB"
+gcloud compute start-iap-tunnel ea-dev-vm 2480 --local-host-port=localhost:2480 \
+  --zone=me-central2-a >/tmp/ea-tunnel.log 2>&1 &
+TUNNEL=$!
+trap 'kill $TUNNEL 2>/dev/null || true' EXIT
+for _ in $(seq 1 30); do
+  curl -sf http://localhost:2480/api/v1/ready >/dev/null && break
+  sleep 2
+done
+curl -sf http://localhost:2480/api/v1/ready >/dev/null || { echo "tunnel not ready; see /tmp/ea-tunnel.log" >&2; exit 1; }
+
+GCS_BUCKET="$GCS_BUCKET" EAWIKI_ARCADE_URL=http://localhost:2480 ./scripts/publish.sh data
