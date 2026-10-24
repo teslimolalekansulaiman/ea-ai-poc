@@ -82,8 +82,15 @@ class AskReq(BaseModel):
 # --- endpoints -----------------------------------------------------------
 @app.get("/api/health")
 def health():
-    return {"ok": True, "backend": API_BACKEND,
+    return {"ok": True, "backend": API_BACKEND, "safety_llm": _safety_llm(),
             "pages": len(filestore().list(PAGES_KEY, ".md"))}
+
+
+def _safety_llm() -> bool:
+    """Model-based (NeMo) moderation layer. On by default; set EAWIKI_SAFETY_LLM=0 where the
+    serving image does not carry nemoguardrails — the deterministic guard still runs, and
+    /api/health reports which layers are active so the gap is visible, not silent."""
+    return os.environ.get("EAWIKI_SAFETY_LLM", "1").lower() not in ("0", "false", "no", "off")
 
 
 @app.post("/api/ask")
@@ -91,7 +98,7 @@ def ask(req: AskReq):
     """The guarded AI layer: route -> retrieve -> answer, with NeMo + deterministic guards."""
     from eawiki.query.ask import ask as run
     out = run(req.question, k=req.k, backend=API_BACKEND, kinds=req.kinds,
-              use_llm=True, safety_llm=req.safety, history=req.history)
+              use_llm=True, safety_llm=req.safety and _safety_llm(), history=req.history)
     # One graph for display, from the SAME result the answer was grounded in (the graph
     # query engine), so the picture and the answer can never disagree. Surface provenance
     # (which template / generated), the query + facts (so a human can verify), and whether
