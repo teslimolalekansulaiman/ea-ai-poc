@@ -262,17 +262,41 @@ def docs_remove(doc_id: str):
             "reingest": pipeline.run_async()}
 
 
-@app.get("/api/block/{block_id:path}")
-def block(block_id: str):
-    """One source block by id (for citation popups)."""
+def _find_block(block_id: str):
     for fp in _block_files():
         for b in json.loads(Path(fp).read_text(encoding="utf-8")).get("blocks", []):
             if b.get("block_id") == block_id:
-                return {"block_id": block_id, "doc_id": b.get("doc_id"),
-                        "section": " / ".join(b.get("section_path", [])),
-                        "type": b.get("type"), "kind": b.get("kind", "architecture"),
-                        "text": b.get("text", "")}
-    raise HTTPException(404, f"no block '{block_id}'")
+                return b
+    return None
+
+
+@app.get("/api/block/{block_id:path}")
+def block(block_id: str):
+    """One source block by id (for citation popups). Figures carry an image_url so the
+    popup can show the actual picture, plus the model-generated description."""
+    b = _find_block(block_id)
+    if not b:
+        raise HTTPException(404, f"no block '{block_id}'")
+    out = {"block_id": block_id, "doc_id": b.get("doc_id"),
+           "section": " / ".join(b.get("section_path", [])),
+           "type": b.get("type"), "kind": b.get("kind", "architecture"),
+           "text": b.get("text", ""), "description": b.get("description")}
+    if b.get("type") == "figure":
+        ip = (b.get("figure") or {}).get("image_path")
+        if ip and Path(ip).exists():
+            out["image_url"] = "/api/image/" + block_id
+    return out
+
+
+@app.get("/api/image/{block_id:path}")
+def block_image(block_id: str):
+    """The actual image file for a figure block (referenced by /api/block's image_url)."""
+    from fastapi.responses import FileResponse
+    b = _find_block(block_id)
+    ip = (b or {}).get("figure", {}).get("image_path") if b else None
+    if not ip or not Path(ip).exists():
+        raise HTTPException(404, f"no image for '{block_id}'")
+    return FileResponse(ip)
 
 
 # --- use-case registry (the UI builder's CRUD) ---------------------------

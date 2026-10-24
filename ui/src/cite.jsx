@@ -29,8 +29,18 @@ export function CiteProvider({ children }) {
                     <span className="pill neutral">{block.block_id}</span>
                     <span>{block.doc_id}.docx</span><span>·</span><span>{block.section}</span>
                     <span className="pill info">{block.kind}</span>
+                    {block.type === 'figure' && <span className="pill warn">figure</span>}
+                    {block.type === 'table' && <span className="pill warn">table</span>}
                   </div>
-                  <div className={'block' + (block.type === 'table' ? ' mono' : '')}>{block.text}</div>
+                  {block.image_url && (
+                    <img className="src-img" src={block.image_url} alt={'Figure ' + block.block_id}
+                      onError={(e) => { e.currentTarget.style.display = 'none' }} />
+                  )}
+                  {block.type === 'figure' && block.description && (
+                    <div className="src-desc"><span className="k">AI description</span>{block.description}</div>
+                  )}
+                  {block.text && block.text !== block.description &&
+                    <div className={'block' + (block.type === 'table' ? ' mono' : '')}>{block.text}</div>}
                 </>
               )}
             </div>
