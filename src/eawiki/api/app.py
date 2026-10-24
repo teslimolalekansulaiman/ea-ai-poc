@@ -298,11 +298,27 @@ def block(block_id: str):
            "section": " / ".join(b.get("section_path", [])),
            "type": b.get("type"), "kind": b.get("kind", "architecture"),
            "text": b.get("text", ""), "description": b.get("description")}
-    if b.get("type") == "figure":
-        ip = (b.get("figure") or {}).get("image_path")
-        if ip and Path(ip).exists():
-            out["image_url"] = "/api/image/" + block_id
+    if b.get("type") == "figure" and _usable_image((b.get("figure") or {}).get("image_path")):
+        out["image_url"] = "/api/image/" + block_id
     return out
+
+
+def _usable_image(path) -> bool:
+    """True only for a real figure image. These sample .docx diagrams are drawn with
+    Office shapes (no embedded raster), so Docling exports a ~21px sliver — we don't show
+    those misleading strips. A usable image is at least 40px tall."""
+    try:
+        if not path or not Path(path).exists():
+            return False
+        import struct
+        with open(path, "rb") as f:
+            head = f.read(24)
+        if head[:8] != b"\x89PNG\r\n\x1a\n":
+            return True                      # non-PNG: assume usable
+        _, h = struct.unpack(">II", head[16:24])
+        return h >= 40
+    except Exception:
+        return False
 
 
 @app.get("/api/image/{block_id:path}")
