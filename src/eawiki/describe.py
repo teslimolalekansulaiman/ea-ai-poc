@@ -28,6 +28,31 @@ def _section(b) -> str:
     return " / ".join(b.section_path) or "(root)"
 
 
+def _usable_image(path) -> bool:
+    """A real figure image (>=40px tall). The sample diagrams are Office shapes with no
+    raster, so Docling exports a ~21px sliver — not worth describing with vision."""
+    try:
+        if not path or not Path(path).exists():
+            return False
+        import struct
+        with open(path, "rb") as f:
+            head = f.read(24)
+        if head[:8] != b"\x89PNG\r\n\x1a\n":
+            return True
+        return struct.unpack(">II", head[16:24])[1] >= 40
+    except Exception:
+        return False
+
+
+def _figure_context(b, blocks) -> str:
+    """Caption + nearby text blocks (same doc, within a few positions) — the evidence for
+    describing a figure we can't see."""
+    near = [x for x in blocks if x.doc_id == b.doc_id and x.type in ("paragraph", "heading")
+            and abs((x.ordinal or 0) - (b.ordinal or 0)) <= 3 and (x.text or "").strip()]
+    near.sort(key=lambda x: x.ordinal or 0)
+    return "\n".join(f"- {(x.text or '').strip()[:200]}" for x in near) or "(no surrounding text)"
+
+
 def describe_table(b, backend: str, model) -> str:
     prompt = (
         "Describe this table in 2-3 sentences so it can be found by search: say what it "
@@ -37,14 +62,23 @@ def describe_table(b, backend: str, model) -> str:
     return llm_text(prompt, backend, model).strip()
 
 
-def describe_figure(b, backend: str, model) -> str:
+def describe_figure(b, backend: str, model, blocks=None) -> str:
     fig = b.figure or {}
+    if _usable_image(fig.get("image_path")):
+        prompt = (
+            "Describe this enterprise-architecture diagram in 2-4 sentences so it can be found "
+            "by search: what it depicts, the main components/boxes shown, and how they connect. "
+            "Name specific elements you can read. Plain text only, no preamble.\n\n"
+            f"Caption: {fig.get('caption') or '(none)'}\nSection: {_section(b)}\n\nDescription:")
+        return llm_vision(prompt, fig.get("image_path"), backend, model).strip()
+    # No usable image (shape-drawn diagram) → describe from caption + surrounding text.
     prompt = (
-        "Describe this enterprise-architecture diagram in 2-4 sentences so it can be found "
-        "by search: what it depicts, the main components/boxes shown, and how they connect. "
-        "Name specific elements you can read. Plain text only, no preamble.\n\n"
-        f"Caption: {fig.get('caption') or '(none)'}\nSection: {_section(b)}\n\nDescription:")
-    return llm_vision(prompt, fig.get("image_path"), backend, model).strip()
+        "Describe what this figure/diagram is about in 2-3 sentences, for search. You CANNOT "
+        "see the image — infer only from its caption and the surrounding text, name the "
+        "specific elements they mention, and do NOT invent visual details. Plain text only.\n\n"
+        f"Caption: {fig.get('caption') or '(none)'}\nSection: {_section(b)}\n"
+        f"Surrounding text:\n{_figure_context(b, blocks or [])}\n\nDescription:")
+    return llm_text(prompt, backend, model).strip()
 
 
 def run(backend: str = "cli", model=None, in_dir: str = "data/blocks",
@@ -107,7 +141,7 @@ def run(backend: str = "cli", model=None, in_dir: str = "data/blocks",
                     continue
             try:
                 b.description = describe_table(b, backend, model) if b.type == "table" \
-                    else describe_figure(b, backend, model)
+                    else describe_figure(b, backend, model, blocks)
                 by_id[b.block_id] = b.description
                 if use_cache:
                     _cache_put(b)
