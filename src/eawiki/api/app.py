@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -33,7 +34,16 @@ _web_env = os.environ.get("EAWIKI_WEB")
 WEB = Path(_web_env) if _web_env else (Path("ui/dist") if Path("ui/dist").exists() else Path("web"))
 API_BACKEND = os.environ.get("EAWIKI_API_BACKEND", "openrouter")
 
-app = FastAPI(title="EA GraphRAG Wiki API", version="1.0")
+@asynccontextmanager
+async def _lifespan(_app):
+    # Authoring instances (EAWIKI_SYNC_*) restore data/ and docs/ from buckets first;
+    # a no-op everywhere else.
+    from eawiki import sync
+    sync.pull_if_enabled()
+    yield
+
+
+app = FastAPI(title="EA GraphRAG Wiki API", version="1.0", lifespan=_lifespan)
 
 # OpenTelemetry/OpenInference tracing -> Phoenix (no-op if Phoenix/libs absent).
 try:
@@ -82,7 +92,9 @@ class AskReq(BaseModel):
 # --- endpoints -----------------------------------------------------------
 @app.get("/api/health")
 def health():
+    from eawiki import sync
     return {"ok": True, "backend": API_BACKEND, "safety_llm": _safety_llm(),
+            "sync": sync.status(),
             "pages": len(filestore().list(PAGES_KEY, ".md"))}
 
 

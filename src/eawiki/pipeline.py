@@ -59,6 +59,12 @@ def run_async() -> dict:
         _STATUS.update(running=True, done=False, error=None,
                        steps=[{"step": n, "state": "pending"} for n, _ in STEPS],
                        started=time.time())
+        from eawiki import sync
+        try:
+            sync.push_sources()   # authoring instance: make the add/remove durable first
+        except Exception as e:
+            _STATUS.update(running=False, done=True, error=f"sync sources: {e}")
+            return
         _clean_derived()   # start from a clean slate so removed docs leave nothing behind
         env = {**os.environ, "PYTHONPATH": os.environ.get("PYTHONPATH", "src")}
         for i, (name, cmd) in enumerate(STEPS):
@@ -76,6 +82,11 @@ def run_async() -> dict:
             metamodel.clear_flag()
         except Exception:
             pass
+        try:
+            sync.push_results()   # authoring instance: publish the rebuilt KB to the bucket
+        except Exception as e:
+            _STATUS.update(running=False, done=True, error=f"sync results: {e}")
+            return
         _STATUS.update(running=False, done=True)
 
     threading.Thread(target=_run, daemon=True).start()

@@ -1,0 +1,44 @@
+# Cloud Run AUTHORING image: the serving app plus the ingest pipeline, so documents can be
+# added from the UI. Unlike Dockerfile (read-only serving), this one carries docling and
+# restores/pushes its working folders to buckets (see src/eawiki/sync.py).
+#
+# Run it as a single instance with CPU always allocated: the re-ingest is a background
+# thread that must keep running after the upload request returns.
+
+# ---- Stage 1: build the React UI ----
+FROM node:20-bookworm-slim AS ui
+WORKDIR /ui
+COPY ui/package.json ui/package-lock.json ./
+RUN npm ci
+COPY ui/ ./
+RUN npm run build
+
+# ---- Stage 2: Python image with the ingest pipeline ----
+FROM python:3.12-slim AS author
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src \
+    EAWIKI_TRACING=off \
+    HF_HOME=/tmp/hf \
+    PORT=8080
+WORKDIR /app
+
+# Shared libraries that docling's image dependencies import (absent from the slim base).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPU-only torch first, so docling does not pull the multi-gigabyte CUDA build.
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+COPY requirements-serve.txt ./
+RUN pip install --no-cache-dir -r requirements-serve.txt docling==2.139.0
+
+COPY src/ ./src/
+COPY --from=ui /ui/dist ./ui/dist
+# data/ and docs/samples are restored from buckets at start-up; create them so the
+# pipeline's relative paths resolve.
+RUN mkdir -p data docs/samples
+
+EXPOSE 8080
+CMD ["sh", "-c", "exec uvicorn eawiki.api.app:app --host 0.0.0.0 --port ${PORT}"]

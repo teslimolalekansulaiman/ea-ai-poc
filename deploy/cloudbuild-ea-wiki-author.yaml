@@ -1,0 +1,16 @@
+# Build the AUTHORING image (adds docling) and push it to Artifact Registry.
+#
+#   gcloud builds submit . --config=deploy/cloudbuild-ea-wiki-author.yaml \
+#     --gcs-source-staging-dir=gs://<compliant-bucket>/source --substitutions=_TAG=a1
+serviceAccount: projects/${PROJECT_ID}/serviceAccounts/${PROJECT_NUMBER}-compute@developer.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s
+substitutions:
+  _TAG: a1
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "Dockerfile.author", "-t", "me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki-author:${_TAG}", "."]
+images:
+  - me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki-author:${_TAG}
