@@ -61,7 +61,8 @@ for step in parse tables subjects pages reconcile describe embed community summa
   case "$step" in
     parse)     python -m eawiki.parse --in "$INPUT_DIR" ;;
     pages)     python -m eawiki.pages --backend pulse --workers "$WORKERS" ;;
-    reconcile) python -m eawiki.reconcile ;;
+    reconcile) python -m eawiki.reconcile --adjudicate pulse --semantic \
+                 --merge-mode "${EAWIKI_MERGE_MODE:-report}" ;;
     embed)     python -m eawiki.embed --backend openai --batch-size "$EMBED_BATCH" ;;
     # Steps 7-9. Files only here: the graph is loaded into ArcadeDB by publish.sh below,
     # after which the Community vertices would have to be projected (run the app's

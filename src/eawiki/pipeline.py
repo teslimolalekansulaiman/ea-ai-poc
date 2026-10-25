@@ -40,7 +40,12 @@ STEPS = [
     ("tables",    [sys.executable, "-m", "eawiki.tables", "--backend", "openrouter"]),
     ("subjects",  [sys.executable, "-m", "eawiki.subjects", "--backend", "openrouter"]),
     ("pages",     [sys.executable, "-m", "eawiki.pages", "--backend", "openrouter", "--workers", "8"]),
-    ("reconcile", [sys.executable, "-m", "eawiki.reconcile"]),
+    # Entity de-duplication: string rules, then names embedded by meaning, then the model decides
+    # the close pairs. "report" (default) only records what it WOULD merge; set
+    # EAWIKI_MERGE_MODE=apply on the service to merge. Decisions are cached and reviewable in
+    # graph/merge_report.json; data/merge_overrides.json always wins.
+    ("reconcile", [sys.executable, "-m", "eawiki.reconcile", "--adjudicate", "openrouter",
+                   "--semantic", "--merge-mode", os.environ.get("EAWIKI_MERGE_MODE", "report")]),
     ("describe",  [sys.executable, "-m", "eawiki.describe", "--backend", "openrouter"]),
     ("embed",     [sys.executable, "-m", "eawiki.embed", "--backend", "openrouter"]),
     ("load",      [sys.executable, "-m", "eawiki.load"]),

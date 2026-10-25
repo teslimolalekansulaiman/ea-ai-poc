@@ -20,13 +20,15 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
 from eawiki import dedupe
 from eawiki.dedupe import normalize
-from eawiki.subjects import llm_text, _extract_json, llm_json
+from eawiki.blocks import content_hash
+from eawiki.subjects import effective_model, llm_text, _extract_json, llm_json
 from eawiki.tables import _validate_llm_facts
 
 
@@ -63,7 +65,12 @@ def load_all(graph_dir: Path) -> tuple[list[dict], list[dict], list[dict]]:
 # ---------------------------------------------------------------------------
 # Tier-3 adjudicator (LLM) — closure over the raw edges, as a readable context
 # ---------------------------------------------------------------------------
-def make_adjudicator(edges: list[dict], backend: str, model: Optional[str]):
+def make_adjudicator(edges: list[dict], backend: str, model: Optional[str],
+                     cache_dir: Optional[Path] = None):
+    """The Tier-3 question: are these two the same real-world entity? Returns (same, reason).
+    Answers are cached by the full prompt + backend + model, so an unchanged pair is never
+    asked twice; a call that gives no usable answer raises (and is not cached), so the pair is
+    retried on the next run instead of being recorded as "different"."""
     edges_by_key = defaultdict(list)
     for e in edges:
         sk = (normalize(e.get("source", "")), e.get("source_type") or "element")
@@ -72,11 +79,28 @@ def make_adjudicator(edges: list[dict], backend: str, model: Optional[str]):
         edges_by_key[sk].append(desc)
         edges_by_key[tk].append(desc)
 
-    def adjudicate(ca: dict, cb: dict) -> bool:
+    def adjudicate(ca: dict, cb: dict):
         a_desc = dedupe._describe(ca, edges_by_key, None)
         b_desc = dedupe._describe(cb, edges_by_key, None)
-        out = llm_json(dedupe.adjudication_prompt(a_desc, b_desc), backend, model)
-        return bool(isinstance(out, dict) and out.get("same") is True)
+        prompt = dedupe.adjudication_prompt(a_desc, b_desc)
+        cf = None
+        if cache_dir is not None:
+            cf = Path(cache_dir) / f"{content_hash(prompt, backend, effective_model(model))}.json"
+            if cf.exists():
+                try:
+                    d = json.loads(cf.read_text(encoding="utf-8"))
+                    return bool(d["same"]), d.get("reason", "")
+                except Exception:
+                    pass
+        out = llm_json(prompt, backend, model)
+        if not isinstance(out, dict) or "same" not in out:
+            raise RuntimeError("no usable decision from the model")
+        same, why = out.get("same") is True, str(out.get("reason", ""))[:200]
+        if cf is not None:
+            cf.parent.mkdir(parents=True, exist_ok=True)
+            cf.write_text(json.dumps({"same": same, "reason": why}, ensure_ascii=False),
+                          encoding="utf-8")
+        return same, why
 
     return adjudicate
 
@@ -91,9 +115,21 @@ def main() -> None:
                     help="source blocks, used to resolve each fact's doc `kind`")
     ap.add_argument("--menu", default="data/togaf92_metamodel.json")
     ap.add_argument("--out", default="data/graph/graph.json")
-    ap.add_argument("--adjudicate", choices=["none", "cli", "sdk"], default="none",
+    ap.add_argument("--adjudicate", choices=["none", "cli", "sdk", "openai", "openrouter", "pulse"],
+                    default="none",
                     help="Tier-3 LLM adjudication of flagged pairs (default none = deterministic)")
     ap.add_argument("--model", default=None)
+    ap.add_argument("--semantic", action="store_true",
+                    help="also propose duplicate candidates by meaning (name embeddings)")
+    ap.add_argument("--sim-threshold", type=float, default=0.85,
+                    help="cosine similarity at/above which two names become a candidate pair")
+    ap.add_argument("--top-k", type=int, default=3, help="max semantic partners per entity")
+    ap.add_argument("--merge-mode", choices=["report", "apply"],
+                    default=os.environ.get("EAWIKI_MERGE_MODE", "report"),
+                    help="report: record what the model WOULD merge; apply: merge it")
+    ap.add_argument("--max-pairs", type=int, default=300,
+                    help="cap on Tier-3 questions per run (closest pairs first; 0 = no cap)")
+    ap.add_argument("--workers", type=int, default=4)
     args = ap.parse_args()
 
     gdir = Path(args.graph_dir)
@@ -124,9 +160,33 @@ def main() -> None:
 
     adjudicate = None
     if args.adjudicate != "none":
-        adjudicate = make_adjudicator(edges_in, args.adjudicate, args.model)
+        adjudicate = make_adjudicator(edges_in, args.adjudicate, args.model, gdir / "merge_cache")
 
-    res = dedupe.resolve(mentions, edges_in, adjudicate=adjudicate)
+    # Candidates by meaning. Best effort: if the embedder is unavailable the step still runs
+    # on the string rules alone, and says so.
+    extra_pairs = []
+    if args.semantic and adjudicate is not None:
+        try:
+            from eawiki import semantic
+            from eawiki.embed import get_embedder
+            keys = sorted({(normalize(m["name"]), m.get("type") or "element")
+                           for m in mentions if m.get("name") and normalize(m["name"])})
+            vecs = semantic.embed_names([k[0] for k in keys],
+                                        get_embedder("openai", None, 0, 1), gdir / "name_embed_cache")
+            extra_pairs = semantic.similar_pairs(keys, vecs, args.sim_threshold, args.top_k)
+            print(f"semantic: {len(keys)} names embedded, {len(extra_pairs)} candidate pairs "
+                  f"(cosine >= {args.sim_threshold})")
+        except Exception as e:
+            print(f"semantic: skipped ({type(e).__name__}: {str(e)[:100]})")
+
+    overrides = {}
+    ov_path = gdir.parent / "merge_overrides.json"
+    if ov_path.exists():
+        overrides = json.loads(ov_path.read_text(encoding="utf-8"))
+
+    res = dedupe.resolve(mentions, edges_in, adjudicate=adjudicate, extra_pairs=extra_pairs,
+                         apply_llm=(args.merge_mode == "apply"), max_adjudications=args.max_pairs,
+                         workers=args.workers, overrides=overrides)
     nodes = res["nodes"]
     for n in nodes:                           # which doc class(es) evidence this node
         n["kinds"] = kinds_for(n.get("block_ids"))
@@ -200,7 +260,9 @@ def main() -> None:
     flagged_clean = [{k: v for k, v in fp.items() if k not in ("a_key", "b_key")}
                      for fp in res["flagged"]]
     (gdir / "merge_report.json").write_text(
-        json.dumps({"merges": res["merges"], "flagged": flagged_clean}, indent=2,
+        json.dumps({"mode": args.merge_mode if adjudicate else "deterministic",
+                    "semantic_pairs": len(extra_pairs),
+                    "merges": res["merges"], "flagged": flagged_clean}, indent=2,
                    ensure_ascii=False), encoding="utf-8")
 
     # --- summary ----------------------------------------------------------
@@ -211,6 +273,10 @@ def main() -> None:
     print(f"nodes : {len(nodes)} resolved  ({len(mentions)} mentions collapsed)")
     print(f"        merges: {len(res['merges'])} auto/llm   flagged: {len(flagged_clean)}   "
           f"isolated: {len(isolated)}")
+    if adjudicate is not None:
+        from collections import Counter
+        tally = Counter(f["decision"].split(":")[0] for f in flagged_clean)
+        print(f"        model decisions ({args.merge_mode}): {dict(tally)}")
     print(f"edges : {len(edges)} unique  (from {len(edges_in)})   "
           f"multi-source: {multi}   demoted->associated_with: {demoted}")
     print(f"-> {gpath}")

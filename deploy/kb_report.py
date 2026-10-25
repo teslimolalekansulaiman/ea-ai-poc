@@ -62,6 +62,11 @@ def main():
                         if norm(f.get("a")) in {norm(x) for x in iso_names}
                         and norm(f.get("b")) in {norm(x) for x in iso_names})
     print(f"flagged pairs where BOTH sides are edgeless: {both_edgeless}")
+    tally = Counter(str(f.get("decision", "")).split(":")[0] for f in flagged)
+    print(f"merge mode: {merge.get('mode', '?')}   model/override decisions: {dict(tally)}")
+    proposals = [f for f in flagged if f.get("decision") in ("would merge", "merge")]
+    for f in proposals[:15]:
+        print(f"  {f['decision']:>11}: {f['a']}  =  {f['b']}   ({f.get('llm_reason', '')})")
     typed = Counter(n.get("type") for n in isolated)
     print("edgeless by type:", dict(typed.most_common(6)))
     print("\nsample edgeless 'element' entities:",

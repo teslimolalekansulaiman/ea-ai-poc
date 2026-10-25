@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 # tunables (conservative: prefer under-merge + flag over silent over-merge)
@@ -86,12 +87,20 @@ def _slug(name: str) -> str:
 
 
 def resolve(mentions: list[dict], edges: list[dict],
-            adjudicate=None) -> dict:
+            adjudicate=None, extra_pairs=None, apply_llm: bool = True,
+            max_adjudications: int = 0, workers: int = 4, overrides: Optional[dict] = None) -> dict:
     """Resolve node mentions into canonical nodes.
 
     mentions: [{name, type, origin, evidence?, block_id?, ...}] — nodes + endpoints.
     edges:    the raw edges (used for neighbour overlap); names/types as-authored.
-    adjudicate: optional callable(pair_a, pair_b) -> bool (True = same). Tier 3.
+    adjudicate: optional callable(pair_a, pair_b) -> bool or (bool, reason). Tier 3.
+    extra_pairs: [(a_key, b_key, similarity)] candidates found by meaning (name embeddings),
+        which the string tiers cannot see ("Oracle DB" / "Oracle Database"); they join the
+        flagged list and go to Tier 3 like any other flagged pair.
+    apply_llm: False records what Tier 3 WOULD merge ("would merge") without merging.
+    max_adjudications: cap on Tier-3 questions per run (0 = no cap); highest similarity first.
+    overrides: {"merge": [[a, b]...], "separate": [[a, b]...]} by name — human decisions that
+        always win over the model and the string rules.
 
     Returns {nodes, alias (normkey->node_id), merges[], flagged[]}.
     """
@@ -244,24 +253,81 @@ def resolve(mentions: list[dict], edges: list[dict],
                                 "name_sim": 1.0, "edge_overlap": round(overlap(a, b), 2),
                                 "reason": "identical name, conflicting type (pass disagreement)"})
 
+    # Candidates found by MEANING (name embeddings): pairs the spelling rules cannot see.
+    # `seen_pairs` records every pair the string tiers LOOKED at, including the ones they
+    # rejected as too different, so it cannot be used here: only skip a pair already flagged.
+    already_flagged = {tuple(sorted((fp["a_key"], fp["b_key"]))) for fp in flagged}
+    for a, b, esim in (extra_pairs or []):
+        if a not in clusters or b not in clusters:
+            continue
+        pair = tuple(sorted((a, b)))
+        if pair in already_flagged or uf.find(a) == uf.find(b):
+            continue
+        already_flagged.add(pair)
+        flagged.append({"a": canon_name(a), "b": canon_name(b),
+                        "type": a[1] if a[1] == b[1] else f"{a[1]} / {b[1]}",
+                        "a_key": a, "b_key": b, "name_sim": round(name_sim(a[0], b[0]), 2),
+                        "embed_sim": round(float(esim), 3), "edge_overlap": round(overlap(a, b), 2),
+                        "reason": "semantically similar name (embedding)"})
+
+    # Human decisions always win. A "merge" joins every entity carrying either name; a
+    # "separate" keeps the pair out of every automatic step.
+    ov = overrides or {}
+    keep_apart = {frozenset((normalize(a), normalize(b))) for a, b in ov.get("separate", [])}
+    for a, b in ov.get("merge", []):
+        group = sorted((k for k in keys if k[0] in (normalize(a), normalize(b))),
+                       key=lambda k: k[1] == "element")      # a typed entity stays the root
+        if len(group) > 1:
+            for k in group[1:]:
+                uf.union(group[0], k)
+            merges.append({"a": a, "b": b, "type": "any", "tier": "override", "name_sim": None,
+                           "edge_overlap": None, "decision": "override-merge"})
+    for fp in flagged:
+        if frozenset((fp["a_key"][0], fp["b_key"][0])) in keep_apart:
+            fp["decision"] = "override-separate"
+
     # --- Tier 3: LLM adjudication on the flagged pairs --------------------
     if adjudicate is not None:
+        todo = []
         for fp in flagged:
-            a, b = fp["a_key"], fp["b_key"]
-            if uf.find(a) == uf.find(b):
+            if fp.get("decision"):
+                continue
+            if uf.find(fp["a_key"]) == uf.find(fp["b_key"]):
                 fp["decision"] = "already merged"
-                continue
+            else:
+                todo.append(fp)
+        # most promising first: closest by meaning, then by spelling
+        todo.sort(key=lambda fp: (-(fp.get("embed_sim") or 0.0), -fp["name_sim"]))
+        batch = todo[:max_adjudications] if max_adjudications else todo
+        for fp in todo[len(batch):]:
+            fp["decision"] = "not adjudicated (limit)"
+
+        def _decide(fp):
             try:
-                same = adjudicate(clusters[a], clusters[b])
+                r = adjudicate(clusters[fp["a_key"]], clusters[fp["b_key"]])
+                same, why = r if isinstance(r, tuple) else (bool(r), "")
+                return bool(same), why, None
             except Exception as ex:
-                fp["decision"] = f"adjudication error: {type(ex).__name__}"
+                return False, "", f"{type(ex).__name__}: {str(ex)[:80]}"
+
+        with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+            decisions = list(ex.map(_decide, batch))
+        for fp, (same, why, err) in zip(batch, decisions):
+            if err:
+                fp["decision"] = f"adjudication error: {err}"
                 continue
-            fp["decision"] = "merge" if same else "separate"
-            if same:
-                uf.union(a, b)
+            fp["llm_reason"] = why
+            if not same:
+                fp["decision"] = "separate"
+            elif not apply_llm:
+                fp["decision"] = "would merge"
+            else:
+                fp["decision"] = "merge"
+                uf.union(fp["a_key"], fp["b_key"])
                 merges.append({"a": fp["a"], "b": fp["b"], "type": fp["type"],
                                "tier": "3-llm", "name_sim": fp["name_sim"],
-                               "edge_overlap": fp["edge_overlap"], "decision": "llm-merge"})
+                               "edge_overlap": fp["edge_overlap"], "decision": "llm-merge",
+                               "reason": why})
     else:
         for fp in flagged:
             if uf.find(fp["a_key"]) == uf.find(fp["b_key"]):
