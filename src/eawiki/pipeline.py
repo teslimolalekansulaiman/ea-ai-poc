@@ -44,6 +44,13 @@ STEPS = [
     ("describe",  [sys.executable, "-m", "eawiki.describe", "--backend", "openrouter"]),
     ("embed",     [sys.executable, "-m", "eawiki.embed", "--backend", "openrouter"]),
     ("load",      [sys.executable, "-m", "eawiki.load"]),
+    # Steps 7-9 (PIPELINE.md): the community layer. Needs the graph already in ArcadeDB
+    # (community projects Community vertices onto it), hence after `load`.
+    ("community", [sys.executable, "-m", "eawiki.community"]),
+    ("summaries", [sys.executable, "-m", "eawiki.summaries", "--backend", "openrouter",
+                   "--workers", "6"]),
+    ("landscape", [sys.executable, "-m", "eawiki.landscape", "--backend", "openrouter",
+                   "--workers", "6"]),
 ]
 
 

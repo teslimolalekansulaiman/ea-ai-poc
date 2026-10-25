@@ -53,7 +53,7 @@ EMBED_BATCH="${EMBED_BATCH:-1}"
 
 started=""
 [ "$FROM_STEP" = publish ] && started=skip   # FROM_STEP=publish: skip the build, just publish
-for step in parse tables subjects pages reconcile describe embed; do
+for step in parse tables subjects pages reconcile describe embed community summaries landscape; do
   [ "$started" = skip ] && break
   [ "$step" = "$FROM_STEP" ] && started=1
   [ -n "$started" ] || continue
@@ -63,6 +63,12 @@ for step in parse tables subjects pages reconcile describe embed; do
     pages)     python -m eawiki.pages --backend pulse --workers "$WORKERS" ;;
     reconcile) python -m eawiki.reconcile ;;
     embed)     python -m eawiki.embed --backend openai --batch-size "$EMBED_BATCH" ;;
+    # Steps 7-9. Files only here: the graph is loaded into ArcadeDB by publish.sh below,
+    # after which the Community vertices would have to be projected (run the app's
+    # re-ingest, or `python -m eawiki.community`, to do that).
+    community) python -m eawiki.community --no-load ;;
+    summaries) python -m eawiki.summaries --backend pulse --no-load ;;
+    landscape) python -m eawiki.landscape --backend pulse --workers "$WORKERS" ;;
     *)         python -m "eawiki.$step" --backend pulse ;;
   esac
 done

@@ -6,6 +6,8 @@ const STEP_LABEL = {
   parse: 'Parsing documents', tables: 'Reading tables', subjects: 'Finding subjects',
   pages: 'Writing wiki pages', reconcile: 'Reconciling the graph',
   describe: 'Describing tables & figures', embed: 'Embedding for search', load: 'Loading the index',
+  community: 'Detecting communities', summaries: 'Summarising communities',
+  landscape: 'Writing landscape pages',
 }
 const fmtElapsed = (secs) => {
   if (!secs || secs < 0) return ''
