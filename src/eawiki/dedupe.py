@@ -358,7 +358,15 @@ def resolve(mentions: list[dict], edges: list[dict],
         # canonical name = most frequent across all merged members
         allnames = [n for k in members for n in (clusters[k]["names"] or [k[0]])]
         cname = max(set(allnames), key=lambda n: (allnames.count(n), len(n))) if allnames else root[0]
-        typ = root[1]
+        # The merged entity's type is decided by its MEMBERS, never by which key the union-find
+        # happened to use as the root: `element` means "the extractor could not say", so a typed
+        # member always outranks it. Without this, an `element` root silently stripped the real
+        # type from every entity it absorbed, and the schema check then demoted their edges.
+        weight: dict = defaultdict(int)
+        for k in members:
+            weight[k[1]] += len(clusters[k]["mentions"]) or 1
+        typed = [t for t in weight if t != "element"]
+        typ = max(typed, key=lambda t: (weight[t], t)) if typed else "element"
         nid = _slug(cname)
         base, i = nid, 2
         while nid in used_ids:
@@ -382,6 +390,7 @@ def resolve(mentions: list[dict], edges: list[dict],
             "aliases": sorted(n for n in mem_names if n != cname),
             "origins": sorted(origins), "block_ids": sorted(bids),
             "evidence": evid,
+            **({"type_conflict": sorted(typed)} if len(typed) > 1 else {}),
         })
 
     return {"nodes": nodes, "alias": alias, "merges": merges, "flagged": flagged}
