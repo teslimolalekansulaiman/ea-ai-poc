@@ -52,7 +52,20 @@ _TOXIC = [  # obvious threat/violence/explicit markers; the classifier handles n
 ]
 _INJECTION_RE = re.compile("|".join(_INJECTION), re.I)
 _TOXIC_RE = re.compile("|".join(_TOXIC), re.I)
-_CITE_RE = re.compile(r"\[([0-9A-Za-z][0-9A-Za-z\-]*:\d+(?:#\d+)?)\]")
+# A block id is "<document id>:<ordinal>[#<chunk>]", and the document id is the uploaded file's
+# name — "Data Architecture Sample", "Applications_As-Is_Sample_SJC-Cleansed", "01_Business_v0.2"
+# — so it may hold spaces, underscores, dots and brackets, not only "03-data". The character set
+# is kept to letters/digits and those few marks, so an id can never carry markup.
+_CITE_ONE = r"[\w][\w \-.()]*:\d+(?:#\d+)?"
+_CITE_RE = re.compile(rf"\[({_CITE_ONE}(?:\s*,\s*{_CITE_ONE})*)\]")
+
+
+def cited_ids(text: str) -> set[str]:
+    """Every block id cited as [id] or [id, id] in `text`."""
+    ids: set[str] = set()
+    for m in _CITE_RE.finditer(text or ""):
+        ids.update(part.strip() for part in m.group(1).split(","))
+    return ids
 
 
 # --- INPUT ---------------------------------------------------------------
@@ -123,7 +136,7 @@ def relevance_ok(blocks: list[dict], max_distance: float = 0.95) -> bool:
 def verify_citations(answer: str, allowed_block_ids: set[str]) -> dict:
     """Every [block] the answer cites must be one that was actually retrieved.
     Returns the cited ids, which are valid, and which were hallucinated."""
-    cited = set(_CITE_RE.findall(answer or ""))
+    cited = cited_ids(answer)
     invalid = sorted(c for c in cited if c not in allowed_block_ids)
     return {"cited": sorted(cited), "invalid": invalid,
             "grounded": bool(cited) and not invalid}

@@ -4,7 +4,11 @@
 function esc(s) {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
 }
-const CITE = /\[([0-9A-Za-z][0-9A-Za-z-]*:\d+(?:#\d+)?(?:\s*,\s*[0-9A-Za-z][0-9A-Za-z-]*:\d+(?:#\d+)?)*)\]/g
+// A block id is "<document id>:<ordinal>[#chunk]" and the document id is the uploaded file's
+// name, so it may contain spaces, underscores, dots and brackets (not only "03-data"). Only
+// letters/digits and those marks are allowed, so an id can never carry markup into data-cite.
+const CITE_ONE = '[\\p{L}\\p{N}_][\\p{L}\\p{N}_ \\-.()]*:\\d+(?:#\\d+)?'
+const CITE = new RegExp('\\[(' + CITE_ONE + '(?:\\s*,\\s*' + CITE_ONE + ')*)\\]', 'gu')
 
 export function mdToHtml(md) {
   md = esc(md)
