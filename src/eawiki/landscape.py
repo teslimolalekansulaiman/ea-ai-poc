@@ -17,14 +17,14 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from eawiki.blocks import Block
-from eawiki.subjects import llm_text
+from eawiki.blocks import Block, content_hash
+from eawiki.subjects import effective_model, llm_text
 from eawiki.summaries import _report_failures, block_index, community_context
 
 
-def build_page(c: dict, ctx: str, backend: str, model) -> str:
+def landscape_prompt(c: dict, ctx: str) -> str:
     summary = c.get("summary", "")
-    prompt = f"""Write a LANDSCAPE wiki page (markdown) for this area of the enterprise architecture, for someone wanting the big picture. Use ONLY the context. Structure: '# {c['name']} Landscape', a short overview, the key systems/processes and how they connect, and risks/gaps. Cite block ids like [03-data:5]. Do not invent facts.
+    return f"""Write a LANDSCAPE wiki page (markdown) for this area of the enterprise architecture, for someone wanting the big picture. Use ONLY the context. Structure: '# {c['name']} Landscape', a short overview, the key systems/processes and how they connect, and risks/gaps. Cite block ids like [03-data:5]. Do not invent facts.
 
 Existing summary of this area (you may build on it):
 {summary or '(none)'}
@@ -32,7 +32,10 @@ Existing summary of this area (you may build on it):
 {ctx}
 
 Return ONLY the markdown page."""
-    return llm_text(prompt, backend, model).strip()
+
+
+def build_page(c: dict, ctx: str, backend: str, model) -> str:
+    return llm_text(landscape_prompt(c, ctx), backend, model).strip()
 
 
 def main() -> None:
@@ -45,6 +48,7 @@ def main() -> None:
     ap.add_argument("--backend", default="cli")
     ap.add_argument("--model", default=None)
     ap.add_argument("--workers", type=int, default=6)
+    ap.add_argument("--no-cache", action="store_true", help="regenerate every page")
     args = ap.parse_args()
 
     data = json.loads(Path(args.communities).read_text(encoding="utf-8"))
@@ -58,25 +62,42 @@ def main() -> None:
     pages_dir.mkdir(parents=True, exist_ok=True)
     print(f"writing {len(targets)} landscape pages (min-size {args.min_size})")
 
+    # Cached by the full prompt (which includes the community summary) + backend + model, so a
+    # page is regenerated only when its community's members, evidence or summary changed.
+    cdir = Path(args.communities).parent / "landscape_cache"
+
     def _do(c):
         ctx = community_context(c, nodes_by_id, graph["edges"], blocks_by_id)
+        key = content_hash(landscape_prompt(c, ctx), args.backend, effective_model(args.model))
+        cf = cdir / f"{key}.json"
+        if not args.no_cache and cf.exists():
+            try:
+                return c, json.loads(cf.read_text(encoding="utf-8"))["page"], None, True
+            except Exception:
+                pass
         try:
-            return c, build_page(c, ctx, args.backend, args.model), None
+            page = build_page(c, ctx, args.backend, args.model)
         except Exception as e:   # one community failing must not discard the others
             return c, "", {"community": c["name"], "size": c["size"], "prompt_chars": len(ctx),
-                           "error": f"{type(e).__name__}: {str(e)[:200]}"}
+                           "error": f"{type(e).__name__}: {str(e)[:200]}"}, False
+        if page:
+            cdir.mkdir(parents=True, exist_ok=True)
+            cf.write_text(json.dumps({"page": page}, ensure_ascii=False), encoding="utf-8")
+        return c, page, None, False
 
-    written = 0
+    written = reused = 0
     failed: list[dict] = []
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as ex:
-        for c, page, err in ex.map(_do, targets):
+        for c, page, err, hit in ex.map(_do, targets):
             if err:
                 failed.append(err)
                 print(f"  landscape-{c['slug']}: FAILED ({err['error']})", file=sys.stderr)
             elif page:
                 (pages_dir / f"landscape-{c['slug']}.md").write_text(page + "\n", encoding="utf-8")
                 written += 1
-                print(f"  landscape-{c['slug']}.md  ({len(page)} chars)")
+                reused += hit
+                print(f"  landscape-{c['slug']}.md  ({len(page)} chars){'  (cached)' if hit else ''}")
+    print(f"cache: reused {reused}   generated {written - reused}")
     _report_failures(Path(args.communities).parent / "landscape_failed.json", failed, len(targets))
 
     print(f"\nlandscape pages: {written} -> {pages_dir}")

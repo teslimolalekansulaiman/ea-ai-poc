@@ -27,7 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from eawiki.blocks import Block, content_hash, load_blocks
-from eawiki.subjects import llm_text, _extract_json, _norm, llm_json
+from eawiki.subjects import llm_text, _extract_json, _norm, llm_json, effective_model
 from eawiki.tables import _vocab, _validate_llm_facts, _SECURITY_RULE, _PREDICATE_RULE
 
 
@@ -165,7 +165,7 @@ def main() -> None:
     # touched, and a metamodel edit (changing the vocabulary) regenerates all of them.
     def _do(s: dict) -> tuple[dict, dict, bool]:
         prompt = _page_prompt(s, by_id, facts_1b, menu)
-        key = content_hash(prompt, args.backend, args.model or "")
+        key = content_hash(prompt, args.backend, effective_model(args.model))
         cf = cache_dir / f"{key}.json"
         if not args.no_cache and cf.exists():
             try:

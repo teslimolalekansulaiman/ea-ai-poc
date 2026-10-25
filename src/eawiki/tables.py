@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 from eawiki.blocks import Block, content_hash, load_blocks
-from eawiki.subjects import llm_text, _extract_json, llm_json  # shared pluggable LLM backend
+from eawiki.subjects import llm_text, _extract_json, llm_json, effective_model  # shared pluggable LLM backend
 
 # Default model for the interpreter. Override with --model (cli uses the
 # session default when None). Vocabulary comes entirely from the --menu schema.
@@ -179,7 +179,8 @@ def _plan_key(block: Block) -> str:
 def get_plan(block: Block, menu: dict, backend: str, model: Optional[str], cache_dir: Path) -> dict:
     """LLM interpreter, cached by header shape. No keyword fallback: on failure
     the exception propagates and the caller skips the table."""
-    key = _plan_key(block)
+    # header shape + what the plan also depends on: the schema vocabulary, backend and model
+    key = content_hash(_plan_key(block), _vocab(menu), backend, effective_model(model))
     cache_file = cache_dir / f"{key}.json"
     if cache_file.exists():
         p = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -349,7 +350,8 @@ def extract_table_llm(block: Block, menu: dict, backend: str, model: Optional[st
     cell-text evidence. Cached by FULL-GRID content (not header shape, since the
     values matter here). Edges are validated against the schema triples."""
     grid = _grid(block)
-    key = content_hash(json.dumps(grid, ensure_ascii=False), "fullread")
+    key = content_hash(json.dumps(grid, ensure_ascii=False), "fullread", _vocab(menu), backend,
+                       effective_model(model))
     cache_file = cache_dir / f"fullread_{key}.json"
     if cache_file.exists():
         out = json.loads(cache_file.read_text(encoding="utf-8"))

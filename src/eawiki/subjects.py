@@ -54,6 +54,13 @@ def _ssl_ctx():
         return ssl.create_default_context()
 
 
+def effective_model(model: Optional[str]) -> str:
+    """The model a call will actually use: the explicit one, else VLM_MODEL. Cache keys use
+    this, so switching VLM_MODEL regenerates results instead of silently reusing the old
+    model's output (the keys used to read only the --model flag, which is usually empty)."""
+    return model or os.environ.get("VLM_MODEL") or ""
+
+
 def _openai_env(model: Optional[str] = None):
     """(url, key, model) for the OpenAI-compatible backend, from env."""
     url = os.environ.get("VLM_PROXY_URL", "")
@@ -404,7 +411,8 @@ def main() -> None:
     node_types_sig = ", ".join(sorted(menu["node_types"]))
 
     def _disc_key(blocks):
-        return content_hash(_prose_preview(blocks), node_types_sig, args.backend, str(args.model))
+        return content_hash(_prose_preview(blocks), node_types_sig, args.backend,
+                            effective_model(args.model))
 
     def _discover(doc_id, blocks):
         if args.no_cache:

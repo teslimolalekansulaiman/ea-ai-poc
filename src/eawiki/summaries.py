@@ -22,9 +22,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from eawiki import community as comm
-from eawiki.blocks import Block, load_blocks
+from eawiki.blocks import Block, content_hash, load_blocks
 from eawiki.store import ArcadeDBStore
-from eawiki.subjects import llm_text
+from eawiki.subjects import effective_model, llm_text
 
 
 def block_index(in_dir: str) -> dict[str, Block]:
@@ -67,13 +67,16 @@ def community_context(c: dict, nodes_by_id: dict, edges: list[dict],
     return "\n".join(lines)
 
 
-def summarize(c: dict, ctx: str, backend: str, model) -> str:
-    prompt = f"""Write a short GROUNDED summary of this community of an enterprise-architecture landscape, for a reader asking a big-picture question. Use ONLY the context. Say what this area is, its key systems/processes, how they connect, and any notable risks. Cite block ids like [03-data:5]. 1-2 short paragraphs. Do not invent facts.
+def summary_prompt(ctx: str) -> str:
+    return f"""Write a short GROUNDED summary of this community of an enterprise-architecture landscape, for a reader asking a big-picture question. Use ONLY the context. Say what this area is, its key systems/processes, how they connect, and any notable risks. Cite block ids like [03-data:5]. 1-2 short paragraphs. Do not invent facts.
 
 {ctx}
 
 Summary:"""
-    return llm_text(prompt, backend, model).strip()
+
+
+def summarize(c: dict, ctx: str, backend: str, model) -> str:
+    return llm_text(summary_prompt(ctx), backend, model).strip()
 
 
 def _report_failures(path: Path, failed: list[dict], total: int) -> None:
@@ -95,6 +98,7 @@ def main() -> None:
     ap.add_argument("--model", default=None)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--no-load", dest="load", action="store_false")
+    ap.add_argument("--no-cache", action="store_true", help="regenerate every summary")
     args = ap.parse_args()
 
     data = json.loads(Path(args.communities).read_text(encoding="utf-8"))
@@ -106,25 +110,44 @@ def main() -> None:
     targets = [c for c in communities if c["size"] >= args.min_size]
     print(f"summarizing {len(targets)} / {len(communities)} communities (min-size {args.min_size})")
 
+    # Cached by the full prompt (members, relationships, source blocks) + backend + model, not
+    # by community id: ids are re-numbered by size on every run, but a community whose
+    # content is unchanged produces the same prompt, so only changed areas are re-summarised.
+    cdir = Path(args.communities).parent / "summary_cache"
+
     def _do(c):
         ctx = community_context(c, nodes_by_id, graph["edges"], blocks_by_id)
+        key = content_hash(summary_prompt(ctx), args.backend, effective_model(args.model))
+        cf = cdir / f"{key}.json"
+        if not args.no_cache and cf.exists():
+            try:
+                return c["community_id"], json.loads(cf.read_text(encoding="utf-8"))["summary"], None, True
+            except Exception:
+                pass
         try:
-            return c["community_id"], summarize(c, ctx, args.backend, args.model), None
+            summ = summarize(c, ctx, args.backend, args.model)
         except Exception as e:   # one community failing must not discard the others
             return c["community_id"], "", {
                 "community": c["name"], "size": c["size"], "prompt_chars": len(ctx),
-                "error": f"{type(e).__name__}: {str(e)[:200]}"}
+                "error": f"{type(e).__name__}: {str(e)[:200]}"}, False
+        if summ:
+            cdir.mkdir(parents=True, exist_ok=True)
+            cf.write_text(json.dumps({"summary": summ}, ensure_ascii=False), encoding="utf-8")
+        return c["community_id"], summ, None, False
 
     results: dict[str, str] = {}
     failed: list[dict] = []
+    reused = 0
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as ex:
-        for cid, summ, err in ex.map(_do, targets):
+        for cid, summ, err, hit in ex.map(_do, targets):
             if err:
                 failed.append(err)
                 print(f"  {cid}: FAILED ({err['error']})", file=sys.stderr)
                 continue
             results[cid] = summ
-            print(f"  {cid}: {len(summ)} chars")
+            reused += hit
+            print(f"  {cid}: {len(summ)} chars{'  (cached)' if hit else ''}")
+    print(f"cache: reused {reused}   generated {len(results) - reused}")
     _report_failures(Path(args.communities).parent / "summaries_failed.json", failed, len(targets))
 
     for c in communities:

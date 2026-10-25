@@ -21,7 +21,7 @@ import json
 from pathlib import Path
 
 from eawiki.blocks import content_hash, load_blocks
-from eawiki.subjects import llm_text, llm_vision
+from eawiki.subjects import effective_model, llm_text, llm_vision
 
 
 def _section(b) -> str:
@@ -92,7 +92,7 @@ def run(backend: str = "cli", model=None, in_dir: str = "data/blocks",
     def _key(b):
         # content_hash alone collides for figures with identical/empty captions, so key
         # on block_id too, plus the image bytes for figures (so an image change invalidates).
-        parts = [b.content_hash or "", b.block_id, b.type, backend, str(model)]
+        parts = [b.content_hash or "", b.block_id, b.type, backend, effective_model(model)]
         if b.type == "figure":
             ip = (b.figure or {}).get("image_path")
             try:
