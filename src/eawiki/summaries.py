@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -75,6 +76,15 @@ Summary:"""
     return llm_text(prompt, backend, model).strip()
 
 
+def _report_failures(path: Path, failed: list[dict], total: int) -> None:
+    """Record which items failed (visible, inspectable) and stop only if nothing worked."""
+    path.write_text(json.dumps(failed, indent=2, ensure_ascii=False), encoding="utf-8")
+    if failed:
+        print(f"WARNING: {len(failed)} of {total} failed -> {path}", file=sys.stderr)
+    if failed and len(failed) == total:
+        raise SystemExit(f"{path.stem}: every item failed; first error: {failed[0]['error']}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Step 8 — community summaries")
     ap.add_argument("--communities", default="data/graph/communities.json")
@@ -98,13 +108,24 @@ def main() -> None:
 
     def _do(c):
         ctx = community_context(c, nodes_by_id, graph["edges"], blocks_by_id)
-        return c["community_id"], summarize(c, ctx, args.backend, args.model)
+        try:
+            return c["community_id"], summarize(c, ctx, args.backend, args.model), None
+        except Exception as e:   # one community failing must not discard the others
+            return c["community_id"], "", {
+                "community": c["name"], "size": c["size"], "prompt_chars": len(ctx),
+                "error": f"{type(e).__name__}: {str(e)[:200]}"}
 
     results: dict[str, str] = {}
+    failed: list[dict] = []
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as ex:
-        for cid, summ in ex.map(_do, targets):
+        for cid, summ, err in ex.map(_do, targets):
+            if err:
+                failed.append(err)
+                print(f"  {cid}: FAILED ({err['error']})", file=sys.stderr)
+                continue
             results[cid] = summ
             print(f"  {cid}: {len(summ)} chars")
+    _report_failures(Path(args.communities).parent / "summaries_failed.json", failed, len(targets))
 
     for c in communities:
         if c["community_id"] in results:

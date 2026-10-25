@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from eawiki.blocks import Block
 from eawiki.subjects import llm_text
-from eawiki.summaries import block_index, community_context
+from eawiki.summaries import _report_failures, block_index, community_context
 
 
 def build_page(c: dict, ctx: str, backend: str, model) -> str:
@@ -59,15 +60,24 @@ def main() -> None:
 
     def _do(c):
         ctx = community_context(c, nodes_by_id, graph["edges"], blocks_by_id)
-        return c, build_page(c, ctx, args.backend, args.model)
+        try:
+            return c, build_page(c, ctx, args.backend, args.model), None
+        except Exception as e:   # one community failing must not discard the others
+            return c, "", {"community": c["name"], "size": c["size"], "prompt_chars": len(ctx),
+                           "error": f"{type(e).__name__}: {str(e)[:200]}"}
 
     written = 0
+    failed: list[dict] = []
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as ex:
-        for c, page in ex.map(_do, targets):
-            if page:
+        for c, page, err in ex.map(_do, targets):
+            if err:
+                failed.append(err)
+                print(f"  landscape-{c['slug']}: FAILED ({err['error']})", file=sys.stderr)
+            elif page:
                 (pages_dir / f"landscape-{c['slug']}.md").write_text(page + "\n", encoding="utf-8")
                 written += 1
                 print(f"  landscape-{c['slug']}.md  ({len(page)} chars)")
+    _report_failures(Path(args.communities).parent / "landscape_failed.json", failed, len(targets))
 
     print(f"\nlandscape pages: {written} -> {pages_dir}")
 
