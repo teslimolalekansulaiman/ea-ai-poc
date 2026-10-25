@@ -63,6 +63,13 @@ export default function KB() {
     setBusy(false)
   }
 
+  async function onRebuild() {
+    setErr(''); setBusy(true)
+    try { setReing(await api.reingestRun()) }
+    catch (e) { setErr(String(e).replace('Error: ', '')) }
+    setBusy(false)
+  }
+
   async function doRemove(docId) {
     setPendingRemove(null); setErr(''); setBusy(true)
     try { const r = await api.removeDoc(docId); setReing(r.reingest) }
@@ -91,10 +98,14 @@ export default function KB() {
           <h1>Foundational sources</h1>
           <p>The documents every answer is grounded in. Adding or removing a document rebuilds the wiki, graph and vector index from the whole set.</p>
         </div>
-        <label className={'btn primary' + (running || busy ? ' disabled' : '')}>
-          {busy ? 'Uploading…' : '+ Add document'}
-          <input ref={fileRef} type="file" accept=".docx,.pptx" hidden disabled={running || busy} onChange={onAdd} />
-        </label>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn" disabled={running || busy} onClick={onRebuild}
+            title="Rebuild from the current documents, with no change to them">Rebuild</button>
+          <label className={'btn primary' + (running || busy ? ' disabled' : '')}>
+            {busy ? 'Uploading…' : '+ Add document'}
+            <input ref={fileRef} type="file" accept=".docx,.pptx" hidden disabled={running || busy} onChange={onAdd} />
+          </label>
+        </div>
       </div>
 
       {err && <div className="card" style={{ padding: 12, color: 'var(--crit)', marginBottom: 14 }}>{err}</div>}
