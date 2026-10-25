@@ -44,8 +44,13 @@ def main():
     print(f"entities {len(nodes)}   relationships {len(edges)}   edgeless {len(isolated)}   "
           f"communities {'(none: communities.json missing)' if comms is None else len(comms.get('communities', []))}")
     print("entity types:", dict(Counter(n.get("type") for n in nodes).most_common(8)))
-    pred = Counter(e.get("predicate") or e.get("type") or e.get("rel") for e in edges)
-    print("relationship types:", dict(pred.most_common(8)))
+    rel = Counter(e.get("relation") for e in edges)
+    print("relationship types:", dict(rel.most_common(8)))
+    generic = rel.get("associated_with", 0)
+    print(f"generic 'associated_with' relationships: {generic} of {len(edges)}"
+          f" ({100 * generic // max(1, len(edges))}%)")
+    print(f"entities typed as the generic 'element': "
+          f"{sum(1 for n in nodes if n.get('type') == 'element')} of {len(nodes)}")
 
     flagged = merge.get("flagged", [])
     in_flag = {norm(x) for f in flagged for x in (f.get("a"), f.get("b"))}
