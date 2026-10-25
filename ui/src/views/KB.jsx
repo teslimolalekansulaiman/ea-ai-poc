@@ -115,6 +115,7 @@ export default function KB() {
                 <div key={s.step} className={'reing-step ' + s.state}>
                   <span className="ic">{s.state === 'ok' ? '✓' : s.state === 'running' ? <span className="spin sm" /> : s.state === 'failed' ? '✕' : '○'}</span>
                   <span className="lbl">{STEP_LABEL[s.step] || s.step}</span>
+                  {s.note && <span className="meta" style={{ marginLeft: 8 }}>{s.note}</span>}
                   {s.ms != null && <span className="t">{(s.ms / 1000).toFixed(1)}s</span>}
                 </div>
               ))}

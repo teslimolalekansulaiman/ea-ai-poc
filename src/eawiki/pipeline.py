@@ -54,6 +54,27 @@ STEPS = [
 ]
 
 
+def _note(name: str, out: str) -> str:
+    """One line the UI shows next to a step: how much came from cache."""
+    lines = (out or "").splitlines()
+    for line in reversed(lines):
+        if line.startswith("cache:"):
+            return line[len("cache:"):].strip()
+    if name == "parse":
+        docs = [l for l in lines if " blocks " in l and "->" in l]
+        if docs:
+            return f"{sum('(cached)' in l for l in docs)} of {len(docs)} documents from cache"
+    return ""
+
+
+def _log_step(name: str, ms: int, r) -> None:
+    """Step output used to be captured and discarded, so a slow or failing step left no
+    trace. Put the tail of it in the server log (Cloud Run logging)."""
+    tail = lambda t: "\n".join((t or "").strip().splitlines()[-15:])    # noqa: E731
+    print(f"[ingest] {name}: {ms / 1000:.1f}s exit {r.returncode}\n{tail(r.stdout)}"
+          + (f"\n--- stderr ---\n{tail(r.stderr)}" if (r.stderr or "").strip() else ""), flush=True)
+
+
 def status() -> dict:
     return _STATUS
 
@@ -79,6 +100,8 @@ def run_async() -> dict:
             t = time.monotonic()
             r = subprocess.run(cmd, env=env, capture_output=True, text=True)
             _STATUS["steps"][i]["ms"] = int((time.monotonic() - t) * 1000)
+            _STATUS["steps"][i]["note"] = _note(name, r.stdout)
+            _log_step(name, _STATUS["steps"][i]["ms"], r)
             if r.returncode != 0:
                 _STATUS["steps"][i]["state"] = "failed"
                 _STATUS.update(running=False, done=True, error=f"{name}: {r.stderr.strip()[-300:]}")
