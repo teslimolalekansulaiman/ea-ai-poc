@@ -82,6 +82,10 @@ def run_async() -> dict:
             if r.returncode != 0:
                 _STATUS["steps"][i]["state"] = "failed"
                 _STATUS.update(running=False, done=True, error=f"{name}: {r.stderr.strip()[-300:]}")
+                try:
+                    sync.push_caches()   # keep the model work done so far; the next run resumes
+                except Exception:
+                    pass
                 return
             _STATUS["steps"][i]["state"] = "ok"
         try:

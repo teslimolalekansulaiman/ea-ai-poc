@@ -122,6 +122,13 @@ class Sync:
         self._ready()
         return self._mirror(self.sources, _walk(SAMPLES))
 
+    def push_caches(self) -> tuple[int, int]:
+        """Save the per-step caches alone (used when a run fails part-way): the model work
+        already done is not lost to a restart, and the next run resumes from it."""
+        self._ready()
+        caches = {rel[len("graph/"):]: p for rel, p in _walk(DATA, _is_cache).items()}
+        return self._mirror(self.cache, caches)
+
     def push_results(self) -> dict:
         self._ready()
         data = _walk(DATA, lambda rel: rel not in _NOT_PUBLISHED and not _is_cache(rel))
@@ -165,6 +172,11 @@ def push_sources() -> None:
 def push_results() -> None:
     if enabled():
         _get().push_results()
+
+
+def push_caches() -> None:
+    if enabled():
+        _get().push_caches()
 
 
 def status() -> dict:
