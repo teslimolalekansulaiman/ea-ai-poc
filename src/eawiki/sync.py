@@ -27,7 +27,7 @@ log = logging.getLogger("eawiki.sync")
 
 DATA = Path(os.environ.get("EAWIKI_DATA", "data"))
 SAMPLES = Path(os.environ.get("EAWIKI_SAMPLES", "docs/samples"))
-CACHE_DIRS = ("desc_cache", "pages_cache", "subject_cache", "plan_cache")   # under data/graph
+CACHE_DIRS = ("desc_cache", "pages_cache", "subject_cache", "plan_cache", "parse_cache")   # under data/graph
 _NOT_PUBLISHED = {"app.db", ".reingest_needed"}
 
 _state: dict = {"enabled": False, "pulled": False, "error": None}

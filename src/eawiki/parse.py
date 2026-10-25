@@ -14,13 +14,15 @@ cell grid (+ markdown), not flattened — Step 1b depends on that.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Optional
 
 from docling.document_converter import DocumentConverter
 
-from eawiki.blocks import Block, save_blocks
+from eawiki.blocks import Block, load_blocks, save_blocks
 
 
 def _label_value(item: Any) -> Optional[str]:
@@ -206,6 +208,35 @@ def ingest_file(path: str | Path, image_dir: Optional[str | Path] = None,
     return blocks
 
 
+def _parse_key(path: Path, kind: str) -> str:
+    """What a parse depends on: the file's bytes, its id and class, and the parser version."""
+    try:
+        from importlib.metadata import version
+        ver = version("docling")
+    except Exception:
+        ver = "?"
+    h = hashlib.sha256(path.read_bytes())
+    h.update(f"|{path.stem}|{kind}|docling-{ver}|v1".encode())
+    return h.hexdigest()[:32]
+
+
+def _cached_blocks(cache_file: Path, path: Path) -> Optional[list[Block]]:
+    """Blocks from an earlier parse of the same bytes, or None. Refused when a figure image
+    that the blocks point at is gone, so a cache hit never returns a dangling image."""
+    if not cache_file.exists():
+        return None
+    try:
+        blocks = load_blocks(cache_file)
+        for b in blocks:
+            ip = (b.figure or {}).get("image_path")
+            if b.type == "figure" and ip and not Path(ip).exists():
+                return None
+            b.source_file = str(path)      # the folder may differ from the cached run
+        return blocks
+    except Exception:
+        return None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Step 1 — parse DOCX into structural blocks")
     ap.add_argument("--in", dest="in_dir", default="docs/samples", help="input folder of .docx")
@@ -215,9 +246,12 @@ def main() -> None:
     ap.add_argument("--kind", default="architecture",
                     choices=["architecture", "motivation", "governance", "reference"],
                     help="document class for this batch; a subfolder named like a kind overrides it")
+    ap.add_argument("--no-cache", action="store_true",
+                    help="re-parse every document even if an unchanged copy was parsed before")
     args = ap.parse_args()
 
     in_dir, out_dir = Path(args.in_dir), Path(args.out_dir)
+    cache_dir = out_dir.parent / "graph" / "parse_cache"
     image_dir = Path(args.image_dir)
     known_kinds = {"architecture", "motivation", "governance", "reference"}
     # scan both the folder itself and one level of kind-named subfolders
@@ -231,10 +265,17 @@ def main() -> None:
     for path in docx_files:
         # a kind-named subfolder (docs/governance/x.docx) overrides --kind
         kind = path.parent.name if path.parent.name in known_kinds else args.kind
-        blocks = ingest_file(path, image_dir=image_dir, kind=kind)
+        cache_file = cache_dir / f"{_parse_key(path, kind)}.blocks.json"
+        blocks = None if args.no_cache else _cached_blocks(cache_file, path)
+        hit = blocks is not None
+        if not hit:
+            blocks = ingest_file(path, image_dir=image_dir, kind=kind)
         out_path = out_dir / f"{path.stem}.blocks.json"
         save_blocks(path.stem, str(path), blocks, out_path,
                     extra_meta={"parser": "docling"})
+        if not hit:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(out_path, cache_file)
         counts: dict[str, int] = {}
         for b in blocks:
             counts[b.type] = counts.get(b.type, 0) + 1
@@ -244,7 +285,8 @@ def main() -> None:
                 else:
                     img_miss += 1
         grand_total += len(blocks)
-        print(f"{path.name:28s} -> {len(blocks):4d} blocks  {counts}  -> {out_path}")
+        print(f"{path.name:28s} -> {len(blocks):4d} blocks  {counts}  -> {out_path}"
+              f"{'  (cached)' if hit else ''}")
 
     print(f"\nTOTAL: {grand_total} blocks across {len(docx_files)} docs")
     print(f"images exported: {img_ok} ok, {img_miss} with no retrievable image -> {image_dir}")
