@@ -52,6 +52,22 @@ def main():
     print(f"entities typed as the generic 'element': "
           f"{sum(1 for n in nodes if n.get('type') == 'element')} of {len(nodes)}")
 
+    # Where do the generic edges come from? (typed endpoints, demotion, source document)
+    ty = {n.get("node_id") or n.get("id"): n.get("type") for n in nodes}
+    gen = [e for e in edges if e.get("relation") == "associated_with"]
+    if gen:
+        dem = sum(1 for e in gen if e.get("validation") == "demoted")
+        via_el = sum(1 for e in gen if "element" in (ty.get(e.get("source")), ty.get(e.get("target"))))
+        print(f"  of the {len(gen)} generic: demoted by the schema check {dem}, "
+              f"with an 'element' endpoint {via_el}, "
+              f"between two typed entities {len(gen) - via_el}")
+        pairs = Counter((ty.get(e.get("source")), ty.get(e.get("target"))) for e in gen)
+        print("  generic by (source type -> target type):")
+        for (st, tt), n in pairs.most_common(8):
+            print(f"    {n:>4}  {st} -> {tt}")
+        origin = Counter(str((e.get("origins") or ["?"])[0]).split(":")[0] for e in gen)
+        print("  generic by first origin:", dict(origin.most_common(6)))
+
     flagged = merge.get("flagged", [])
     in_flag = {norm(x) for f in flagged for x in (f.get("a"), f.get("b"))}
     iso_names = [n.get("name") for n in isolated]
