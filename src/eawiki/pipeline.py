@@ -43,9 +43,11 @@ STEPS = [
     # Entity de-duplication: string rules, then names embedded by meaning, then the model decides
     # the close pairs. "report" (default) only records what it WOULD merge; set
     # EAWIKI_MERGE_MODE=apply on the service to merge. Decisions are cached and reviewable in
-    # graph/merge_report.json; data/merge_overrides.json always wins.
+    # graph/merge_report.json; data/merge_overrides.json always wins. EAWIKI_MAX_PAIRS caps the
+    # NEW model questions per run (default 300; answered pairs are cached and cost nothing).
     ("reconcile", [sys.executable, "-m", "eawiki.reconcile", "--adjudicate", "openrouter",
-                   "--semantic", "--merge-mode", os.environ.get("EAWIKI_MERGE_MODE", "report")]),
+                   "--semantic", "--merge-mode", os.environ.get("EAWIKI_MERGE_MODE", "report"),
+                   "--max-pairs", os.environ.get("EAWIKI_MAX_PAIRS", "300")]),
     ("describe",  [sys.executable, "-m", "eawiki.describe", "--backend", "openrouter"]),
     ("embed",     [sys.executable, "-m", "eawiki.embed", "--backend", "openrouter"]),
     ("load",      [sys.executable, "-m", "eawiki.load"]),
