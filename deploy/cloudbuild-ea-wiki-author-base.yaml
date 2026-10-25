@@ -1,0 +1,17 @@
+# Build the authoring BASE image (system libraries, CPU torch, docling, Python deps).
+# Rebuild only when requirements-serve.txt or requirements-author.txt change.
+#
+#   gcloud builds submit . --config=deploy/cloudbuild-ea-wiki-author-base.yaml \
+#     --gcs-source-staging-dir=gs://<compliant-bucket>/source --substitutions=_BASE=b1
+serviceAccount: projects/${PROJECT_ID}/serviceAccounts/${PROJECT_NUMBER}-compute@developer.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+timeout: 1800s
+substitutions:
+  _BASE: b1
+steps:
+  - id: build-base
+    name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "Dockerfile.author-base", "-t", "me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki-author-base:${_BASE}", "."]
+images:
+  - me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki-author-base:${_BASE}

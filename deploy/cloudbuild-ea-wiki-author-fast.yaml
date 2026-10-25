@@ -1,0 +1,25 @@
+# Fast build of the authoring app image on top of a prebuilt base (see
+# cloudbuild-ea-wiki-author-base.yaml). Builds the UI and copies the code only.
+#
+#   gcloud builds submit . --config=deploy/cloudbuild-ea-wiki-author-fast.yaml \
+#     --gcs-source-staging-dir=gs://<compliant-bucket>/source --substitutions=_TAG=a9,_BASE=b1
+serviceAccount: projects/${PROJECT_ID}/serviceAccounts/${PROJECT_NUMBER}-compute@developer.gserviceaccount.com
+options:
+  logging: CLOUD_LOGGING_ONLY
+substitutions:
+  _TAG: a9
+  _BASE: b1
+steps:
+  - id: build-app
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - Dockerfile.author-app
+      - --build-arg
+      - BASE_IMAGE=me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki-author-base:${_BASE}
+      - -t
+      - me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki-author:${_TAG}
+      - .
+images:
+  - me-central2-docker.pkg.dev/${PROJECT_ID}/ea/ea-wiki-author:${_TAG}

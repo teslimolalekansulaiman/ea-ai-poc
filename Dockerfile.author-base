@@ -1,0 +1,29 @@
+# BASE image for the authoring service: everything slow and rarely changing — system
+# libraries, CPU torch, docling and the Python dependencies. Build it once, and again only
+# when requirements-serve.txt / requirements-author.txt change:
+#
+#   gcloud builds submit . --config=deploy/cloudbuild-ea-wiki-author-base.yaml \
+#     --gcs-source-staging-dir=gs://<compliant-bucket>/source --substitutions=_BASE=b1
+#
+# Day-to-day builds then use Dockerfile.author-app, which starts from this image and only
+# builds the UI and copies the code. (Dockerfile.author still builds everything in one go.)
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app/src \
+    EAWIKI_TRACING=off \
+    HF_HOME=/tmp/hf \
+    PORT=8080
+WORKDIR /app
+
+# Shared libraries that docling's image dependencies import (absent from the slim base).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# CPU-only torch first, so docling does not pull the CUDA build.
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+COPY requirements-serve.txt requirements-author.txt ./
+RUN pip install --no-cache-dir -r requirements-author.txt

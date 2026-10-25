@@ -1,0 +1,5 @@
+# Authoring image = the serving dependencies + the ingest pipeline's parser.
+# docling pulls torch; the image installs the CPU wheel of torch first (see
+# Dockerfile.author-base) so this does not drag in the multi-gigabyte CUDA build.
+-r requirements-serve.txt
+docling==2.139.0
