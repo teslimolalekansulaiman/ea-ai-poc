@@ -79,19 +79,28 @@ def make_adjudicator(edges: list[dict], backend: str, model: Optional[str],
         edges_by_key[sk].append(desc)
         edges_by_key[tk].append(desc)
 
-    def adjudicate(ca: dict, cb: dict):
+    def _prompt_and_file(ca: dict, cb: dict):
         a_desc = dedupe._describe(ca, edges_by_key, None)
         b_desc = dedupe._describe(cb, edges_by_key, None)
         prompt = dedupe.adjudication_prompt(a_desc, b_desc)
         cf = None
         if cache_dir is not None:
             cf = Path(cache_dir) / f"{content_hash(prompt, backend, effective_model(model))}.json"
-            if cf.exists():
-                try:
-                    d = json.loads(cf.read_text(encoding="utf-8"))
-                    return bool(d["same"]), d.get("reason", "")
-                except Exception:
-                    pass
+        return prompt, cf
+
+    def is_cached(ca: dict, cb: dict) -> bool:
+        """True when this pair already has a saved decision (so asking costs nothing)."""
+        _, cf = _prompt_and_file(ca, cb)
+        return cf is not None and cf.exists()
+
+    def adjudicate(ca: dict, cb: dict):
+        prompt, cf = _prompt_and_file(ca, cb)
+        if cf is not None and cf.exists():
+            try:
+                d = json.loads(cf.read_text(encoding="utf-8"))
+                return bool(d["same"]), d.get("reason", "")
+            except Exception:
+                pass
         out = llm_json(prompt, backend, model)
         if not isinstance(out, dict) or "same" not in out:
             raise RuntimeError("no usable decision from the model")
@@ -102,6 +111,7 @@ def make_adjudicator(edges: list[dict], backend: str, model: Optional[str],
                           encoding="utf-8")
         return same, why
 
+    adjudicate.is_cached = is_cached
     return adjudicate
 
 

@@ -298,9 +298,20 @@ def resolve(mentions: list[dict], edges: list[dict],
                 todo.append(fp)
         # most promising first: closest by meaning, then by spelling
         todo.sort(key=lambda fp: (-(fp.get("embed_sim") or 0.0), -fp["name_sim"]))
-        batch = todo[:max_adjudications] if max_adjudications else todo
-        for fp in todo[len(batch):]:
-            fp["decision"] = "not adjudicated (limit)"
+        # The cap bounds NEW model questions only. Pairs that already have a saved decision cost
+        # nothing, so they are always included — otherwise every run would re-read the same top
+        # N pairs and never reach the rest, and a cap of N would mean "N pairs, ever".
+        is_cached = getattr(adjudicate, "is_cached", None)
+        if max_adjudications and is_cached:
+            known = [fp for fp in todo if is_cached(clusters[fp["a_key"]], clusters[fp["b_key"]])]
+            fresh = [fp for fp in todo if fp not in known]
+            batch = known + fresh[:max_adjudications]
+        else:
+            batch = todo[:max_adjudications] if max_adjudications else todo
+        chosen = {id(fp) for fp in batch}
+        for fp in todo:
+            if id(fp) not in chosen:
+                fp["decision"] = "not adjudicated (limit)"
 
         def _decide(fp):
             try:
