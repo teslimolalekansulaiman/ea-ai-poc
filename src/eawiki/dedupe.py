@@ -112,6 +112,24 @@ def resolve(mentions: list[dict], edges: list[dict],
     keys = list(clusters)
     uf = _UF(keys)
 
+    # Tier 1b: `element` is the fallback type for "the extractor could not say what this is",
+    # so it is not a real type conflict. An `element` entity whose normalized name equals that
+    # of exactly ONE typed entity is the same thing seen without its type: merge it into the
+    # typed one (typed first, so it stays the root and keeps its type). With two or more typed
+    # candidates the name is ambiguous, so it is left alone for a human / Tier 3.
+    typed_by_name: dict[str, list] = defaultdict(list)
+    for k in keys:
+        if k[1] != "element":
+            typed_by_name[k[0]].append(k)
+    generic_merges: list[dict] = []
+    for k in keys:
+        if k[1] == "element" and len(typed_by_name.get(k[0], [])) == 1:
+            t = typed_by_name[k[0]][0]
+            uf.union(t, k)
+            generic_merges.append({"a": t[0], "b": k[0], "type": f"{t[1]} <- element",
+                                   "tier": "1b", "name_sim": 1.0, "edge_overlap": None,
+                                   "decision": "generic-type merge"})
+
     # neighbour sets on Tier-1 clusters: (relation, other_key) touching a cluster
     neigh: dict[tuple, set] = defaultdict(set)
     for e in edges:
@@ -134,7 +152,7 @@ def resolve(mentions: list[dict], edges: list[dict],
         return inter / union if union else 0.0
 
     flagged: list[dict] = []
-    merges: list[dict] = []
+    merges: list[dict] = list(generic_merges)
     seen_pairs: set = set()
 
     def canon_name(k):
@@ -246,7 +264,10 @@ def resolve(mentions: list[dict], edges: list[dict],
                                "edge_overlap": fp["edge_overlap"], "decision": "llm-merge"})
     else:
         for fp in flagged:
-            fp.setdefault("decision", "flagged (no adjudicator)")
+            if uf.find(fp["a_key"]) == uf.find(fp["b_key"]):
+                fp.setdefault("decision", "already merged")
+            else:
+                fp.setdefault("decision", "flagged (no adjudicator)")
 
     # --- build canonical nodes from the Union-Find clusters ---------------
     groups: dict[tuple, list] = defaultdict(list)

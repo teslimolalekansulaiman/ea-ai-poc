@@ -71,6 +71,15 @@ class _Graph:
         subs.sort(key=lambda p: len(p[1]), reverse=True)
         return subs[0][0] if subs else None
 
+    def same_name(self, nid: str) -> list[str]:
+        """The node and every other node carrying exactly the same name (case-insensitive) —
+        the same thing recorded under different types or by different passes."""
+        nm = self.by_id.get(nid, {}).get("name", "").lower()
+        if not nm:
+            return [nid]
+        return [nid] + [o for o, n in self.by_id.items()
+                        if o != nid and n.get("name", "").lower() == nm]
+
     def resolve_all(self, text: str) -> list[str]:
         """Every entity whose name contains the term (plus node_id exacts) — so a name
         that spans several nodes ('Oracle' = the vendor + two Oracle-19c DBs) seeds the
@@ -134,14 +143,16 @@ def neighbors(g: _Graph, node_id: str, direction: str = "both") -> dict:
     node_id = g.resolve(node_id) or node_id
     if node_id not in g.by_id:
         return _result(g, "neighbors", [], [], [], "", f"'{node_id}' is not in the graph.", found=False)
+    seeds = g.same_name(node_id)      # a name spanning several nodes is one thing to the reader
     used = []
-    if direction in ("out", "both"):
-        used += g.out.get(node_id, [])
-    if direction in ("in", "both"):
-        used += g.inc.get(node_id, [])
-    ids = {node_id} | {e["source"] for e in used} | {e["target"] for e in used}
+    for sid in seeds:
+        if direction in ("out", "both"):
+            used += [e for e in g.out.get(sid, []) if e not in used]
+        if direction in ("in", "both"):
+            used += [e for e in g.inc.get(sid, []) if e not in used]
+    ids = set(seeds) | {e["source"] for e in used} | {e["target"] for e in used}
     facts = "\n".join(_edge_line(g, e) for e in used) or "(no relationships)"
-    return _result(g, "neighbors", [node_id], ids, used,
+    return _result(g, "neighbors", seeds, ids, used,
                    "GRAPH FACTS (1-hop neighbourhood of " + g.name(node_id) + "):\n" + facts,
                    f"{g.name(node_id)} has {len(used)} direct relationship(s).")
 
