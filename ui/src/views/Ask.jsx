@@ -147,6 +147,7 @@ export default function Ask() {
                   <span className={'pill ' + (PILL[m.meta.status] || 'neutral')}>{m.meta.status}</span>
                   {m.meta.route && <span className="route">via <b>{m.meta.route.strategy}</b></span>}
                   {m.meta.citation_check && <span className="route">grounded <b>{String(m.meta.citation_check.grounded)}</b></span>}
+                  {m.meta.context_info && <span className="route" title={m.meta.context_info.blocks.map(b => `${b.block_id} (${b.type}) ${b.chars} chars`).join('\n')}>context <b>{Math.round(m.meta.context_info.chars / 1000)} KB</b> · {m.meta.context_info.blocks.length} blocks</span>}
                 </div>
               )}
               {m.role === 'bot' && m.meta?.search_question && m.meta.search_question !== msgs[i - 1]?.content &&

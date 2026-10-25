@@ -143,6 +143,12 @@ def ask(req: AskReq):
                              "section": " / ".join(b.get("section_path", []))})
     if figs:
         out["figures"] = figs
+    # The context itself is not returned, but its size is: what the model was actually given,
+    # block by block, so "was this table cut off?" can be answered by looking.
+    out["context_info"] = {
+        "chars": len(out.get("context") or ""),
+        "blocks": [{"block_id": b.get("block_id"), "type": b.get("btype"),
+                    "chars": len(b.get("text") or "")} for b in out.get("_block_objs", [])]}
     return {k: v for k, v in out.items() if k != "context"}
 
 
