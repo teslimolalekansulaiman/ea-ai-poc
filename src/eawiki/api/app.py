@@ -33,6 +33,9 @@ MENU_KEY = os.environ.get("EAWIKI_MENU_KEY", "togaf92_metamodel.json")
 _web_env = os.environ.get("EAWIKI_WEB")
 WEB = Path(_web_env) if _web_env else (Path("ui/dist") if Path("ui/dist").exists() else Path("web"))
 API_BACKEND = os.environ.get("EAWIKI_API_BACKEND", "openrouter")
+# Model for answering (Ask, use-case runs). Unset -> VLM_MODEL, the same model the ingest
+# pipeline uses; set it to answer with a different model than the one that builds the wiki.
+ASK_MODEL = os.environ.get("EAWIKI_ASK_MODEL") or None
 
 @asynccontextmanager
 async def _lifespan(_app):
@@ -93,7 +96,8 @@ class AskReq(BaseModel):
 @app.get("/api/health")
 def health():
     from eawiki import sync
-    return {"ok": True, "backend": API_BACKEND, "safety_llm": _safety_llm(),
+    return {"ok": True, "backend": API_BACKEND, "ask_model": ASK_MODEL or os.environ.get("VLM_MODEL"),
+            "safety_llm": _safety_llm(),
             "sync": sync.status(),
             "pages": len(filestore().list(PAGES_KEY, ".md"))}
 
@@ -109,7 +113,7 @@ def _safety_llm() -> bool:
 def ask(req: AskReq):
     """The guarded AI layer: route -> retrieve -> answer, with NeMo + deterministic guards."""
     from eawiki.query.ask import ask as run
-    out = run(req.question, k=req.k, backend=API_BACKEND, kinds=req.kinds,
+    out = run(req.question, k=req.k, backend=API_BACKEND, model=ASK_MODEL, kinds=req.kinds,
               use_llm=True, safety_llm=req.safety and _safety_llm(), history=req.history)
     # One graph for display, from the SAME result the answer was grounded in (the graph
     # query engine), so the picture and the answer can never disagree. Surface provenance
@@ -431,7 +435,7 @@ def usecase_run(uc_id: str, body: RunBody):
         raise HTTPException(404, f"no use case '{uc_id}'")
     from eawiki import obs
     with obs.span(f"usecase:{uc_id}", kind="CHAIN", items=len(body.items)):
-        result = executor.run(spec, body.items, backend=API_BACKEND, safety_llm=body.safety,
+        result = executor.run(spec, body.items, backend=API_BACKEND, model=ASK_MODEL, safety_llm=body.safety,
                               k=body.k, context_mode=body.context_mode)
     try:        # persist the run for the audit trail / History view (best-effort)
         from eawiki import history
