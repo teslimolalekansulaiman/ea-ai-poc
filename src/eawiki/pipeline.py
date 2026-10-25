@@ -48,9 +48,12 @@ STEPS = [
     # (community projects Community vertices onto it), hence after `load`.
     ("community", [sys.executable, "-m", "eawiki.community"]),
     ("summaries", [sys.executable, "-m", "eawiki.summaries", "--backend", "openrouter",
-                   "--workers", "6"]),
-    ("landscape", [sys.executable, "-m", "eawiki.landscape", "--backend", "openrouter",
-                   "--workers", "6"]),
+                   "--min-size", "3", "--workers", "6"]),
+    # Step 9 (landscape pages, one per community of >= 4 members) is deliberately not run: it
+    # only feeds the Map view's optional page list, and costs one long generation per
+    # community. To bring it back, add:
+    #   ("landscape", [sys.executable, "-m", "eawiki.landscape", "--backend", "openrouter",
+    #                  "--workers", "6"]),
 ]
 
 

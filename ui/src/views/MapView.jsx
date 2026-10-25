@@ -81,7 +81,7 @@ export default function MapView() {
           ) : (
             <>
               <div className="empty">Click a node to inspect it.</div>
-              <div className="ilist-label" style={{ marginTop: 14 }}>Community landscape pages</div>
+              {comms.some((c) => c.has_page) && <div className="ilist-label" style={{ marginTop: 14 }}>Community landscape pages</div>}
               <div className="ilist">{comms.filter((c) => c.has_page).map((c) => (
                 <div key={c.slug}><a href="#" onClick={(e) => { e.preventDefault(); openLs(c.slug) }}>{c.name}</a></div>
               ))}</div>

@@ -53,7 +53,7 @@ EMBED_BATCH="${EMBED_BATCH:-1}"
 
 started=""
 [ "$FROM_STEP" = publish ] && started=skip   # FROM_STEP=publish: skip the build, just publish
-for step in parse tables subjects pages reconcile describe embed community summaries landscape; do
+for step in parse tables subjects pages reconcile describe embed community summaries; do
   [ "$started" = skip ] && break
   [ "$step" = "$FROM_STEP" ] && started=1
   [ -n "$started" ] || continue
@@ -67,8 +67,9 @@ for step in parse tables subjects pages reconcile describe embed community summa
     # after which the Community vertices would have to be projected (run the app's
     # re-ingest, or `python -m eawiki.community`, to do that).
     community) python -m eawiki.community --no-load ;;
-    summaries) python -m eawiki.summaries --backend pulse --no-load ;;
-    landscape) python -m eawiki.landscape --backend pulse --workers "$WORKERS" ;;
+    summaries) python -m eawiki.summaries --backend pulse --min-size 3 --no-load ;;
+    # landscape pages are not built (see src/eawiki/pipeline.py); add the step back here and
+    # to the loop above to produce them.
     *)         python -m "eawiki.$step" --backend pulse ;;
   esac
 done
