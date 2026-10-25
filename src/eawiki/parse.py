@@ -20,8 +20,6 @@ import sys
 from pathlib import Path
 from typing import Any, Optional
 
-from docling.document_converter import DocumentConverter
-
 from eawiki.blocks import Block, load_blocks, save_blocks
 
 
@@ -147,6 +145,9 @@ def ingest_file(path: str | Path, image_dir: Optional[str | Path] = None,
     path = Path(path)
     doc_id = path.stem
     image_dir = Path(image_dir) if image_dir else None
+    # Imported here, not at module level: importing docling (and torch) takes many seconds,
+    # and a run where every document is a cache hit never needs it.
+    from docling.document_converter import DocumentConverter
     converter = DocumentConverter()
     doc = converter.convert(str(path)).document
 
