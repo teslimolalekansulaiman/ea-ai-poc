@@ -257,6 +257,13 @@ SAMPLES = Path(os.environ.get("EAWIKI_SAMPLES", "docs/samples"))
 ARCHIVE = Path(os.environ.get("EAWIKI_ARCHIVE", "docs/_archive"))
 
 
+SOURCE_EXTS = (".docx", ".pptx")
+
+
+def _source_files() -> list[Path]:
+    return sorted(p for ext in SOURCE_EXTS for p in SAMPLES.rglob(f"*{ext}"))
+
+
 def _block_files():
     # Read fresh each call — a re-ingest rewrites these, so caching would serve a stale
     # document list after an add/remove. Returns store keys ("blocks/<doc>.blocks.json").
@@ -273,6 +280,7 @@ def docs():
         blocks = d.get("blocks", [])
         kind = blocks[0].get("kind", "architecture") if blocks else "architecture"
         out.append({"doc_id": d.get("doc_id", Path(key).stem.replace(".blocks", "")),
+                    "file": Path(d.get("source_file") or "").name or None,
                     "blocks": len(blocks), "kind": kind,
                     "counts": d.get("counts", {})})
     return {"docs": out}
@@ -280,7 +288,7 @@ def docs():
 
 @app.post("/api/docs/add")
 async def docs_add(file: UploadFile = File(...)):
-    """Add a source .docx to the ingest set and kick off a (clean) full re-ingest.
+    """Add a source .docx or .pptx to the ingest set and kick off a (clean) full re-ingest.
     Add is not purely additive: the graph is deduped and the wiki/community summaries
     are cross-document, so everything downstream is rebuilt from the whole set."""
     _require_writable()
@@ -288,8 +296,12 @@ async def docs_add(file: UploadFile = File(...)):
     if pipeline.status().get("running"):
         raise HTTPException(409, "A re-ingest is already running; wait for it to finish.")
     name = Path(file.filename or "").name            # strip any path components
-    if not name.lower().endswith(".docx"):
-        raise HTTPException(400, "Only .docx documents are supported.")
+    if not name.lower().endswith(SOURCE_EXTS):
+        raise HTTPException(400, "Only .docx and .pptx documents are supported.")
+    clash = [p.name for p in _source_files() if p.stem == Path(name).stem and p.name != name]
+    if clash:
+        raise HTTPException(409, f"'{clash[0]}' already uses the name '{Path(name).stem}'; "
+                                 "rename the new file.")
     SAMPLES.mkdir(parents=True, exist_ok=True)
     (SAMPLES / name).write_bytes(await file.read())
     return {"ok": True, "doc_id": Path(name).stem, "reingest": pipeline.run_async()}
@@ -305,10 +317,10 @@ def docs_remove(doc_id: str):
     if pipeline.status().get("running"):
         raise HTTPException(409, "A re-ingest is already running; wait for it to finish.")
     safe = Path(doc_id).name
-    matches = [p for p in SAMPLES.rglob("*.docx") if p.stem == safe]
+    matches = [p for p in _source_files() if p.stem == safe]
     if not matches:
         raise HTTPException(404, f"no source document '{doc_id}'")
-    remaining = [p for p in SAMPLES.rglob("*.docx") if p.stem != safe]
+    remaining = [p for p in _source_files() if p.stem != safe]
     if not remaining:
         raise HTTPException(400, "Cannot remove the last document — the knowledge base would be empty.")
     ARCHIVE.mkdir(parents=True, exist_ok=True)
@@ -335,6 +347,7 @@ def block(block_id: str):
     if not b:
         raise HTTPException(404, f"no block '{block_id}'")
     out = {"block_id": block_id, "doc_id": b.get("doc_id"),
+           "file": Path(b.get("source_file") or "").name or None,
            "section": " / ".join(b.get("section_path", [])),
            "type": b.get("type"), "kind": b.get("kind", "architecture"),
            "text": b.get("text", ""), "description": b.get("description")}

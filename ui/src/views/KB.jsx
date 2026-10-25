@@ -93,7 +93,7 @@ export default function KB() {
         </div>
         <label className={'btn primary' + (running || busy ? ' disabled' : '')}>
           {busy ? 'Uploading…' : '+ Add document'}
-          <input ref={fileRef} type="file" accept=".docx" hidden disabled={running || busy} onChange={onAdd} />
+          <input ref={fileRef} type="file" accept=".docx,.pptx" hidden disabled={running || busy} onChange={onAdd} />
         </label>
       </div>
 
@@ -146,7 +146,7 @@ export default function KB() {
       <div className="kb-grid">{docs.map((doc) => (
         <div className="card kb-doc" key={doc.doc_id}>
           <div className="top"><div className="fi" style={{ background: 'var(--l-application)' }}>DOCX</div>
-            <div><div className="nm">{doc.doc_id}</div><div className="meta mono">{doc.doc_id}.docx</div></div></div>
+            <div><div className="nm">{doc.doc_id}</div><div className="meta mono">{doc.file || doc.doc_id + '.docx'}</div></div></div>
           <div><span className="pill ok">✓ Parsed</span> <span className="pill neutral">{doc.kind}</span></div>
           <div className="stats">
             <span><b>{doc.blocks}</b> blocks</span>

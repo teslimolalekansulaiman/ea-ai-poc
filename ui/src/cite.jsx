@@ -38,7 +38,7 @@ export function CiteProvider({ children }) {
                 <>
                   <div className="srcmeta">
                     <span className="pill neutral">{block.block_id}</span>
-                    <span>{block.doc_id}.docx</span><span>·</span><span>{block.section}</span>
+                    <span>{block.file || block.doc_id + '.docx'}</span><span>·</span><span>{block.section}</span>
                     <span className="pill info">{block.kind}</span>
                     {block.type === 'figure' && <span className="pill warn">figure</span>}
                     {block.type === 'table' && <span className="pill warn">table</span>}

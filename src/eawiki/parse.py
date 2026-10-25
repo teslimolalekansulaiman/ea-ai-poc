@@ -209,6 +209,13 @@ def ingest_file(path: str | Path, image_dir: Optional[str | Path] = None,
     return blocks
 
 
+SOURCE_EXTS = (".docx", ".pptx")     # formats docling reads here (python-pptx ships with it)
+
+
+def source_files(in_dir: Path) -> list[Path]:
+    return sorted(p for ext in SOURCE_EXTS for p in in_dir.rglob(f"*{ext}"))
+
+
 def _parse_key(path: Path, kind: str) -> str:
     """What a parse depends on: the file's bytes, its id and class, and the parser version."""
     try:
@@ -240,7 +247,7 @@ def _cached_blocks(cache_file: Path, path: Path) -> Optional[list[Block]]:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Step 1 — parse DOCX into structural blocks")
-    ap.add_argument("--in", dest="in_dir", default="docs/samples", help="input folder of .docx")
+    ap.add_argument("--in", dest="in_dir", default="docs/samples", help="input folder of .docx / .pptx")
     ap.add_argument("--out", dest="out_dir", default="data/blocks", help="output folder for block JSON")
     ap.add_argument("--images", dest="image_dir", default="data/images",
                     help="output folder for exported figure images (PNG)")
@@ -256,10 +263,17 @@ def main() -> None:
     image_dir = Path(args.image_dir)
     known_kinds = {"architecture", "motivation", "governance", "reference"}
     # scan both the folder itself and one level of kind-named subfolders
-    docx_files = sorted(in_dir.rglob("*.docx"))
+    docx_files = source_files(in_dir)
     if not docx_files:
-        print(f"no .docx files in {in_dir}", file=sys.stderr)
+        print(f"no .docx or .pptx files in {in_dir}", file=sys.stderr)
         sys.exit(1)
+    # the document id is the file's stem, and block ids are built from it: two files that
+    # differ only by extension would silently overwrite each other's blocks
+    stems: dict[str, Path] = {}
+    for f in docx_files:
+        if f.stem in stems:
+            sys.exit(f"{f.name} and {stems[f.stem].name} share the name '{f.stem}'; rename one.")
+        stems[f.stem] = f
 
     grand_total = 0
     img_ok = img_miss = 0
