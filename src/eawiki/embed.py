@@ -246,12 +246,8 @@ class OpenAICompatEmbedder:
         req.add_header("Content-Type", "application/json")
         if self.key:
             req.add_header("Authorization", f"Bearer {self.key}")
-        try:
-            from eawiki.subjects import _ssl_ctx
-            with urllib.request.urlopen(req, timeout=120, context=_ssl_ctx()) as r:
-                data = json.loads(r.read().decode())
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"embeddings HTTP {e.code}: {e.read().decode()[:200]}") from None
+        from eawiki.subjects import post_json
+        data = post_json(req, 120, "embeddings")
         vecs = [d["embedding"] for d in data["data"]]
         if len(vecs) != len(texts):
             # A proxy that folds a batch into fewer vectors would otherwise be dropped by

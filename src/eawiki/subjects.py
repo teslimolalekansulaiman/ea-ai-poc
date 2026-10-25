@@ -26,7 +26,11 @@ import glob
 import json
 import os
 import re
+import random
 import subprocess
+import sys
+import threading
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -68,6 +72,42 @@ def _image_data_url(image_path: str) -> str:
     return f"data:{mt};base64,{b64}"
 
 
+# At most this many model/embedding requests are in flight per process. A probe of Pulse
+# showed 2 of 8 simultaneous requests failing at the network level, and steps run thread
+# pools of 6-8, so unbounded concurrency turned into silent failures.
+_LLM_SLOTS = threading.BoundedSemaphore(int(os.environ.get("EAWIKI_LLM_CONCURRENCY", 4)))
+_RETRY_CODES = {408, 425, 429, 500, 502, 503, 504}
+
+
+def _transient(code: int, body: str) -> bool:
+    # A 403 with an HTML body is a gateway/firewall page; a real API auth failure is JSON.
+    return code in _RETRY_CODES or (code == 403 and body.lstrip()[:1] == "<")
+
+
+def post_json(req: urllib.request.Request, timeout: int, what: str):
+    """Send `req`, return the parsed JSON body. Bounded concurrency, and transient failures
+    (gateway 403 pages, 429/5xx, dropped connections) are retried with backoff before the
+    error is raised — callers like llm_json turn an exception into 'no result', so a
+    transient blip must not reach them."""
+    attempts = int(os.environ.get("EAWIKI_LLM_RETRIES", 4))
+    for i in range(attempts + 1):
+        with _LLM_SLOTS:
+            try:
+                with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as r:
+                    return json.loads(r.read().decode())
+            except urllib.error.HTTPError as e:
+                body = e.read().decode(errors="replace")
+                if not _transient(e.code, body) or i == attempts:
+                    raise RuntimeError(f"{what} HTTP {e.code}: {body[:200]}") from None
+                why = f"HTTP {e.code}"
+            except OSError as e:          # URLError, timeouts, resets
+                if i == attempts:
+                    raise RuntimeError(f"{what} failed: {type(e).__name__}: {e}") from None
+                why = type(e).__name__
+        time.sleep(min(30, 2 ** (i + 1)) + random.random())
+        print(f"  {what}: {why}; retry {i + 1}/{attempts}", file=sys.stderr, flush=True)
+
+
 def _openai_chat(prompt: str, url: str, key: str, model: str, timeout: int = 300,
                  response_format: Optional[dict] = None, image_path: Optional[str] = None) -> str:
     """One OpenAI-compatible /chat/completions call (OpenRouter locally, Pulse in
@@ -89,11 +129,7 @@ def _openai_chat(prompt: str, url: str, key: str, model: str, timeout: int = 300
         req.add_header("Authorization", f"Bearer {key}")
     from eawiki import obs
     with obs.llm_span("llm.openai", prompt, model) as set_out:
-        try:
-            with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as r:
-                data = json.loads(r.read().decode())
-        except urllib.error.HTTPError as e:
-            raise RuntimeError(f"openai chat HTTP {e.code}: {e.read().decode()[:200]}") from None
+        data = post_json(req, timeout, "openai chat")
         content = (data["choices"][0]["message"]["content"] or "").strip()
         set_out(content)
         return content
@@ -150,7 +186,9 @@ def llm_json(prompt: str, backend: str = "cli", model: Optional[str] = None,
         except Exception:
             try:    # provider may not support response_format -> plain call + lenient parse
                 return _extract_json(_openai_chat(prompt, url, key, mdl))
-            except Exception:
+            except Exception as e:
+                print(f"  llm_json: no result ({type(e).__name__}: {str(e)[:120]})",
+                      file=sys.stderr, flush=True)
                 return None
     return _extract_json(llm_text(prompt, backend, model))
 
