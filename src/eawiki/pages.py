@@ -103,6 +103,52 @@ Rules:
 {_PREDICATE_RULE}"""
 
 
+def _needs_model(subject: dict, by_id: dict[str, Block]) -> bool:
+    """A subject earns a model-written page when there is prose to read about it. A subject
+    that only appears as a catalogue-table row, with no paragraph or list item naming it and
+    no section of its own, has nothing for the model to write from beyond the table facts
+    that earlier steps already extracted — so it gets a deterministic page instead."""
+    if subject.get("source") != "catalogue" or subject.get("kind") == "theme":
+        return True
+    name = _norm(subject["name"])
+    for bid in subject.get("block_ids", []):
+        b = by_id.get(bid)
+        if b is None or b.type not in ("paragraph", "list_item", "caption"):
+            continue
+        if name and name in _norm(b.text):
+            return True
+        if any(_norm(h) == name for h in b.section_path):
+            return True
+    return False
+
+
+def _stub_page(subject: dict, by_id: dict[str, Block], facts_1b: dict) -> dict:
+    """A page built in code from what the tables state — no model, nothing invented. Same
+    shape as a model page so everything downstream treats it alike (it adds no new edges:
+    the table edges are already in facts_1b)."""
+    name, key = subject["name"], _norm(subject["name"])
+    edges = sorted({f"{e['source']} --{e['relation']}--> {e['target']}"
+                    for e in facts_1b.get("edges", [])
+                    if _norm(e["source"]) == key or _norm(e["target"]) == key})
+    attrs = sorted({f"{a['name']}: {a['value']}" for a in facts_1b.get("attributes", [])
+                    if _norm(a["subject"]) == key})
+    tables = [bid for bid in subject.get("block_ids", [])
+              if by_id.get(bid) is not None and by_id[bid].type == "table"][:3]
+    where = ""
+    if tables:
+        sect = " / ".join(by_id[tables[0]].section_path) or by_id[tables[0]].doc_id
+        where = f" in {sect} " + " ".join(f"[{t}]" for t in tables)
+    lines = [f"# {name}", "", f"*{subject.get('type') or 'subject'}* — listed{where or ' in the source tables'}.",
+             ""]
+    if attrs:
+        lines += ["## Attributes", ""] + [f"- {a}" for a in attrs] + [""]
+    if edges:
+        lines += ["## Relationships", ""] + [f"- {e}" for e in edges] + [""]
+    if not attrs and not edges:
+        lines += ["The sources list this item without further detail.", ""]
+    return {"page_markdown": "\n".join(lines), "edges": [], "nodes": [], "_stub": True}
+
+
 def _run_page(prompt: str, menu: dict, backend: str, model) -> dict:
     out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):
@@ -136,6 +182,8 @@ def main() -> None:
     ap.add_argument("--cache-dir", default="data/graph/pages_cache",
                     help="reuse a subject's page+triples when its prompt is unchanged")
     ap.add_argument("--no-cache", action="store_true", help="regenerate every page")
+    ap.add_argument("--no-stubs", action="store_true",
+                    help="write a model page for EVERY subject, including table-only ones")
     args = ap.parse_args()
 
     menu = json.loads(Path(args.menu).read_text(encoding="utf-8"))
@@ -158,12 +206,15 @@ def main() -> None:
     results: list[tuple[dict, dict]] = []  # (subject, out)
     written = 0
     cached = 0
+    stubs = 0
 
     # Cache key = the fully rendered prompt + backend/model. It folds in the subject's
     # blocks, its table facts and the metamodel vocabulary, so the page is reused only
     # when none of those changed — a document add/remove regenerates just the subjects it
     # touched, and a metamodel edit (changing the vocabulary) regenerates all of them.
     def _do(s: dict) -> tuple[dict, dict, bool]:
+        if not args.no_stubs and not _needs_model(s, by_id):
+            return s, _stub_page(s, by_id, facts_1b), False
         prompt = _page_prompt(s, by_id, facts_1b, menu)
         key = content_hash(prompt, args.backend, effective_model(args.model))
         cf = cache_dir / f"{key}.json"
@@ -191,12 +242,13 @@ def main() -> None:
                 print(f"  ! {s['name']}: failed ({type(exc).__name__}: {str(exc)[:90]}) — skipped")
                 continue
             cached += 1 if hit else 0
+            stubs += 1 if out.get("_stub") else 0
             page = out["page_markdown"].strip()
             if page:
                 (pages_dir / f"{_slug(s['name'])}.md").write_text(page + "\n", encoding="utf-8")
                 written += 1
             results.append((s, out))
-            print(f"  {s['name']:32s} {'cache' if hit else 'fresh'}  page={'yes' if page else 'no ':3}  "
+            print(f"  {s['name']:32s} {'stub' if out.get("_stub") else 'cache' if hit else 'fresh'}  page={'yes' if page else 'no ':3}  "
                   f"edges={len(out['edges']):2d}  nodes+={len(out['nodes'])}")
 
     # Stable, review-friendly output: order facts by subject, not completion order.
@@ -211,7 +263,10 @@ def main() -> None:
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps(
         {"nodes": all_nodes, "edges": all_edges}, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"\npages written: {written} -> {pages_dir}  (cache: {cached} reused, {len(results) - cached} generated)")
+    generated = len(results) - cached - stubs
+    print(f"\npages written: {written} -> {pages_dir}  (cache: {cached} reused, {generated} generated, "
+          f"{stubs} table-only built in code)")
+    print(f"cache: reused {cached}   generated {generated}   built in code {stubs}")
     print(f"3a text facts: {len(all_nodes)} nodes, {len(all_edges)} edges -> {args.out}")
 
 
