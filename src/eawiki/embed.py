@@ -261,9 +261,17 @@ class OpenAICompatEmbedder:
         return vecs
 
     def encode(self, texts: list[str]) -> np.ndarray:
-        out: list[list[float]] = []
-        for i in range(0, len(texts), self._bs):
-            out.extend(self._post(texts[i:i + self._bs]))
+        batches = [texts[i:i + self._bs] for i in range(0, len(texts), self._bs)]
+        workers = max(1, int(os.environ.get("EAWIKI_EMBED_WORKERS", 4)))
+        if workers > 1 and len(batches) > 1:
+            # Some embeddings routes fold a multi-text batch into ONE vector, so the safe
+            # batch size is 1; requests run concurrently instead (map keeps input order).
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                results = list(ex.map(self._post, batches))
+        else:
+            results = [self._post(b) for b in batches]
+        out = [v for r in results for v in r]
         return _l2_normalize(np.asarray(out, dtype=np.float32))
 
 
