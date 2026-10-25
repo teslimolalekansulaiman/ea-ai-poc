@@ -55,10 +55,40 @@ def _page_text(slug: str) -> Optional[str]:
     return filestore().read_text(f"pages/{Path(slug).name}.md")
 
 
+@ttl_cached()
+def _redirects() -> dict:
+    """subject slug -> {"page": catalogue slug, "name": item name}, for table-only subjects
+    that are listed on a catalogue page instead of having a page of their own."""
+    raw = filestore().read_text("graph/page_redirects.json")
+    return json.loads(raw) if raw else {}
+
+
+def _catalogue_excerpt(md: str, name: str) -> str:
+    """The catalogue page's heading plus just the item's own section, so a long table does
+    not push the item out of the (capped) context."""
+    head, *sections = md.split("\n## ")
+    key = re.sub(r"\s+", " ", name.strip().lower())
+    for sec in sections:
+        title = sec.splitlines()[0] if sec else ""
+        if re.sub(r"\s+", " ", title.strip().lower()) == key:
+            return head.rstrip() + "\n\n## " + sec.rstrip()
+    return head
+
+
+def _page_for(slug: str) -> Optional[str]:
+    """A subject's page: its own, or — for a table-only subject — its catalogue entry."""
+    txt = _page_text(slug)
+    if txt is not None:
+        return txt
+    r = _redirects().get(slug)
+    cat = _page_text(r["page"]) if r else None
+    return _catalogue_excerpt(cat, r["name"]) if cat else None
+
+
 def _wiki_page(node_id: str) -> str:
     """One synthesized Step-3a wiki page for an entity (name-anchored)."""
     for slug in (node_id, "landscape-" + node_id):
-        txt = _page_text(slug)
+        txt = _page_for(slug)
         if txt is not None:
             return txt
     return ""
@@ -125,7 +155,7 @@ def _pages_from_blocks(block_ids: list[str], limit: int = 2) -> str:
             votes[slug] += 1
     out = []
     for slug, _ in votes.most_common(limit):
-        txt = _page_text(slug)
+        txt = _page_for(slug)
         if txt is not None:
             out.append(f"### {slug}\n{txt[:3500]}")
     return "\n\n".join(out)

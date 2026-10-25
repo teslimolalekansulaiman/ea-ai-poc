@@ -163,7 +163,13 @@ def pages():
 def page(slug: str):
     md = filestore().read_text(f"{PAGES_KEY}/{Path(slug).name}.md")
     if md is None:
-        raise HTTPException(404, f"no page '{slug}'")
+        # A table-only item has no page of its own: it is listed on its table's catalogue page.
+        r = _load_json("page_redirects.json", {}).get(Path(slug).name)
+        md = filestore().read_text(f"{PAGES_KEY}/{r['page']}.md") if r else None
+        if md is None:
+            raise HTTPException(404, f"no page '{slug}'")
+        return {"slug": r["page"], "title": _title(md, r["page"]), "markdown": md,
+                "listed_item": r["name"]}
     return {"slug": slug, "title": _title(md, slug), "markdown": md}
 
 

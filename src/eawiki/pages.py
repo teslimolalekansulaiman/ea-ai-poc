@@ -23,6 +23,7 @@ import argparse
 import glob
 import json
 import re
+from typing import Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -149,6 +150,52 @@ def _stub_page(subject: dict, by_id: dict[str, Block], facts_1b: dict) -> dict:
     return {"page_markdown": "\n".join(lines), "edges": [], "nodes": [], "_stub": True}
 
 
+def _table_home(subject: dict, by_id: dict[str, Block]) -> Optional[str]:
+    """The table block a table-only subject is listed in: the first of its table blocks whose
+    text names it, else its first table block. None if it has no table block at all."""
+    tables = sorted((by_id[b] for b in subject.get("block_ids", [])
+                     if b in by_id and by_id[b].type == "table"),
+                    key=lambda b: (b.doc_id, b.ordinal))
+    if not tables:
+        return None
+    name = _norm(subject["name"])
+    for b in tables:
+        if name and name in _norm(b.text):
+            return b.block_id
+    return tables[0].block_id
+
+
+def _item_section(subject: dict, home: str, facts_1b: dict) -> list[str]:
+    """One item's part of a catalogue page, from the table facts only (no model)."""
+    name, key = subject["name"], _norm(subject["name"])
+    attrs = sorted({f"{a['name']}: {a['value']}" for a in facts_1b.get("attributes", [])
+                    if _norm(a["subject"]) == key})
+    rels = sorted({f"{e['source']} --{e['relation']}--> {e['target']}"
+                   for e in facts_1b.get("edges", [])
+                   if _norm(e["source"]) == key or _norm(e["target"]) == key})
+    lines = [f"## {name}", "", f"*{subject.get('type') or 'subject'}* [{home}]", ""]
+    lines += [f"- {a}" for a in attrs] + [f"- {r}" for r in rels]
+    if not attrs and not rels:
+        lines.append("- Listed without further detail.")
+    return lines + [""]
+
+
+def _catalogue_page(home: str, subs: list[dict], by_id: dict[str, Block],
+                    facts_1b: dict) -> tuple[str, str]:
+    """ONE page for a whole table: every item it lists, each with the attributes and
+    relationships the table states. Built in code — no model, nothing invented."""
+    b = by_id[home]
+    slug = _slug(f"catalogue-{b.doc_id}-{b.ordinal}")
+    where = b.section_path[-1] if b.section_path else b.doc_id
+    lines = [f"# {where} — catalogue", "",
+             f"{len(subs)} item{'s' if len(subs) != 1 else ''} listed in {b.doc_id}"
+             + (f", section {' / '.join(b.section_path)}" if b.section_path else "")
+             + f" [{home}].", ""]
+    for sub in sorted(subs, key=lambda x: x["name"].lower()):
+        lines += _item_section(sub, home, facts_1b)
+    return slug, "\n".join(lines)
+
+
 def _run_page(prompt: str, menu: dict, backend: str, model) -> dict:
     out = llm_json(prompt, backend, model)
     if not isinstance(out, dict):
@@ -203,6 +250,29 @@ def main() -> None:
     pages_dir = Path(args.pages_dir)
     pages_dir.mkdir(parents=True, exist_ok=True)
     cache_dir = Path(args.cache_dir)
+
+    # Table-only subjects (no prose to read) do not get a page each: they are grouped by the
+    # table that lists them and written as ONE catalogue page per table, in code. Everything
+    # else goes to the model as before. A table-only subject with no table block of its own
+    # (should not happen) falls through to the per-subject stub below.
+    by_table: dict[str, list[dict]] = {}
+    model_subjects: list[dict] = []
+    for sub in subjects:
+        home = None if args.no_stubs or _needs_model(sub, by_id) else _table_home(sub, by_id)
+        if home:
+            by_table.setdefault(home, []).append(sub)
+        else:
+            model_subjects.append(sub)
+    redirects: dict[str, dict] = {}
+    for home, subs in sorted(by_table.items()):
+        slug, md = _catalogue_page(home, subs, by_id, facts_1b)
+        (pages_dir / f"{slug}.md").write_text(md + "\n", encoding="utf-8")
+        for sub in subs:
+            redirects[_slug(sub["name"])] = {"page": slug, "name": sub["name"]}
+    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+    (Path(args.out).parent / "page_redirects.json").write_text(
+        json.dumps(redirects, indent=1, ensure_ascii=False), encoding="utf-8")
+    subjects = model_subjects
     results: list[tuple[dict, dict]] = []  # (subject, out)
     written = 0
     cached = 0
@@ -264,9 +334,11 @@ def main() -> None:
     Path(args.out).write_text(json.dumps(
         {"nodes": all_nodes, "edges": all_edges}, indent=2, ensure_ascii=False), encoding="utf-8")
     generated = len(results) - cached - stubs
+    n_items = sum(len(v) for v in by_table.values())
     print(f"\npages written: {written} -> {pages_dir}  (cache: {cached} reused, {generated} generated, "
-          f"{stubs} table-only built in code)")
-    print(f"cache: reused {cached}   generated {generated}   built in code {stubs}")
+          f"{stubs} single stubs); {len(by_table)} catalogue pages cover {n_items} table-only items")
+    print(f"cache: reused {cached}   generated {generated}   catalogue pages {len(by_table)} "
+          f"({n_items} items)")
     print(f"3a text facts: {len(all_nodes)} nodes, {len(all_edges)} edges -> {args.out}")
 
 
