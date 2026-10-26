@@ -20,6 +20,7 @@ import base64
 import hashlib
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -32,6 +33,10 @@ CACHE_DIRS = ("desc_cache", "pages_cache", "subject_cache", "plan_cache", "parse
 _NOT_PUBLISHED = {"app.db", ".reingest_needed"}
 
 _state: dict = {"enabled": False, "pulled": False, "error": None}
+
+
+def _workers() -> int:
+    return max(1, int(os.environ.get("EAWIKI_SYNC_WORKERS", "32")))
 
 
 def _split(uri: str) -> tuple[str, str]:
@@ -81,30 +86,33 @@ class Sync:
                 if not b.name.endswith("/")}
 
     def _download(self, where, root: Path) -> int:
-        n = 0
-        for rel, blob in self._list(where).items():
+        """Every object under `where` into `root`. Concurrent: the caches are thousands of small
+        files, and one round trip each, one after another, took longer than Cloud Run's
+        start-up probe once the caches had grown (the container never got to listen)."""
+        items = list(self._list(where).items())
+
+        def one(item):
+            rel, blob = item
             target = root / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             blob.download_to_filename(str(target))
-            n += 1
-        return n
+
+        with ThreadPoolExecutor(max_workers=_workers()) as ex:
+            list(ex.map(one, items))
+        return len(items)
 
     def _mirror(self, where, files: dict[str, Path]) -> tuple[int, int]:
         bucket, prefix = where
         pre = prefix + "/" if prefix else ""
         remote = self._list(where)
         b = self.client.bucket(bucket)
-        up = rm = 0
-        for rel, p in files.items():
-            cur = remote.get(rel)
-            if cur is None or cur.md5_hash != _md5(p):
-                b.blob(pre + rel).upload_from_filename(str(p))
-                up += 1
-        for rel, blob in remote.items():
-            if rel not in files:
-                blob.delete()
-                rm += 1
-        return up, rm
+        todo = [(rel, p) for rel, p in files.items()
+                if remote.get(rel) is None or remote[rel].md5_hash != _md5(p)]
+        gone = [blob for rel, blob in remote.items() if rel not in files]
+        with ThreadPoolExecutor(max_workers=_workers()) as ex:
+            list(ex.map(lambda t: b.blob(pre + t[0]).upload_from_filename(str(t[1])), todo))
+            list(ex.map(lambda blob: blob.delete(), gone))
+        return len(todo), len(gone)
 
     # -- operations ----------------------------------------------------------
     def pull(self) -> dict:
