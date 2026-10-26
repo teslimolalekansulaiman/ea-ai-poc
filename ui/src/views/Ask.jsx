@@ -150,8 +150,13 @@ export default function Ask() {
                   {m.meta.context_info && <span className="route" title={m.meta.context_info.blocks.map(b => `${b.block_id} (${b.type}) ${b.chars} chars`).join('\n')}>context <b>{Math.round(m.meta.context_info.chars / 1000)} KB</b> · {m.meta.context_info.blocks.length} blocks</span>}
                 </div>
               )}
-              {m.role === 'bot' && m.meta?.search_question && m.meta.search_question !== msgs[i - 1]?.content &&
-                <div className="rewrite">interpreted as: “{m.meta.search_question}”</div>}
+              {m.role === 'bot' && m.meta?.link ? (
+                <div className="rewrite" style={m.meta.link.uncertain ? { borderLeft: '3px solid var(--warn)', paddingLeft: 8 } : undefined}>
+                  {m.meta.link.uncertain && <span className="pill warn" style={{ marginRight: 8 }}>check this reading</span>}
+                  {m.meta.link.note}
+                </div>
+              ) : (m.role === 'bot' && m.meta?.search_question && m.meta.search_question !== msgs[i - 1]?.content &&
+                <div className="rewrite">interpreted as: “{m.meta.search_question}”</div>)}
               {m.role === 'bot' ? <Markdown md={m.content} /> : m.content}
               {m.role === 'bot' && m.meta?.graph && (
                 <div className="ans-graph">

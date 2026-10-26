@@ -25,6 +25,7 @@ from eawiki.query import answer as ans
 from eawiki.query import executor as ew
 from eawiki.query import graphquery as gq
 from eawiki.query import guardrails as det
+from eawiki.query import link as lk
 from eawiki.query import route as rt
 from eawiki.query.retrieve import Retriever
 from eawiki.query.safety import NeMoGuard
@@ -62,6 +63,7 @@ class QAState(TypedDict, total=False):
     status: str
     input_guard: dict
     route: dict
+    link: dict               # the question read in the graph's own words (entities chosen)
     graph_result: dict       # structured graph-query result (facts + render + evidence)
     blocks: list
     _block_objs: list
@@ -127,7 +129,31 @@ _GQ_HINTS = (
 )
 
 
+def n_link(s: QAState) -> dict:
+    """Read a structural question in the graph's own words: shortlist entities by meaning, let one
+    model call choose among them and rewrite the question, check every id in code. The rewrite is
+    for lookup only; the answer still addresses the user's own question."""
+    q = s.get("search_question") or s["question"]
+    strat = s.get("route", {}).get("strategy")
+    if not s.get("use_llm", True):
+        return {}
+    if not (strat in ("graph", "browse") or any(h in q.lower() for h in _GQ_HINTS)):
+        return {}
+    try:
+        res = lk.link(q, s.get("backend", "cli"), s.get("model"), embed=_retriever().embed_query)
+    except Exception:
+        return {}
+    if not res:
+        return {}
+    return {"link": res, "search_question": res["rewritten"]}
+
+
 def n_graphquery(s: QAState) -> dict:
+    with lk.seeded(s.get("link")):
+        return _graphquery(s)
+
+
+def _graphquery(s: QAState) -> dict:
     """The single graph layer for both the answer and the UI. Try a whitelisted template
     (path / impact / orphans / aggregate / filter / neighbors): the LLM only classifies +
     fills typed slots; the traversal is fixed code over graph.json. One result feeds the
@@ -172,6 +198,17 @@ def n_retrieve(s: QAState) -> dict:
     r = _retriever()
     q = s.get("search_question") or s["question"]
     blocks = r.vector_search(q, k=s.get("k", 8), kinds=s.get("kinds"))
+    lnk = s.get("link")
+    if lnk:
+        seen = {b["block_id"] for b in blocks}
+        # The user's own wording as well (the rewrite may have narrowed it), and the blocks the
+        # linked entities were extracted from: found through the entity, not through the words.
+        extra = [b for b in r.vector_search(s["question"], k=s.get("k", 8), kinds=s.get("kinds"))
+                 if b["block_id"] not in seen]
+        seen |= {b["block_id"] for b in extra}
+        cited = [b for b in r.blocks_by_ids(lk.evidence_block_ids(lnk, gq._load()))
+                 if b["block_id"] not in seen]
+        blocks = blocks + extra + cited
     gqr = s.get("graph_result")
     if gqr and gqr.get("block_ids"):
         # Structured graph answer: lead with its cited blocks, keep vector hits as backup.
@@ -252,6 +289,7 @@ def build_app():
     g.add_node("input_guard", n_input_guard)
     g.add_node("condense", n_condense)
     g.add_node("route", n_route)
+    g.add_node("link", n_link)
     g.add_node("graphquery", n_graphquery)
     g.add_node("retrieve", n_retrieve)
     g.add_node("relevance", n_relevance)
@@ -261,7 +299,8 @@ def build_app():
     g.add_edge(START, "input_guard")
     g.add_conditional_edges("input_guard", _after_input, {"refused": END, "ok": "condense"})
     g.add_edge("condense", "route")
-    g.add_edge("route", "graphquery")
+    g.add_edge("route", "link")
+    g.add_edge("link", "graphquery")
     g.add_edge("graphquery", "retrieve")
     g.add_edge("retrieve", "relevance")
     g.add_conditional_edges("relevance", _after_relevance, {"abstained": END, "ok": "answer"})

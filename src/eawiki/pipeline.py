@@ -55,6 +55,9 @@ STEPS = [
                    "--max-pairs", os.environ.get("EAWIKI_MAX_PAIRS", "300")]),
     ("describe",  [sys.executable, "-m", "eawiki.describe", "--backend", "openrouter"]),
     ("embed",     [sys.executable, "-m", "eawiki.embed", "--backend", "openrouter"]),
+    # Entities and relationships embedded from the FINAL (merged) graph, so a question can find
+    # the graph's own words. Reuses the block embedder's settings; cached by text.
+    ("index",     [sys.executable, "-m", "eawiki.entity_index"]),
     ("load",      [sys.executable, "-m", "eawiki.load"]),
     # Steps 7-9 (PIPELINE.md): the community layer. Needs the graph already in ArcadeDB
     # (community projects Community vertices onto it), hence after `load`.

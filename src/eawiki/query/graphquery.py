@@ -23,6 +23,7 @@ import json
 import os
 import re
 from collections import deque
+from contextvars import ContextVar
 from typing import Optional
 
 from eawiki.storage import filestore
@@ -31,6 +32,10 @@ from eawiki.subjects import llm_json, llm_text
 # KB keys, relative to the data root (local ./data, or the GCS bucket in prod).
 GRAPH_KEY = "graph/graph.json"
 MENU_KEY = "togaf92_metamodel.json"
+
+# Set per question by eawiki.query.link: a name (lower case) -> the entity ids the question means
+# by it, so the templates seed from all of them instead of the one that happens to match by string.
+LINKS: ContextVar[dict] = ContextVar("graph_links", default={})
 
 TEMPLATES = ("neighbors", "path", "impact", "orphans", "aggregate", "filter")
 
@@ -61,6 +66,9 @@ class _Graph:
         if not text:
             return None
         t = text.strip().lower()
+        linked = LINKS.get().get(t)
+        if linked:
+            return linked[0]
         if t in self.by_id:
             return t
         exact = [nid for nid, n in self.by_id.items() if n.get("name", "").lower() == t]
@@ -77,8 +85,12 @@ class _Graph:
         nm = self.by_id.get(nid, {}).get("name", "").lower()
         if not nm:
             return [nid]
-        return [nid] + [o for o, n in self.by_id.items()
+        same = [nid] + [o for o, n in self.by_id.items()
                         if o != nid and n.get("name", "").lower() == nm]
+        for ids in LINKS.get().values():              # the entities one linked mention stands for
+            if nid in ids:
+                same += [o for o in ids if o not in same and o in self.by_id]
+        return same
 
     def resolve_all(self, text: str) -> list[str]:
         """Every entity whose name contains the term (plus node_id exacts) — so a name
@@ -87,6 +99,9 @@ class _Graph:
         if not text:
             return []
         t = text.strip().lower()
+        linked = [i for i in LINKS.get().get(t, []) if i in self.by_id]
+        if linked:
+            return linked
         hits = [nid for nid, n in self.by_id.items()
                 if n.get("name", "").lower() == t or t in n.get("name", "").lower()]
         if t in self.by_id and t not in hits:
