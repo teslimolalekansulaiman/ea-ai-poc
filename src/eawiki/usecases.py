@@ -20,6 +20,8 @@ COLUMN_TYPES = {"text", "textarea", "list", "enum", "citations", "bool", "number
 # A column or input field may carry a free-text description: what the property means and how
 # to resolve it. It is written by the EA team and read by the model, so it is bounded.
 MAX_DESCRIPTION = 1500
+MAX_INFO_NEEDED = 300
+MAX_LOOK_IN = 10
 
 
 def _slug(name: str) -> str:
@@ -49,8 +51,10 @@ def validate(spec: dict) -> list[str]:
     for f in (spec.get("input") or {}).get("item_fields") or []:
         errs += _description_errors(f"Input field '{f.get('name', '?')}'", f)
     for i, s in enumerate(stages, 1):
-        for c in ((s.get("output") or {}).get("columns")) or []:
-            errs += _description_errors(f"Stage {i}: column '{c.get('name', '?')}'", c)
+        cols = ((s.get("output") or {}).get("columns")) or []
+        names = [c.get("name") for c in cols]
+        for c in cols:
+            errs += _column_errors(f"Stage {i}: column '{c.get('name', '?')}'", c, names)
     v = spec.get("validation") or {}
     if v.get("enabled") and not (v.get("questions") or []):
         errs.append("Validation is enabled but has no intake questions.")
@@ -68,17 +72,54 @@ def _description_errors(where: str, item: dict) -> list[str]:
     return []
 
 
+def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
+    """The guidance fields of an output column: how to resolve it, where to look, whether a
+    cited source is needed, what to ask for when it is missing, and what it builds on."""
+    errs = _description_errors(where, c)
+    h = c.get("how_to_resolve")
+    if h is not None and (not isinstance(h, str) or len(h.strip()) > MAX_DESCRIPTION):
+        errs.append(f"{where}: how to resolve must be text of at most {MAX_DESCRIPTION} characters.")
+    n = c.get("info_needed")
+    if n is not None and (not isinstance(n, str) or len(n.strip()) > MAX_INFO_NEEDED):
+        errs.append(f"{where}: info needed must be text of at most {MAX_INFO_NEEDED} characters.")
+    li = c.get("look_in")
+    if li is not None and (not isinstance(li, list) or len(li) > MAX_LOOK_IN
+                           or any(not isinstance(x, str) or len(x) > 120 for x in li)):
+        errs.append(f"{where}: look in must be a list of at most {MAX_LOOK_IN} document names.")
+    if c.get("evidence_required") is not None and not isinstance(c["evidence_required"], bool):
+        errs.append(f"{where}: evidence required must be true or false.")
+    uses = c.get("uses")
+    if uses is not None:
+        if not isinstance(uses, list):
+            errs.append(f"{where}: uses must be a list of column names.")
+        else:
+            for u in uses:
+                if u == c.get("name") or u not in names:
+                    errs.append(f"{where}: uses '{u}', which is not another column of this stage.")
+    return errs
+
+
 def _tidy_descriptions(spec: dict) -> None:
     """Trim descriptions and drop empty ones, so a blank box in the form leaves no key behind."""
     items = list((spec.get("input") or {}).get("item_fields") or [])
     for s in spec.get("stages") or []:
         items += list((s.get("output") or {}).get("columns") or [])
     for it in items:
-        d = (it.get("description") or "").strip()
-        if d:
-            it["description"] = d
+        for key in ("description", "how_to_resolve", "info_needed"):
+            d = (it.get(key) or "").strip() if isinstance(it.get(key), str) else ""
+            if d:
+                it[key] = d
+            else:
+                it.pop(key, None)
+        li = [x.strip() for x in (it.get("look_in") or []) if isinstance(x, str) and x.strip()]
+        if li:
+            it["look_in"] = list(dict.fromkeys(li))
         else:
-            it.pop("description", None)
+            it.pop("look_in", None)
+        if it.get("evidence_required") is not False:
+            it.pop("evidence_required", None)          # on by default: only an explicit "no" is stored
+        if not it.get("uses"):
+            it.pop("uses", None)
 
 
 def list_specs() -> list[dict]:

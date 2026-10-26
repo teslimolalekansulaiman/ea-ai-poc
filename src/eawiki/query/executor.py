@@ -320,6 +320,11 @@ def n_retrieve(s: UCState) -> dict:
     for i in s.get("valid", []):
         text = _item_text(s["spec"], by_id[i])
         blocks = r.vector_search(text, k=s.get("k", 8))
+        focus = _focus_docs(s["spec"]["stages"][s["stage_idx"]])
+        if focus:                  # the documents the properties point to, searched on their own
+            first = r.vector_search(text, k=4, docs=focus)
+            seen = {b["block_id"] for b in first}
+            blocks = first + [b for b in blocks if b["block_id"] not in seen]
         block_ids = [b["block_id"] for b in blocks]
         sub = r.subgraph(r.entities_in_question(text)[0]["node_id"]) if r.entities_in_question(text) else None
         if full:
@@ -346,7 +351,25 @@ def _schema_hint(cols: list[dict]) -> str:
         d = (c.get("description") or "").strip()
         if d:
             out.append(f"      what it means and how to resolve it: {d}")
+        h = (c.get("how_to_resolve") or "").strip()
+        if h:
+            out.append(f"      how to decide it: {h}")
+        if c.get("look_in"):
+            out.append(f"      look first in: {', '.join(c['look_in'])} (block ids start with the document name)")
+        if c.get("uses"):
+            out.append(f"      builds on: {', '.join(c['uses'])} (decide those first)")
+        if c.get("evidence_required") is False:
+            out.append("      a cited block is NOT required: it may come from a definition or a rule")
     return "\n".join(out)
+
+
+def _evidence_needed(col: dict) -> bool:
+    return col.get("evidence_required") is not False
+
+
+def _focus_docs(stage: dict) -> list[str]:
+    """Every document any column of the stage asks to be searched first."""
+    return list(dict.fromkeys(d for c in stage["output"]["columns"] for d in (c.get("look_in") or [])))
 
 
 def _fields_hint(spec: dict) -> str:
@@ -395,7 +418,7 @@ def n_generate(s: UCState) -> dict:
             f"Complete ONE stage of an enterprise-architecture use case for ONE item.\n"
             f"Stage: {stage['name']}\nInstructions: {stage.get('instructions','')}\n\n"
             f"Fill EACH column below. For each, return value + status + evidence:\n"
-            f"  status 'answered' ONLY if the CONTEXT supports it (include evidence = block ids used);\n"
+            f"  status 'answered' ONLY if the CONTEXT supports it (include evidence = block ids used; a column that says a cited block is not required may rest on a definition or rule);\n"
             f"  status 'needs_source' if the knowledge base lacks it (set needs = what to ingest);\n"
             f"  status 'needs_input' if the demand lacks it (set needs = what the requester must provide).\n"
             f"Never invent — use needs_* instead of guessing.\n\n"
@@ -427,11 +450,19 @@ def n_output_guard(s: UCState) -> dict:
     for iid in s.get("valid", []):
         allowed = set(s["ctx"].get(iid, {}).get("block_ids", []))
         cells = results.get(iid, {}).get(stage["id"], {}).get("cells", [])
+        specs = {c["name"]: c for c in stage["output"]["columns"]}
         for cell in cells:
             ev = [e for e in (cell.get("evidence") or [])]
+            col = specs.get(cell.get("column"), {})
             if cell.get("status") == "answered" and ev and not (set(ev) & allowed):
                 cell["status"] = "needs_source"             # claimed grounded but not in context
                 cell["needs"] = cell.get("needs") or "grounding not found in the knowledge base"
+            elif cell.get("status") == "answered" and not ev and _evidence_needed(col):
+                # This property needs a cited source and none was found: a person has to supply
+                # it (the architect is asked), and the answer would be recorded as theirs.
+                cell["status"] = "needs_input"
+                cell["needs"] = (col.get("info_needed") or
+                                 f"No source found for '{cell.get('column')}'. Provide it, or say where to look.")
             if cell.get("status") in ("needs_source", "needs_input"):
                 needs.append({"id": iid, "stage": stage["id"], "column": cell.get("column"),
                               "status": cell.get("status"), "needs": cell.get("needs", "")})

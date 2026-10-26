@@ -3,7 +3,7 @@
   "name": "Demand Management",
   "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
   "enabled": true,
-  "version": 3,
+  "version": 4,
   "trigger": "user_selects",
   "input": {
     "mode": "list",
@@ -51,7 +51,8 @@
           {
             "name": "Is it a true demand?",
             "type": "text",
-            "description": "Yes, or Not yet: return for information when the request is incomplete, or the type of not-a-demand (for example No: incident, No: standard service)."
+            "description": "Yes, or Not yet: return for information when the request is incomplete, or the type of not-a-demand (for example No: incident, No: standard service).",
+            "evidence_required": false
           },
           {
             "name": "Demand type",
@@ -62,12 +63,14 @@
               "Technical",
               "People",
               "Not assessed"
-            ]
+            ],
+            "evidence_required": false
           },
           {
             "name": "Domain",
             "type": "list",
-            "description": "Architecture domains, main one first: Business, Data, Application, Integration, Technology, Security. A technical demand is Application, Data, Technology or Security. A people demand has no domain: write Not applicable."
+            "description": "Architecture domains, main one first: Business, Data, Application, Integration, Technology, Security. A technical demand is Application, Data, Technology or Security. A people demand has no domain: write Not applicable.",
+            "evidence_required": false
           },
           {
             "name": "Urgency",
@@ -79,6 +82,11 @@
               "Medium",
               "Low",
               "Not assessed"
+            ],
+            "evidence_required": false,
+            "how_to_resolve": "Read the deadline and what happens if it is missed from the demand text. If the demand states neither, answer needs_input and say so.",
+            "uses": [
+              "Mandate / business or DT objective"
             ]
           },
           {
@@ -90,27 +98,37 @@
               "Standard",
               "Backlog",
               "No score"
+            ],
+            "evidence_required": false,
+            "how_to_resolve": "Apply the EA prioritization rule to the demand. The rule has not been supplied yet: if it is not available to you, answer needs_input and say the prioritization rule is required.",
+            "uses": [
+              "Urgency",
+              "Mandate / business or DT objective"
             ]
           },
           {
             "name": "Mandate / business or DT objective",
             "type": "text",
-            "description": "Objective and initiative IDs from the strategy, and any mandate. Write No link found if none."
+            "description": "Objective and initiative IDs from the strategy, and any mandate. Write No link found if none.",
+            "info_needed": "The objective, initiative ID or mandate this demand supports, or confirmation that there is none."
           },
           {
             "name": "Linked initiative or project",
             "type": "text",
-            "description": "Initiative or project IDs from the roadmap and the initiative list. Write No link found if none."
+            "description": "Initiative or project IDs from the roadmap and the initiative list. Write No link found if none.",
+            "info_needed": "The initiative or project ID from the roadmap this demand belongs to, or confirmation that there is none."
           },
           {
             "name": "Impacted business capability",
             "type": "list",
-            "description": "Capability names from the business architecture. Write Not identified if none."
+            "description": "Capability names from the business architecture. Write Not identified if none.",
+            "info_needed": "The business capability this demand affects."
           },
           {
             "name": "Impacted application",
             "type": "list",
-            "description": "Names with IDs from the application inventory or the contract register."
+            "description": "Names with IDs from the application inventory or the contract register.",
+            "info_needed": "The application (with its ID) this demand affects."
           },
           {
             "name": "Is duplicate",
@@ -121,17 +139,21 @@
               "No",
               "Possible",
               "Not assessed"
-            ]
+            ],
+            "evidence_required": false,
+            "how_to_resolve": "Compare with the other demands in the same sheet first, then with existing applications, services, initiatives and contracts. A match needs the same need and the same systems, not the same words."
           },
           {
             "name": "Duplicate demand number (in the sheet)",
             "type": "text",
-            "description": "Demand ID from the Input sheet, or blank."
+            "description": "Demand ID from the Input sheet, or blank.",
+            "evidence_required": false
           },
           {
             "name": "Duplicate with existing artefact / artefact name",
             "type": "text",
-            "description": "ID and name of the existing application, service, initiative or contract, or None."
+            "description": "ID and name of the existing application, service, initiative or contract, or None.",
+            "info_needed": "Whether an existing application, service, initiative or contract already covers this need."
           },
           {
             "name": "Architecture principles and standards alignment",
@@ -141,7 +163,8 @@
               "Conforms",
               "Conflict found",
               "Not checked"
-            ]
+            ],
+            "info_needed": "The principles or standards to check this demand against."
           },
           {
             "name": "Data classification",
@@ -154,12 +177,14 @@
               "Restricted",
               "Not stated",
               "Not assessed"
-            ]
+            ],
+            "info_needed": "The classification level of the data involved."
           },
           {
             "name": "Linked security capability",
             "type": "list",
-            "description": "Digital or technical demand: the security capabilities it touches, at a general level (based on the NORA framework). People demand: Not applicable. The detailed assessment is with the security and infrastructure teams."
+            "description": "Digital or technical demand: the security capabilities it touches, at a general level (based on the NORA framework). People demand: Not applicable. The detailed assessment is with the security and infrastructure teams.",
+            "info_needed": "The security capabilities this demand touches."
           },
           {
             "name": "Security review needed",
@@ -169,17 +194,21 @@
               "Yes",
               "No",
               "Not assessed"
-            ]
+            ],
+            "evidence_required": false,
+            "how_to_resolve": "Yes for every digital or technical demand. Not assessed when the demand is not a true demand."
           },
           {
             "name": "Screening observation",
             "type": "text",
-            "description": "Free text with all the insights for the architect: what was found, what is unclear, what to confirm. Say if it is a digital, technical or people demand; a digital or technical demand needs a security review by the cyber team."
+            "description": "Free text with all the insights for the architect: what was found, what is unclear, what to confirm. Say if it is a digital, technical or people demand; a digital or technical demand needs a security review by the cyber team.",
+            "evidence_required": false
           },
           {
             "name": "Evidence",
             "type": "citations",
-            "description": "The source blocks that support the answers above. Added by the system; not part of the EA team's sheet."
+            "description": "The source blocks that support the answers above. Added by the system; not part of the EA team's sheet.",
+            "evidence_required": false
           }
         ]
       }
@@ -243,5 +272,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-26T03:12:44+00:00"
+  "updated_at": "2026-10-26T07:53:46+00:00"
 }

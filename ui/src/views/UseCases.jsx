@@ -18,9 +18,10 @@ export default function UseCases() {
   const [editingId, setEditingId] = useState(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [docs, setDocs] = useState([])          // ingested documents a property can point to
 
   const reload = () => api.usecases().then(d => setList(d.usecases)).catch(e => setError(String(e)))
-  useEffect(() => { reload() }, [])
+  useEffect(() => { reload(); api.docs().then(d => setDocs((d.docs || []).map(x => x.doc_id))).catch(() => {}) }, [])
 
   const patch = (fn) => setUc(prev => { const d = structuredClone(prev); fn(d); return d })
 
@@ -177,9 +178,44 @@ export default function UseCases() {
               <button className="btn" onClick={() => patch(d => d.stages[si].output.columns.splice(ci, 1))}>✕</button>
             </div>
             <textarea style={{ ...inp, minHeight: 38 }}
-              placeholder="Description: what this column means, where to look and how to decide it (the agent reads this)"
+              placeholder="Description: what this column means (the agent reads this)"
               maxLength={DESC_MAX} value={c.description || ''}
               onChange={e => patch(d => d.stages[si].output.columns[ci].description = e.target.value)} />
+            <details style={{ marginTop: 4 }}>
+              <summary className="meta" style={{ cursor: 'pointer' }}>How to resolve, where to look, evidence</summary>
+              <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
+                <textarea style={{ ...inp, minHeight: 38 }} maxLength={DESC_MAX}
+                  placeholder="How to resolve: how to decide the value, and any rule to apply"
+                  value={c.how_to_resolve || ''}
+                  onChange={e => patch(d => d.stages[si].output.columns[ci].how_to_resolve = e.target.value)} />
+                <div className="meta">Look first in (documents):</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {docs.length === 0 && <span className="meta">No documents ingested yet.</span>}
+                  {docs.map(dn => {
+                    const on = (c.look_in || []).includes(dn)
+                    return <button key={dn} type="button" className={'btn' + (on ? ' primary' : '')}
+                      onClick={() => patch(d => { const col = d.stages[si].output.columns[ci]; const cur = col.look_in || []; col.look_in = on ? cur.filter(x => x !== dn) : [...cur, dn] })}>{dn}</button>
+                  })}
+                </div>
+                <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13 }}>
+                  <input type="checkbox" checked={c.evidence_required !== false}
+                    onChange={e => patch(d => { d.stages[si].output.columns[ci].evidence_required = e.target.checked })} />
+                  A cited source is required (if none is found, the architect is asked)
+                </label>
+                <input style={inp} maxLength={300} placeholder="Info needed: what to ask for when the source is missing"
+                  value={c.info_needed || ''}
+                  onChange={e => patch(d => d.stages[si].output.columns[ci].info_needed = e.target.value)} />
+                {s.output.columns.length > 1 && (<>
+                  <div className="meta">Builds on (decided first):</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {s.output.columns.filter((o, oi) => oi !== ci && o.name).map(o => {
+                      const on = (c.uses || []).includes(o.name)
+                      return <button key={o.name} type="button" className={'btn' + (on ? ' primary' : '')}
+                        onClick={() => patch(d => { const col = d.stages[si].output.columns[ci]; const cur = col.uses || []; col.uses = on ? cur.filter(x => x !== o.name) : [...cur, o.name] })}>{o.name}</button>
+                    })}
+                  </div></>)}
+              </div>
+            </details>
             </div>
           ))}
           <button className="btn" onClick={() => patch(d => d.stages[si].output.columns.push({ name: '', type: 'text', values: [] }))}>+ column</button>

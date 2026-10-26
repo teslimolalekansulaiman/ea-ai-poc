@@ -37,15 +37,21 @@ class Retriever:
         return [float(x) for x in self._embedder.encode([q])[0]]
 
     def vector_search(self, q: str, k: int = 8,
-                      kinds: Optional[list[str]] = None) -> list[dict]:
+                      kinds: Optional[list[str]] = None,
+                      docs: Optional[list[str]] = None) -> list[dict]:
         """k nearest blocks to the question, nearest first. If `kinds` is given,
         restrict to those document classes (e.g. ['architecture']) — over-fetch
         then filter, so a governance block isn't returned as an architecture fact."""
-        fetch = k * 4 if kinds else k
+        # `docs` restricts to named documents (a use-case property says where to look). The index
+        # cannot filter, so over-fetch much more and keep only those documents' blocks.
+        fetch = k * 25 if docs else (k * 4 if kinds else k)
         rows = self.store.vector_search(self.embed_query(q), k=fetch)
+        want = {d.lower() for d in docs} if docs else None
         out = []
         for r in rows:
             if kinds and r.get("kind", "architecture") not in kinds:
+                continue
+            if want and str(r.get("doc_id", "")).lower() not in want:
                 continue
             dist = r.get("$distance", r.get("distance"))
             out.append({"block_id": r.get("block_id"), "doc_id": r.get("doc_id"),
