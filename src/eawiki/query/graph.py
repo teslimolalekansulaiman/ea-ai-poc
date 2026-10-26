@@ -64,6 +64,7 @@ class QAState(TypedDict, total=False):
     input_guard: dict
     route: dict
     link: dict               # the question read in the graph's own words (entities chosen)
+    case_context: str        # the results of the case the question is asked inside
     graph_result: dict       # structured graph-query result (facts + render + evidence)
     blocks: list
     _block_objs: list
@@ -230,10 +231,13 @@ def n_retrieve(s: QAState) -> dict:
 
 def n_relevance(s: QAState) -> dict:
     gqr = s.get("graph_result")
-    if (gqr is None and s.get("subgraph") is None and not s.get("page")
+    if (gqr is None and s.get("subgraph") is None and not s.get("page") and not s.get("case_context")
             and not det.relevance_ok(s.get("_block_objs", []), max_distance=s.get("max_distance", 0.95))):
         return {"status": "abstained", "answer": det.ABSTAIN}
     context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"))
+    if s.get("case_context"):
+        context = ("CASE RESULTS (what this case decided so far; authoritative for questions about its demands; "
+                   "cite a source block only where a property names one):\n" + s["case_context"] + "\n\n" + context)
     if s.get("page"):
         context = ("WIKI (synthesized, connected context — cite the block ids it references, "
                    "not the page):\n" + s["page"] + "\n\n" + context)
@@ -311,8 +315,8 @@ def build_app():
 
 def run(question: str, backend: str = "cli", model=None, k: int = 8,
         kinds=None, use_llm: bool = True, safety: bool = True,
-        max_distance: float = 0.95, history=None) -> dict:
-    state: QAState = {"question": question, "history": history or [],
+        max_distance: float = 0.95, history=None, case_context: str = "") -> dict:
+    state: QAState = {"question": question, "history": history or [], "case_context": case_context,
                       "backend": backend, "model": model,
                       "k": k, "kinds": kinds, "use_llm": use_llm, "safety": safety,
                       "max_distance": max_distance}

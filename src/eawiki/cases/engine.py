@@ -1,0 +1,288 @@
+"""The engine: run a use case over a sheet of items, property by property.
+
+For each phase it
+  1. runs the gate (required fields in code, the intake questions by the model); an item that fails
+     reads "Not assessed" in every other property, with the reason in the observation;
+  2. orders the remaining properties by what they build on (`uses`), so independent ones run together;
+  3. for every (item, property) gathers evidence from the property's plan, asks the model, verifies;
+  4. saves each cell the moment it is decided, and records an event so the screen can follow along;
+  5. when a property needs a source and none was found, opens a question for the architect and carries
+     on: nothing else waits. An answer re-runs only the properties that build on it;
+  6. writes the summary properties last, from everything decided, and fills the citations property.
+
+Everything the engine touches outside itself comes through `Tools`, so the same code runs in the
+service and in tests.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Optional
+
+from eawiki.cases import gather as gmod
+from eawiki.cases import plan as pmod
+from eawiki.cases import solve as smod
+from eawiki.cases.store import CaseStore
+
+DEFAULT_GATE_COLUMN = "Is it a true demand?"
+
+
+def phase_id(stage: dict) -> str:
+    return stage.get("id") or re.sub(r"[^a-z0-9]+", "-", (stage.get("name") or "phase").lower()).strip("-")
+
+
+def gate_column(spec: dict) -> str:
+    return (spec.get("validation") or {}).get("result_column") or DEFAULT_GATE_COLUMN
+
+
+def summary_columns(stage: dict) -> list[str]:
+    return list(stage.get("summary_columns") or [])
+
+
+def levels(columns: list[dict]) -> list[list[dict]]:
+    """Group properties into rounds: a property comes after everything it builds on."""
+    names = {c["name"] for c in columns}
+    remaining = list(columns)
+    done: set = set()
+    out: list[list[dict]] = []
+    while remaining:
+        ready = [c for c in remaining if all((u in done) or (u not in names) for u in (c.get("uses") or []))]
+        if not ready:                               # a cycle: do not hang, run the rest together
+            ready = remaining
+        out.append(ready)
+        done |= {c["name"] for c in ready}
+        remaining = [c for c in remaining if c not in ready]
+    return out
+
+
+def _show(v) -> str:
+    return "; ".join(map(str, v)) if isinstance(v, list) else str(v)
+
+
+class Engine:
+    def __init__(self, store: CaseStore, tools_factory: Callable[[], gmod.Tools], workers: Optional[int] = None):
+        self.store = store
+        self.tools_factory = tools_factory
+        self.workers = workers or int(os.environ.get("EAWIKI_UC_WORKERS", "6"))
+        self._cancel: set = set()
+        self._plans: dict = {}
+
+    # ---- starting ----------------------------------------------------------------------
+    def create(self, spec: dict, items: list[dict], name: str) -> str:
+        from eawiki.query import executor
+        items = [dict(it) for it in items]
+        for i, it in enumerate(items):
+            it["_id"] = str(it.get("_id") or executor._item_id(it, i, spec))
+        return self.store.create_case(spec.get("id", ""), name, spec, items)
+
+    def start(self, cid: str, background: bool = True) -> None:
+        case = self.store.get_case(cid)
+        first = phase_id(case["spec"]["stages"][0])
+        self._spawn(lambda: self.run_phase(cid, first), background)
+
+    @staticmethod
+    def _spawn(fn: Callable, background: bool) -> None:
+        if background:
+            threading.Thread(target=fn, daemon=True).start()
+        else:
+            fn()
+
+    def cancel(self, cid: str) -> None:
+        self._cancel.add(cid)
+
+    # ---- one phase ---------------------------------------------------------------------
+    def _rows(self, case: dict, idx: int) -> list[dict]:
+        items = case["items"]
+        if idx == 0:
+            return items
+        prev = phase_id(case["spec"]["stages"][idx - 1])
+        gate = {c["item_id"]: c for c in self.store.cells(case["id"], prev) if c["column"] == gate_column(case["spec"])}
+        return [it for it in items if gate.get(it["_id"], {}).get("value") == "Yes"]
+
+    def run_phase(self, cid: str, pid: str, only_item: Optional[str] = None,
+                  only_cols: Optional[set] = None) -> None:
+        st, ev = self.store, self.store.add_event
+        case = st.get_case(cid)
+        spec = case["spec"]
+        stages = spec["stages"]
+        idx = next(i for i, s in enumerate(stages) if phase_id(s) == pid)
+        stage = stages[idx]
+        cols = stage["output"]["columns"]
+        rows = self._rows(case, idx)
+        if only_item:
+            rows = [r for r in rows if r["_id"] == only_item]
+        tools = self.tools_factory()
+        fields = [f["name"] for f in (spec.get("input") or {}).get("item_fields") or []]
+        docs = tools.doc_ids()
+        plans = {c["name"]: pmod.build_plan(c, fields, docs, tools.llm_json, self._plans) for c in cols}
+        link_cache: dict = {}
+        if not only_item:
+            st.set_phase(cid, pid, status="running", started=time.time(), total=len(rows), approved=False)
+            ev(cid, "phase_start", {"phase": pid, "items": len(rows), "properties": len(cols)})
+        pool = ThreadPoolExecutor(max_workers=self.workers)
+        try:
+            passing = rows
+            if idx == 0 and (spec.get("validation") or {}).get("enabled") is not False and not only_item:
+                passing = self._gate(cid, pid, spec, stage, rows, tools, pool)
+            if only_item and idx == 0:
+                gc = {c["column"]: c for c in st.cells(cid, pid) if c["item_id"] == only_item}.get(gate_column(spec))
+                passing = rows if (gc and gc["value"] == "Yes") or not gc else []
+            skip = {gate_column(spec)} if idx == 0 else set()
+            summary = set(summary_columns(stage))
+            main = [c for c in cols if c["name"] not in skip | summary and c.get("type") != "citations"]
+            if only_cols is not None:
+                main = [c for c in main if c["name"] in only_cols]
+            for level in levels(main):
+                self._run_level(cid, pid, spec, level, passing, rows, plans, tools, link_cache, pool)
+            last = [c for c in cols if c["name"] in summary and (only_cols is None or c["name"] in only_cols)]
+            if last:
+                self._run_level(cid, pid, spec, last, passing, rows, plans, tools, link_cache, pool)
+            for c in cols:                                                  # citations: a union, in code
+                if c.get("type") == "citations":
+                    self._citations(cid, pid, c, rows)
+        finally:
+            pool.shutdown(wait=True)
+        if not only_item:
+            n_q = sum(1 for q in st.questions(cid) if q["status"] == "open" and q["phase_id"] == pid)
+            st.set_phase(cid, pid, status="review", finished=time.time(), open_questions=n_q)
+            ev(cid, "phase_done", {"phase": pid, "open_questions": n_q})
+        self._cancel.discard(cid)
+
+    # ---- the gate ----------------------------------------------------------------------
+    def _gate(self, cid, pid, spec, stage, rows, tools, pool) -> list[dict]:
+        from eawiki.query import executor
+        gname = gate_column(spec)
+        gcol = next((c for c in stage["output"]["columns"] if c["name"] == gname), None)
+        if gcol is None:
+            return rows
+        self.store.add_event(cid, "step", {"phase": pid, "label": "Check each is a true demand", "column": gname})
+
+        def one(it):
+            g = smod.gate(spec, it, tools.llm_json, executor._missing_required(spec, it))
+            self.store.save_cell(cid, it["_id"], pid, gname, value=g["outcome"], status="answered", source="rule",
+                                 how=[g["reason"] or "Every intake question was answered yes."])
+            self.store.add_event(cid, "cell", {"phase": pid, "item": it["_id"], "column": gname})
+            return it, g
+
+        results = list(pool.map(one, rows))
+        passing = [it for it, g in results if g["outcome"] == "Yes"]
+        for it, g in results:
+            if g["outcome"] != "Yes":
+                self._not_assessed(cid, pid, stage, spec, it, g)
+        return passing
+
+    def _not_assessed(self, cid, pid, stage, spec, it, g) -> None:
+        gname = gate_column(spec)
+        summ = set(summary_columns(stage))
+        for c in stage["output"]["columns"]:
+            if c["name"] == gname:
+                continue
+            if c["name"] in summ:
+                self.store.save_cell(cid, it["_id"], pid, c["name"],
+                                     value=f"{g['outcome']}. {g['reason']}".strip(), status="answered", source="rule",
+                                     how=["Written from the gate result: this demand was not assessed further."])
+            elif c.get("type") == "citations":
+                self.store.save_cell(cid, it["_id"], pid, c["name"], value=[], status="not_assessed", source="rule")
+            else:
+                self.store.save_cell(cid, it["_id"], pid, c["name"], value=smod.not_assessed_value(c),
+                                     status="not_assessed", source="rule",
+                                     how=["Skipped: the demand did not pass the gate."])
+
+    # ---- one round of properties -----------------------------------------------------
+    def _decided(self, cid: str, pid: str, item_id: str) -> dict:
+        out = {}
+        for c in self.store.cells(cid, pid):
+            if c["item_id"] != item_id:
+                continue
+            out[c["column"]] = "(unknown: asked the architect)" if c["status"] == "needs_input" else _show(c["value"])
+        return out
+
+    def _run_level(self, cid, pid, spec, level, passing, rows, plans, tools, link_cache, pool) -> None:
+        names = ", ".join(c["name"] for c in level)
+        self.store.add_event(cid, "step", {"phase": pid, "label": names, "columns": [c["name"] for c in level]})
+        tasks = [(it, c) for c in level for it in passing]
+
+        def one(t):
+            it, col = t
+            if cid in self._cancel:
+                return
+            try:
+                others = [o for o in rows if o["_id"] != it["_id"]]
+                ev = gmod.gather(tools, plans[col["name"]], spec, it, others, link_cache)
+                cell = smod.solve(col, it, spec, ev, self._decided(cid, pid, it["_id"]), tools.llm_json)
+            except Exception as e:                               # one property failing never stops the sheet
+                cell = {"value": "", "status": "needs_input", "evidence": [], "source": "model",
+                        "how": [f"The step failed ({type(e).__name__})."],
+                        "need": col.get("info_needed") or f"'{col['name']}' could not be decided."}
+            self.store.save_cell(cid, it["_id"], pid, col["name"], value=cell["value"], status=cell["status"],
+                                 source=cell["source"], evidence=cell["evidence"], how=cell["how"], need=cell["need"])
+            self.store.add_event(cid, "cell", {"phase": pid, "item": it["_id"], "column": col["name"], "status": cell["status"]})
+            if cell["status"] == "needs_input":
+                self.store.add_question(cid, it["_id"], pid, col["name"], cell["need"])
+                self.store.add_event(cid, "question", {"phase": pid, "item": it["_id"], "column": col["name"]})
+
+        list(pool.map(one, tasks))
+
+    def _citations(self, cid, pid, col, rows) -> None:
+        by_item: dict = {}
+        for c in self.store.cells(cid, pid):
+            if c["column"] != col["name"]:
+                by_item.setdefault(c["item_id"], []).extend(e for e in c["evidence"] if not e.startswith("demand:"))
+        for it in rows:
+            ids = list(dict.fromkeys(by_item.get(it["_id"], [])))
+            self.store.save_cell(cid, it["_id"], pid, col["name"], value=ids, status="answered" if ids else "none",
+                                 source="rule", how=["Every source block cited by the answers above."])
+
+    # ---- the architect answers a question ------------------------------------------
+    def answer(self, qid: str, answer: Optional[str], background: bool = True) -> dict:
+        q = self.store.get_question(qid)
+        if not q or q["status"] != "open":
+            raise ValueError("no such open question")
+        case = self.store.get_case(q["case_id"])
+        stage = next(s for s in case["spec"]["stages"] if phase_id(s) == q["phase_id"])
+        col = next(c for c in stage["output"]["columns"] if c["name"] == q["column"])
+        if answer is None or not answer.strip():
+            self.store.close_question(qid, "skipped")
+            self.store.add_event(q["case_id"], "question_closed", {"id": qid, "skipped": True})
+            return {"id": qid, "status": "skipped"}
+        text = answer.strip()
+        value = [v.strip() for v in re.split(r"[;\n]", text) if v.strip()] if col.get("type") == "list" else text
+        self.store.save_cell(q["case_id"], q["item_id"], q["phase_id"], q["column"], value=value, status="user",
+                             source="user", how=["Supplied by the architect in answer to: " + q["text"]])
+        self.store.close_question(qid, "answered", text)
+        self.store.add_event(q["case_id"], "cell", {"phase": q["phase_id"], "item": q["item_id"], "column": q["column"], "status": "user"})
+        dependants = self._dependants(stage, q["column"])
+        if dependants:
+            self._spawn(lambda: self.run_phase(q["case_id"], q["phase_id"], only_item=q["item_id"], only_cols=dependants), background)
+        return {"id": qid, "status": "answered", "rerun": sorted(dependants)}
+
+    @staticmethod
+    def _dependants(stage: dict, column: str) -> set:
+        """Every property that builds on `column`, directly or through others, plus the summaries."""
+        cols = stage["output"]["columns"]
+        out, grew = set(), True
+        base = {column}
+        while grew:
+            grew = False
+            for c in cols:
+                if c["name"] not in out and set(c.get("uses") or []) & (base | out):
+                    out.add(c["name"])
+                    grew = True
+        return out | set(summary_columns(stage))
+
+    # ---- review and the next phase --------------------------------------------------
+    def approve(self, cid: str, pid: str, background: bool = True) -> dict:
+        case = self.store.get_case(cid)
+        stages = case["spec"]["stages"]
+        idx = next(i for i, s in enumerate(stages) if phase_id(s) == pid)
+        self.store.set_review(cid, pid, None, None, "approved")
+        self.store.set_phase(cid, pid, status="approved", approved=True)
+        self.store.add_event(cid, "phase_approved", {"phase": pid})
+        nxt = phase_id(stages[idx + 1]) if idx + 1 < len(stages) else None
+        if nxt:
+            self._spawn(lambda: self.run_phase(cid, nxt), background)
+        return {"approved": pid, "next": nxt}

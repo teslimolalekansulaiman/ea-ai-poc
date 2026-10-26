@@ -3,7 +3,7 @@
   "name": "Demand Management",
   "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
   "enabled": true,
-  "version": 5,
+  "version": 6,
   "trigger": "user_selects",
   "input": {
     "mode": "list",
@@ -133,7 +133,8 @@
       "Is this a true demand (a need or change), not an incident or a question?",
       "Is there a clear business need or outcome?",
       "Is there enough detail to assess it (what / who / why)?"
-    ]
+    ],
+    "result_column": "Is it a true demand?"
   },
   "stages": [
     {
@@ -306,6 +307,74 @@
             "evidence_required": false
           }
         ]
+      },
+      "summary_columns": [
+        "Screening observation"
+      ],
+      "result": {
+        "row_tag": "Priority",
+        "tag_order": [
+          "Fast-track",
+          "Standard",
+          "Backlog"
+        ],
+        "kpis": [
+          {
+            "label": "Fast-track",
+            "column": "Priority",
+            "equals": "Fast-track"
+          },
+          {
+            "label": "Security review",
+            "column": "Security review needed",
+            "equals": "Yes"
+          },
+          {
+            "label": "Duplicates",
+            "column": "Is duplicate",
+            "in": [
+              "Yes",
+              "Possible"
+            ]
+          }
+        ],
+        "decisions": [
+          {
+            "when": {
+              "column": "Is duplicate",
+              "in": [
+                "Yes"
+              ],
+              "filled": "Duplicate demand number (in the sheet)"
+            },
+            "text": "Duplicate of {Duplicate demand number (in the sheet)}: group the demands and assess them once."
+          },
+          {
+            "when": {
+              "column": "Architecture principles and standards alignment",
+              "equals": "Conflict found"
+            },
+            "text": "Resolve the conflict with the architecture principles or standards."
+          }
+        ],
+        "questions": [
+          {
+            "text": "Which demands were returned, and why?",
+            "if": "returned"
+          },
+          {
+            "text": "What overlaps with what?",
+            "if": "decisions"
+          },
+          {
+            "text": "Why is {top_item} {top_tag}?",
+            "if": "top"
+          },
+          {
+            "text": "What do you need from the requesters?",
+            "if": "always"
+          }
+        ]
       }
     },
     {
@@ -364,8 +433,22 @@
             "type": "citations"
           }
         ]
+      },
+      "summary_columns": [
+        "Justification"
+      ],
+      "result": {
+        "row_tag": "Recommendation",
+        "kpis": [],
+        "decisions": [],
+        "questions": [
+          {
+            "text": "Which demands can reuse something we already own?",
+            "if": "always"
+          }
+        ]
       }
     }
   ],
-  "updated_at": "2026-10-26T08:18:33+00:00"
+  "updated_at": "2026-10-26T10:25:45+00:00"
 }

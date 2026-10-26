@@ -24,3 +24,5 @@ psycopg[binary]>=3.2              # HISTORY_BACKEND=postgres — chats + runs in
 # openai/pulse embeddings and the hash backend need nothing beyond the above (urllib+numpy).
 # sentence-transformers>=3.0      # EAWIKI_EMBED_BACKEND=st     (pulls torch — much larger image)
 # google-cloud-aiplatform>=1.60   # EAWIKI_EMBED_BACKEND=vertex
+
+openpyxl>=3.1          # read a sheet of demands (.xlsx) and export a case

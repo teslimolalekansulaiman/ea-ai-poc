@@ -48,6 +48,9 @@ async def _lifespan(_app):
 
 app = FastAPI(title="EA GraphRAG Wiki API", version="1.0", lifespan=_lifespan)
 
+from eawiki.api.cases import router as _cases_router  # noqa: E402  (cases: sheets of demands run through a use case)
+app.include_router(_cases_router)
+
 # OpenTelemetry/OpenInference tracing -> Phoenix (no-op if Phoenix/libs absent).
 try:
     from eawiki import obs
