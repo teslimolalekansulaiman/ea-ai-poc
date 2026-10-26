@@ -188,12 +188,44 @@ def _ms(s: "UCState") -> int:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
-def _item_id(it: dict, i: int) -> str:
-    return str(it.get("demand_no") or it.get("id") or f"item-{i+1}")
+def _item_id(it: dict, i: int, spec: Optional[dict] = None) -> str:
+    idf = ((spec or {}).get("input") or {}).get("id_field")
+    return str((idf and it.get(idf)) or it.get("demand_no") or it.get("id") or f"item-{i+1}")
+
+
+def _field_label(spec: dict, name: str) -> str:
+    for f in (spec.get("input") or {}).get("item_fields") or []:
+        if f.get("name") == name:
+            return f.get("label") or name
+    return name
+
 
 def _item_text(spec: dict, it: dict) -> str:
-    f = (spec.get("input") or {}).get("batch_text_field") or "demand"
+    """The text an item is searched, compared and checked by. A use case may list the input
+    fields that describe the need (`retrieval_fields`); they are joined, so a title, the problem,
+    the outcome and the systems named are all searched together, not one free-text box."""
+    inp = spec.get("input") or {}
+    parts = []
+    for name in inp.get("retrieval_fields") or []:
+        v = str(it.get(name) or "").strip()
+        if v:
+            parts.append(f"{_field_label(spec, name)}: {v}")
+    if parts:
+        return "\n".join(parts)
+    f = inp.get("batch_text_field") or "demand"
     return str(it.get(f) or it.get("demand") or " ".join(str(v) for v in it.values()))
+
+
+def _missing_required(spec: dict, it: dict) -> list[str]:
+    """Required input fields that are empty, for an item that came from a structured sheet.
+    A free-text item (only one or two configured fields present) is not held to the sheet's
+    rules, so the plain 'describe the demand' box keeps working."""
+    fields = (spec.get("input") or {}).get("item_fields") or []
+    names = {f["name"] for f in fields if f.get("name")}
+    if sum(1 for k in it if k in names and str(it[k]).strip()) < 3:
+        return []
+    return [f.get("label") or f["name"] for f in fields
+            if f.get("required") and f.get("name") and not str(it.get(f["name"]) or "").strip()]
 
 
 def _retriever() -> Retriever:
@@ -208,7 +240,7 @@ def _retriever() -> Retriever:
 def n_load(s: UCState) -> dict:
     items = s["items"]
     for i, it in enumerate(items):
-        it.setdefault("_id", _item_id(it, i))
+        it.setdefault("_id", _item_id(it, i, s["spec"]))
     return {"items": items, "stage_idx": 0, "valid": [], "rejected": [],
             "results": {}, "needs": [], "ctx": {}, "t0": time.monotonic(),
             "trace": [{"node": "load", "ms": 0, "note": f"{len(items)} item(s) loaded"}]}
@@ -225,7 +257,11 @@ def n_input_guard(s: UCState) -> dict:
     for it in s["items"]:
         text = _item_text(s["spec"], it)
         v = guard.check_input(text) if guard else det.check_input_deterministic(text)
-        if v["allowed"]:
+        missing = _missing_required(s["spec"], it) if v["allowed"] else []
+        if missing:                       # incomplete by the sheet's own rules: no model needed
+            rejected.append({"id": it["_id"], "stage": "intake",
+                             "reason": "Not yet: return for information. Missing: " + ", ".join(missing)})
+        elif v["allowed"]:
             passed.append(it["_id"])
         else:
             rejected.append({"id": it["_id"], "stage": "guard",

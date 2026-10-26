@@ -93,3 +93,20 @@ if __name__ == "__main__":
     test_a_cell_that_needs_a_source_and_has_none_asks_the_architect()
     test_the_model_prompt_carries_the_description()
     print("ok")
+
+
+def test_a_structured_demand_is_searched_by_its_fields_and_held_to_the_required_ones():
+    import json
+    from eawiki.query import executor
+    spec = json.loads((Path(__file__).resolve().parents[1] / "use_cases" / "demand-management.json").read_text(encoding="utf-8"))
+    full = {"demand_id": "D-2026-001", "title": "Mobile app", "business_need": "Paper forms", "expected_outcome": "Under 1 day",
+            "systems_mentioned": "HR system", "department": "HR", "requester_role": "Head", "sponsor": "Director",
+            "date_submitted": "2026-08-03", "request_type": "New solution", "requester_urgency": "High",
+            "target_go_live": "2027-03-31"}
+    assert executor._item_id(full, 0, spec) == "D-2026-001"
+    text = executor._item_text(spec, full)
+    assert "Demand title: Mobile app" in text and "Systems or data mentioned: HR system" in text
+    assert executor._missing_required(spec, full) == []
+    partial = {k: v for k, v in full.items() if k not in ("sponsor", "target_go_live")}
+    assert executor._missing_required(spec, partial) == ["Business sponsor", "Target go-live"]
+    assert executor._missing_required(spec, {"demand_no": "D-1", "business_need": "free text"}) == []   # plain box

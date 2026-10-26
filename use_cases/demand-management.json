@@ -3,30 +3,125 @@
   "name": "Demand Management",
   "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
   "enabled": true,
-  "version": 4,
+  "version": 5,
   "trigger": "user_selects",
   "input": {
     "mode": "list",
     "accepts_file": true,
-    "batch_text_field": "demand",
+    "id_field": "demand_id",
+    "title_field": "title",
+    "batch_text_field": "business_need",
+    "retrieval_fields": [
+      "title",
+      "business_need",
+      "expected_outcome",
+      "systems_mentioned",
+      "urgency_reason"
+    ],
     "item_fields": [
       {
-        "name": "demand_no",
+        "name": "demand_id",
         "type": "text",
-        "label": "Demand #",
-        "required": false
+        "label": "Demand ID",
+        "required": true,
+        "description": "Unique ID: D-YYYY-NNN."
       },
       {
-        "name": "demand",
+        "name": "date_submitted",
+        "type": "text",
+        "label": "Date submitted",
+        "required": true,
+        "description": "YYYY-MM-DD."
+      },
+      {
+        "name": "department",
+        "type": "text",
+        "label": "Requesting department",
+        "required": true,
+        "description": "The requesting department (a pick list)."
+      },
+      {
+        "name": "requester_role",
+        "type": "text",
+        "label": "Requester role",
+        "required": true,
+        "description": "Role, not a personal name."
+      },
+      {
+        "name": "sponsor",
+        "type": "text",
+        "label": "Business sponsor",
+        "required": true,
+        "description": "Role of the person who owns the benefit."
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "label": "Demand title",
+        "required": true,
+        "description": "Short title, max 12 words."
+      },
+      {
+        "name": "business_need",
         "type": "textarea",
-        "label": "Describe the demand",
-        "required": true
+        "label": "Business need / problem",
+        "required": true,
+        "description": "Free text: what is wrong today, in the requester's own words."
       },
       {
-        "name": "requester",
+        "name": "expected_outcome",
+        "type": "textarea",
+        "label": "Expected outcome / benefit",
+        "required": true,
+        "description": "Free text: what will be better. Add numbers if known."
+      },
+      {
+        "name": "request_type",
         "type": "text",
-        "label": "Requesting unit",
-        "required": false
+        "label": "Request type",
+        "required": true,
+        "description": "A pick list, for example New solution or Enhancement of existing."
+      },
+      {
+        "name": "requester_urgency",
+        "type": "enum",
+        "label": "Requester urgency",
+        "required": true,
+        "description": "Pick list: Critical, High, Medium, Low.",
+        "values": [
+          "Critical",
+          "High",
+          "Medium",
+          "Low"
+        ]
+      },
+      {
+        "name": "urgency_reason",
+        "type": "textarea",
+        "label": "Reason for urgency / deadline",
+        "required": false,
+        "description": "Free text. Say what happens if it is late."
+      },
+      {
+        "name": "target_go_live",
+        "type": "text",
+        "label": "Target go-live",
+        "required": true,
+        "description": "YYYY-MM-DD."
+      },
+      {
+        "name": "systems_mentioned",
+        "type": "text",
+        "label": "Systems or data mentioned",
+        "required": false,
+        "description": "Names as the requester knows them."
+      },
+      {
+        "name": "attachments",
+        "type": "text",
+        "label": "Attachments provided",
+        "required": false,
+        "description": "Y or N, and type of document."
       }
     ]
   },
@@ -272,5 +367,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-26T07:53:46+00:00"
+  "updated_at": "2026-10-26T08:18:33+00:00"
 }
