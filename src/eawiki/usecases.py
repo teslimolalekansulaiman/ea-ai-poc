@@ -29,6 +29,8 @@ MAX_LOOKUPS = 6
 PROFILE_GROUPS = ("systems", "data", "processes", "users", "mandates", "projects", "dates")
 LOOKUP_FROM = PROFILE_GROUPS + ("need", "all_text", "other_demands")
 LOOKUP_MATCH = ("name", "meaning", "compare")
+LOOKUP_KINDS = ("application", "data", "technology", "security", "role")   # the kinds of entity a name lookup accepts
+RESULT_PREFIX = "result:"                  # a lookup may start from the result of a property it builds on
 MAX_ACTIVITY = 80          # the short sentence the live card shows while a property is worked
 
 
@@ -117,7 +119,11 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
     ms = c.get("min_sources")
     if ms is not None and (isinstance(ms, bool) or not isinstance(ms, int) or not 1 <= ms <= 5):
         errs.append(f"{where}: minimum sources must be a whole number from 1 to 5.")
-    errs += _lookup_errors(where, c.get("lookups"))
+    errs += _lookup_errors(where, c.get("lookups"), names)
+    for i, lk in enumerate(c.get("lookups") or [], 1):
+        frm = lk.get("from") if isinstance(lk, dict) else None
+        if isinstance(frm, str) and frm.startswith(RESULT_PREFIX) and frm[len(RESULT_PREFIX):].strip() not in (c.get("uses") or []):
+            errs.append(f"{where}: lookup {i} starts from '{frm[len(RESULT_PREFIX):].strip()}', so the column must list it under 'builds on' (uses).")
     uses = c.get("uses")
     if uses is not None:
         if not isinstance(uses, list):
@@ -129,7 +135,7 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
     return errs
 
 
-def _lookup_errors(where: str, lookups) -> list[str]:
+def _lookup_errors(where: str, lookups, names=None) -> list[str]:
     """A property's lookups: what to find, from which mention, in which kinds of source, how to match."""
     if lookups is None:
         return []
@@ -140,8 +146,16 @@ def _lookup_errors(where: str, lookups) -> list[str]:
         if not isinstance(lk, dict) or not isinstance(lk.get("find"), str) or not lk["find"].strip():
             errs.append(f"{where}: lookup {i} needs a 'find' sentence.")
             continue
-        if lk.get("from") not in LOOKUP_FROM:
-            errs.append(f"{where}: lookup {i}: 'from' must be one of {', '.join(LOOKUP_FROM)}.")
+        frm = lk.get("from")
+        if not (frm in LOOKUP_FROM or (isinstance(frm, str) and frm.startswith(RESULT_PREFIX) and frm[len(RESULT_PREFIX):].strip())):
+            errs.append(f"{where}: lookup {i}: 'from' must be one of {', '.join(LOOKUP_FROM)}, or result:<a property>.")
+        elif isinstance(frm, str) and frm.startswith(RESULT_PREFIX) and frm[len(RESULT_PREFIX):].strip() not in (names or []):
+            errs.append(f"{where}: lookup {i}: 'from' takes the result of '{frm[len(RESULT_PREFIX):].strip()}', which is not a property of this stage.")
+        if lk.get("read_all") is not None and not isinstance(lk["read_all"], bool):
+            errs.append(f"{where}: lookup {i}: 'read_all' must be true or false.")
+        ty = lk.get("types")
+        if ty is not None and (not isinstance(ty, list) or any(t not in LOOKUP_KINDS for t in ty)):
+            errs.append(f"{where}: lookup {i}: 'types' must be a list of: {', '.join(LOOKUP_KINDS)}.")
         if lk.get("match") not in LOOKUP_MATCH:
             errs.append(f"{where}: lookup {i}: 'match' must be one of {', '.join(LOOKUP_MATCH)}.")
         li = lk.get("in", [])

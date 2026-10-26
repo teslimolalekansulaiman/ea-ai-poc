@@ -23,7 +23,7 @@ import json
 import re
 from typing import Callable, Optional
 
-from eawiki.usecases import LOOKUP_FROM, LOOKUP_MATCH, MAX_LOOKUPS, PROFILE_GROUPS
+from eawiki.usecases import LOOKUP_FROM, LOOKUP_KINDS, LOOKUP_MATCH, MAX_LOOKUPS, PROFILE_GROUPS, RESULT_PREFIX
 
 SOURCES = ("demand", "documents", "graph", "other_demands")
 MAX_QUERIES = 3
@@ -53,19 +53,23 @@ def resolve_docs(kind: str, docs: list[str]) -> list[str]:
 def _lookup(raw: dict, docs: list[str]) -> Optional[dict]:
     if not isinstance(raw, dict) or not isinstance(raw.get("find"), str) or not raw["find"].strip():
         return None
-    if raw.get("from") not in LOOKUP_FROM or raw.get("match") not in LOOKUP_MATCH:
+    frm = raw.get("from")
+    if not (frm in LOOKUP_FROM or (isinstance(frm, str) and frm.startswith(RESULT_PREFIX) and frm[len(RESULT_PREFIX):].strip())) \
+            or raw.get("match") not in LOOKUP_MATCH:
         return None
     kinds = [k.strip() for k in (raw.get("in") or []) if isinstance(k, str) and k.strip()][:8]
     resolved = []
     for k in kinds:
         resolved += resolve_docs(k, docs)
-    return {"find": raw["find"].strip()[:200], "from": raw["from"], "match": raw["match"], "in": kinds,
-            "docs": list(dict.fromkeys(resolved)), "extract": str(raw.get("extract") or "")[:200]}
+    types = [t for t in (raw.get("types") or []) if t in LOOKUP_KINDS]
+    return {"find": raw["find"].strip()[:200], "from": frm, "match": raw["match"], "in": kinds,
+            "docs": list(dict.fromkeys(resolved)), "extract": str(raw.get("extract") or "")[:200], "types": types,
+            "read_all": raw.get("read_all") is True}
 
 
 def default_lookups(col: dict) -> list[dict]:
     return [{"find": (col.get("description") or col["name"]).split(". ")[0][:200], "from": "all_text",
-             "match": "meaning", "in": [], "docs": [], "extract": ""}]
+             "match": "meaning", "in": [], "docs": [], "extract": "", "types": []}]
 
 
 def default_plan(col: dict, docs: Optional[list[str]] = None) -> dict:

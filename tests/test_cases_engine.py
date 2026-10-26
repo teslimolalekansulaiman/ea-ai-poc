@@ -127,7 +127,7 @@ def test_lookups_search_each_mention_and_say_when_nothing_names_it():
     assert [i["mention"] for i in rec["items"]] == ["digitally", "zeppelin"]
     assert rec["items"][0]["none"] is False and rec["items"][1]["none"] is True       # one named in a passage, one not
     txt = gmod.render(ev)
-    assert 'NO passage names it' in txt and "has an entry" in txt and "LOOKUPS" in txt and any("no match" in x for x in ev["searched"])
+    assert 'no passage names it' in txt and "has an entry in the catalog" in txt and "LOOKUPS" in txt and any("no match" in x for x in ev["searched"])
     # a passage that only mentions a name is not an entry of its own
     plan2 = dict(plan, lookups=[dict(plan["lookups"][0], docs=["Strategy"])])
     t2 = fake_tools()

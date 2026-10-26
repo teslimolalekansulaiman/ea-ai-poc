@@ -1,0 +1,321 @@
+"""A small, realistic knowledge base and 14 demands, for testing the by-name lookups.
+
+It is SYNTHETIC. It stands in for what ingestion produces from the EA team's documents: catalogs of
+applications, data, technology and security controls, a classification standard, a glossary, a
+contract register and an initiative portfolio; a wiki page for every entity; and the graph. It is
+built with the traps real documents have:
+
+  * a name that is the data category "HR" and also part of "HR Legacy System" and an alias of the HR
+    application, so "HR system" and "HR data" must not collapse into one entity;
+  * "payroll", which is a service inside the HR & Payroll Portal and has no entry of its own;
+  * "Oracle DB" / "Oracle Database 11", one platform under several names;
+  * names that match nothing (field inspection tablets, website forms);
+  * a vague demand that names nothing;
+  * a misspelt and abbreviated mention.
+
+The reference answers are judgments made by following the EA team's steps on this fixture. They are
+not ground truth about a real organization; they exist so the lookups can be measured and kept honest.
+The search stub is lexical: it tests the plumbing and the ranking logic, not the quality of embeddings.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from eawiki.cases import gather as gmod  # noqa: E402
+from eawiki.cases import namelookup as nl  # noqa: E402
+
+APP, DATA, TECH, CTRL = "physical_application_component", "data_entity", "logical_technology_component", "control"
+
+# id, name, type, aliases, catalog doc, owner role, description, lifecycle/classification, controls (apps)
+E = [
+ ("C-201", "Finvera Finance System", APP, ["Finance system", "finance ERP", "Finvera"], "Finance Systems Lead", "General ledger, budgeting and the finance reporting exports.", "in use", ["SC-01", "SC-03"]),
+ ("C-202", "Callwave Contact Centre Platform", APP, ["Contact centre platform", "contact center", "Callwave"], "Customer Experience Lead", "Telephony and case handling for customer services. Complaints are logged by agents.", "in use", ["SC-01", "SC-03"]),
+ ("C-203", "Docuvia Document Management System", APP, ["Document management system", "DMS", "Docuvia"], "Administration Systems Lead", "Stores and routes contracts and administrative documents.", "in use", ["SC-01", "SC-03"]),
+ ("C-204", "Peoplex HR System", APP, ["HR system", "HR app", "Peoplex", "Peoplex HR"], "HR Systems Lead", "Core HR records, leave and the monthly payroll export. Hosted on the Oracle database platform.", "in use", ["SC-01", "SC-03"]),
+ ("C-205", "Datavia Data Warehouse and BI Platform", APP, ["Data warehouse", "EDW", "BI platform", "Datavia"], "Head of Data Office", "Central data warehouse and reporting platform fed by the finance, HR and procurement systems.", "in use", ["SC-01", "SC-03"]),
+ ("C-206", "Attendance System", APP, ["Attendance application"], "HR Systems Lead", "Reads clock-in data from the fingerprint machines through the attendance gateway and passes it to the HR system.", "in use", ["SC-01"]),
+ ("C-207", "HR & Payroll Portal", APP, [], "Central HR Entity Lead", "External portal run by the Central HR Entity: HR operations, employee self-service and the payroll system. Built on SAP with an Oracle database.", "in use", ["SC-01", "SC-02", "SC-03"]),
+ ("C-208", "HR Legacy System", APP, ["legacy HR"], "HR Systems Lead", "Formerly managed payroll and HR. Migrated to the HR & Payroll Portal in 2020. Employees can still view their old records.", "retired", ["SC-01"]),
+ ("C-209", "Training and Development Pages", APP, ["training pages", "training portal"], "HR Training Lead", "Intranet pages where employees view training programs and submit requests.", "in use", ["SC-01"]),
+ ("C-210", "Attendance Devices Gateway", APP, ["attendance devices", "fingerprint machines", "clock-in devices"], "Facilities IT Lead", "Collects clock-in events from the site attendance devices and forwards them to the attendance system.", "in use", ["SC-01"]),
+ ("C-211", "Internal SMS Application", APP, ["SMS application", "SMS gateway", "SMS"], "Communications Systems Lead", "Sends notifications to employees by SMS. Used by HR and Public Relations.", "in use", ["SC-01"]),
+ ("C-212", "Enterprise Email Service", APP, ["email", "e-mail", "mail service"], "Infrastructure Services Lead", "Corporate email for all staff and shared mailboxes.", "in use", ["SC-01", "SC-03"]),
+ ("C-213", "Customer Relationship Management System", APP, ["CRM", "customer relationship system"], "Customer Experience Lead", "Customer records, interactions and campaigns.", "in use", ["SC-01", "SC-03"]),
+ ("C-214", "Procurement Portal", APP, ["procurement system", "e-procurement"], "Procurement Systems Lead", "Purchase requests, tenders and vendor management.", "in use", ["SC-01"]),
+ ("C-215", "Identity and Access Service", APP, ["identity service", "SSO", "single sign-on"], "Lead Security Architect", "Central sign-in, single sign-on and multi-factor authentication for staff applications.", "in use", ["SC-01", "SC-02"]),
+ ("C-216", "Intranet Portal", APP, ["intranet"], "Communications Systems Lead", "The staff intranet: news, directories and links to services.", "in use", ["SC-01"]),
+ ("DE-01", "HR", DATA, ["human resources data", "HR data"], "HR Data Steward", "The data category covering the organization's human capital: recruitment, employee information, job rules and trainings.", "Confidential", []),
+ ("DE-02", "Employee Master Data", DATA, ["employee data", "employee records", "staff records"], "HR Data Steward", "Name, grade, contact details and leave balance of each employee.", "Confidential", []),
+ ("DE-03", "Leave and Attendance Records", DATA, ["leave data", "attendance records", "leave requests"], "HR Data Steward", "Leave requests, approvals and clock-in records.", "Confidential", []),
+ ("DE-04", "Financial Reports", DATA, ["finance reports", "regulatory reports", "financial statements"], "Finance Data Steward", "Statutory and management financial reports.", "Confidential", []),
+ ("DE-05", "Complaint Records", DATA, ["complaints", "customer complaints"], "Customer Data Steward", "Each complaint with the complainant's contact details, channel, status and handler.", "Confidential", []),
+ ("DE-06", "Contract Documents", DATA, ["contracts", "agreements"], "Legal Data Steward", "Signed contracts and their amendments.", "Confidential", []),
+ ("DE-07", "Customer Master Data", DATA, ["customer data", "customer records"], "Customer Data Steward", "Names, contact details and identifiers of customers.", "Confidential", []),
+ ("DE-08", "Procurement Data", DATA, ["purchase orders", "vendor data", "spend data"], "Procurement Data Steward", "Purchase orders, tenders and vendor invoices.", "Internal", []),
+ ("DE-09", "Published Policies", DATA, ["policies"], "Governance Data Steward", "Policies approved for publication on the website.", "Public", []),
+ ("DE-10", "Security Audit Logs", DATA, ["audit logs"], "Security Data Steward", "Sign-in and access logs of the staff applications.", "Restricted", []),
+ ("DE-11", "Training Records", DATA, ["training data", "training history"], "HR Data Steward", "Courses attended by each employee and their results.", "Internal", []),
+ ("DE-12", "Payroll Data", DATA, ["salary data", "payroll data"], "Finance Data Steward", "Salary, allowances and deductions by employee.", "Restricted", []),
+ ("T-01", "Oracle Database Platform", TECH, ["Oracle DB", "Oracle Database", "Oracle Database 11"], "Infrastructure Services Lead", "On-premises Oracle database platform. Hosts the HR system, the HR & Payroll Portal and the finance system.", "in use", []),
+ ("T-02", "On-premises File Servers", TECH, ["file servers", "shared drives"], "Infrastructure Services Lead", "Windows file servers holding departmental shared folders.", "in use", []),
+ ("T-03", "Cloud Storage Service", TECH, ["cloud storage"], "Infrastructure Services Lead", "Government-approved cloud object storage, available for departmental archives.", "in use", []),
+ ("SC-01", "Identity and Access Management", CTRL, ["IAM", "sign-in", "access control"], "Lead Security Architect", "Controls who can sign in and what they can reach: accounts, roles and access reviews.", "", []),
+ ("SC-02", "Multi-factor Authentication", CTRL, ["MFA", "two-factor"], "Lead Security Architect", "A second proof of identity at sign-in.", "", []),
+ ("SC-03", "Data Protection", CTRL, ["encryption", "DLP", "data loss prevention"], "Lead Security Architect", "Encryption at rest and in transit, and data loss prevention for Confidential and Restricted data.", "", []),
+ ("SC-04", "Security Monitoring", CTRL, ["SIEM", "monitoring"], "Lead Security Architect", "Collection and review of security events.", "", []),
+]
+RANK = {"Public": 0, "Internal": 1, "Confidential": 2, "Restricted": 3}
+EDGES = [("C-204", "is_deployed_on", "T-01"), ("C-207", "is_deployed_on", "T-01"), ("C-201", "is_deployed_on", "T-01"),
+         ("C-206", "communicates_with", "C-210"), ("C-206", "sends_data_to", "C-204"), ("C-204", "sends_data_to", "C-207"),
+         ("C-208", "sends_data_to", "C-207"), ("C-205", "accesses", "C-201"), ("C-205", "accesses", "C-204"), ("C-205", "accesses", "C-214"),
+         ("C-203", "communicates_with", "C-215"), ("C-209", "accesses", "DE-11"), ("C-204", "accesses", "DE-02"), ("C-204", "accesses", "DE-03")]
+
+CATALOG_DOC = {APP: "Application_Catalog", DATA: "Data_Catalog", TECH: "Technology_Catalog", CTRL: "Security_Control_Catalog"}
+DOCS = ["Application_Catalog", "Application_to_Security_Control_Matrix", "Contract_Register", "Data_Catalog", "Data_Classification_Standard",
+        "Glossary_and_Aliases", "Initiative_Portfolio", "Security_Control_Catalog", "Technology_Catalog"]
+
+EXTRA_BLOCKS = [
+ ("Data_Classification_Standard", "Public: information approved for release outside the organization, such as published policies."),
+ ("Data_Classification_Standard", "Internal: information for staff use whose release would cause minor harm, such as procurement data and training records."),
+ ("Data_Classification_Standard", "Confidential: personal, financial or contractual information whose release would cause serious harm. Needs encryption and access control."),
+ ("Data_Classification_Standard", "Restricted: information whose release would cause severe harm, such as payroll data and security logs. Where several data sets are involved, the highest classification applies."),
+ ("Glossary_and_Aliases", "'the HR app' and 'the HR system' mean the Peoplex HR System (C-204). 'Payroll' is a service of the HR & Payroll Portal (C-207), not a separate application."),
+ ("Glossary_and_Aliases", "'Oracle DB' and 'Oracle Database 11' mean the Oracle Database Platform (T-01)."),
+ ("Contract_Register", "C-203 Docuvia: workflow engine and e-signature module licensed, not activated."),
+ ("Contract_Register", "C-204 Peoplex: mobile add-on not purchased. Support contract to 2028."),
+ ("Contract_Register", "C-202 Callwave: includes a case management module, not activated."),
+ ("Initiative_Portfolio", "P-101 Finance system upgrade: reporting change freeze to 2027-01-15. Systems affected: Finvera Finance System, Datavia Data Warehouse."),
+ ("Initiative_Portfolio", "P-103 HR system cloud migration: employee web portal in scope, mobile out of scope. Systems affected: Peoplex HR System."),
+ ("Initiative_Portfolio", "P-104 Data warehouse phase 2: the HR subject area is planned for phase 3, not funded. Systems affected: Datavia Data Warehouse."),
+ ("Initiative_Portfolio", "P-105 Document management rollout: the workflow and e-signature modules were left out for lack of budget. Systems affected: Docuvia Document Management System."),
+ ("Initiative_Portfolio", "P-106 Website and mobile app redesign: includes the public web forms. Systems affected: website."),
+]
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def build():
+    nodes, blocks, pages = [], [], {}
+    by_id = {}
+    for eid, name, typ, aliases, owner, desc, extra, controls in E:
+        n = {"node_id": eid, "name": name, "type": typ, "aliases": aliases, "ids": [eid] if re.match(r"[A-Z]+-\d+$", eid) else [], "slug": _slug(name),
+             "owner": owner, "desc": desc, "extra": extra, "controls": controls}
+        nodes.append(n)
+        by_id[eid] = n
+    counters: dict = {}
+
+    def add_block(doc, text):
+        counters[doc] = counters.get(doc, 0) + 1
+        bid = f"{doc}:{counters[doc]}"
+        blocks.append({"block_id": bid, "doc_id": doc, "text": text})
+        return bid
+
+    first_block = {}
+    for n in nodes:
+        doc = CATALOG_DOC[n["type"]]
+        if n["type"] == APP:
+            t = f"{n['node_id']} {n['name']}. {n['desc']} Owner role: {n['owner']}. Lifecycle: {n['extra']}."
+        elif n["type"] == DATA:
+            t = f"{n['name']}. {n['desc']} Classification: {n['extra']}. Owner role: {n['owner']}."
+        else:
+            t = f"{n['name']}. {n['desc']} Owner role: {n['owner']}."
+        first_block[n["node_id"]] = add_block(doc, t)
+    for n in nodes:
+        if n["type"] == APP:
+            ctrls = ", ".join(by_id[c]["name"] for c in n["controls"]) or "none recorded"
+            add_block("Application_to_Security_Control_Matrix", f"{n['node_id']} {n['name']}: {ctrls}.")
+    for doc, t in EXTRA_BLOCKS:
+        add_block(doc, t)
+    for n in nodes:
+        rel = []
+        for a, r, b in EDGES:
+            if a == n["node_id"]:
+                rel.append(f"- {r.replace('_', ' ')} {by_id[b]['name']}")
+            if b == n["node_id"]:
+                rel.append(f"- {by_id[a]['name']} {r.replace('_', ' ')} it")
+        fam = nl.family(n["type"])
+        label = {"app": "application", "data": "data entity", "tech": "technology component", "security": "security control"}[fam]
+        lines = [f"# {n['name']}", f"Type: {label}", "", "## Summary", n["desc"] + f" {first_block[n['node_id']]}", ""]
+        if n["extra"] and fam == "data":
+            lines += [f"Classification: {n['extra']}.", ""]
+        lines += ["## Related context"] + (rel or ["- no connections are recorded."]) + [f"- Owner role: {n['owner']}."]
+        pages[n["slug"]] = "\n".join(lines)
+    return nodes, blocks, pages, first_block
+
+
+NODES, BLOCKS, PAGES, FIRST_BLOCK = build()
+NODE_BY_ID = {n["node_id"]: n for n in NODES}
+
+
+# ---- a lexical search stand-in (the real one is a vector search) ------------------------------------------
+def _toks(s):
+    return [t for t in nl.tokens(s)]
+
+
+_DF: dict = {}
+for _b in BLOCKS:
+    for _t in set(_toks(_b["text"])):
+        _DF[_t] = _DF.get(_t, 0) + 1
+
+
+def search(q, k, docs):
+    qt = set(_toks(q)) - set(nl.GENERIC)
+    out = []
+    for b in BLOCKS:
+        if docs and b["doc_id"] not in docs:
+            continue
+        bt = set(_toks(b["text"]))
+        hit = qt & bt
+        if not hit:
+            continue
+        score = sum(math.log(1 + len(BLOCKS) / _DF.get(t, 1)) for t in hit)
+        out.append((score, b))
+    out.sort(key=lambda x: -x[0])
+    return [dict(b) for _s, b in out[:k]]
+
+
+def entities(mention, kinds=None):
+    cands = nl.resolve_entities(mention, NODES, None, k=4, kinds=kinds)
+    for c in cands:
+        c["slug"] = NODE_BY_ID[c["id"]]["slug"]
+    others = nl.other_kinds(mention, NODES, kinds or [])
+    for c in others:
+        c["slug"] = NODE_BY_ID[c["id"]]["slug"]
+    return {"candidates": cands, "other_kinds": others}
+
+
+def page(slug):
+    return PAGES.get(slug)
+
+
+def graph_facts(ids):
+    facts = []
+    for a, r, b in EDGES:
+        if a in ids or b in ids:
+            facts.append(f"{NODE_BY_ID[a]['name']} --{r}--> {NODE_BY_ID[b]['name']}")
+    return {"facts": "\n".join(facts), "block_ids": [FIRST_BLOCK[i] for i in ids if i in FIRST_BLOCK]}
+
+
+def doc_blocks(doc, limit):
+    return [dict(b) for b in BLOCKS if b["doc_id"] == doc][:limit]
+
+
+def make_tools(llm=None):
+    return gmod.Tools(search=search, blocks_by_ids=lambda ids: [b for b in BLOCKS if b["block_id"] in ids],
+                      link=lambda t: {}, graph_facts=graph_facts, llm_json=llm, doc_ids=lambda: list(DOCS),
+                      entities=entities, page=page, doc_blocks=doc_blocks)
+
+
+# ---- the 14 demands and their reference answers --------------------------------------------------------
+def D(i, title, dept, need, outcome, rtype, urgency, reason, golive, systems, **gold):
+    return {"item": {"demand_id": f"D-{i}", "date_submitted": "2026-09-01", "department": dept, "requester_role": "Head of " + dept,
+                     "sponsor": "Director of " + dept, "title": title, "business_need": need, "expected_outcome": outcome,
+                     "request_type": rtype, "requester_urgency": urgency, "urgency_reason": reason, "target_go_live": golive,
+                     "systems_mentioned": systems}, "gold": gold}
+
+
+DEMANDS = [
+ D(101, "Employee self-service mobile app for leave and attendance", "Human Resources",
+   "Employees request leave and check attendance by email and a paper form. Managers approve by email and HR re-types everything into the HR system. Approvals take 3 to 5 days and errors are common.",
+   "Leave and attendance requests handled in under 1 day with no re-typing", "New solution", "High", "Peak leave season starts June 2027; internal audit finding on manual records", "2027-03-31",
+   "HR system, payroll, attendance devices",
+   mentions={"HR system": ["C-204"], "payroll": ["C-207"], "attendance devices": ["C-210"]},
+   domain=["Application", "Security"], apps={"C-204", "C-207", "C-210"}, classification="Confidential", security={"SC-01", "SC-02", "SC-03"},
+   artefact={"P-103", "C-204"}, owners={"HR Systems Lead", "Facilities IT Lead", "Central HR Entity Lead"}),
+ D(102, "Automated regulatory financial reporting", "Finance",
+   "A new mandatory digital financial reporting format starts next year. We export from the finance system into spreadsheets and rebuild the report by hand every quarter. It takes 6 working days and 3 people.",
+   "Report produced in the mandated format in 1 day with a full audit trail", "Enhancement of existing", "Critical", "Mandated format takes effect on 1 Jan 2027", "2026-12-15",
+   "Finance system, data warehouse",
+   mentions={"Finance system": ["C-201"], "data warehouse": ["C-205"]},
+   domain=["Application", "Data"], apps={"C-201", "C-205"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact={"P-101"}, owners={"Finance Systems Lead", "Head of Data Office"}),
+ D(103, "Complaint tracking system", "Customer Services",
+   "Complaints arrive by phone, email and the website and are tracked in different spreadsheets. We cannot see the status of a complaint or who is handling it, and we miss the 10-day response target for about 1 in 5 complaints.",
+   "One view of every complaint with owner, status and response-time alerts", "New solution", "High", "Response-target breaches are reported to the Executive Committee every month", "2027-02-28",
+   "Contact centre platform, website forms, email",
+   mentions={"Contact centre platform": ["C-202"], "website forms": [], "email": ["C-212"]},
+   domain=["Application", "Security"], apps={"C-202", "C-212"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact={"C-202"}, owners={"Customer Experience Lead", "Infrastructure Services Lead"}),
+ D(104, "Digital signature and e-approval for contracts", "Legal Affairs",
+   "Contracts are printed, signed by hand and scanned. A signature cycle takes two weeks and documents are lost. We want contracts approved and signed digitally with the identity service.",
+   "Contracts signed digitally within 2 days with an audit trail", "New solution", "High", "Government mandate on digital transformation of transactions", "2027-01-31",
+   "Document management system, identity service",
+   mentions={"Document management system": ["C-203"], "identity service": ["C-215"]},
+   domain=["Application", "Security"], apps={"C-203", "C-215"}, classification="Confidential", security={"SC-01", "SC-02", "SC-03"},
+   artefact={"C-203", "P-105"}, owners={"Administration Systems Lead", "Lead Security Architect"}),
+ D(105, "Training pages: online booking and certificates", "Human Resources",
+   "Employees cannot book training sessions online. They email the training team, who update the training records by hand. Certificates are issued manually.",
+   "Employees book sessions and download certificates online", "Enhancement of existing", "Medium", "Training plan for next year opens in October", "2027-01-15",
+   "training pages, HR system",
+   mentions={"training pages": ["C-209"], "HR system": ["C-204"]},
+   domain=["Application"], apps={"C-209", "C-204"}, classification="Internal", security={"SC-01", "SC-03"},
+   artefact={"C-209"}, owners={"HR Training Lead", "HR Systems Lead"}),
+ D(106, "SMS reminders for leave approvals", "Human Resources",
+   "Managers forget to approve leave requests because they only see them by email. We want an SMS reminder when a leave request waits more than two days. The SMS needs the employee mobile number from the HR system.",
+   "Leave requests approved within 2 days", "Enhancement of existing", "Low", "", "2027-04-30",
+   "SMS application, HR system",
+   mentions={"SMS application": ["C-211"], "HR system": ["C-204"]},
+   domain=["Application"], apps={"C-211", "C-204"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact={"C-211"}, owners={"Communications Systems Lead", "HR Systems Lead"}),
+ D(107, "Procurement spend analytics", "Procurement",
+   "We cannot see spend by vendor across departments. Purchase data sits in the procurement system and is exported to spreadsheets each month.",
+   "A dashboard of spend by vendor, category and department", "Data & analytics", "Medium", "", "2027-06-30",
+   "procurement system, data warehouse, purchase orders",
+   mentions={"procurement system": ["C-214"], "data warehouse": ["C-205"], "purchase orders": ["DE-08"]},
+   domain=["Data"], apps={"C-214", "C-205"}, classification="Internal", security={"SC-01", "SC-03"},
+   artefact={"P-104"}, owners={"Procurement Systems Lead", "Head of Data Office"}),
+ D(108, "Retire the Oracle database platform", "Information Technology",
+   "The Oracle database licence ends in 2027 and costs are rising. We want to retire Oracle DB and move the systems that depend on it.",
+   "No dependency on Oracle by the licence end date", "Infrastructure & platform", "High", "Licence ends 2027-06-30", "2027-06-01",
+   "Oracle DB, Oracle Database 11",
+   mentions={"Oracle DB": ["T-01"], "Oracle Database 11": ["T-01"]},
+   domain=["Technology"], apps={"C-204", "C-207", "C-201"}, classification="Not stated", security=None,
+   artefact=None, owners={"Infrastructure Services Lead", "HR Systems Lead", "Central HR Entity Lead", "Finance Systems Lead"}),
+ D(109, "Move departmental file servers to cloud storage", "Information Technology",
+   "Departments keep documents on on-premises file servers that are near capacity. We want to move them to cloud storage and keep search and access rights.",
+   "File servers retired; documents in cloud storage with the same access rights", "Infrastructure & platform", "Medium", "File servers reach capacity in Q2 2027", "2027-05-31",
+   "file servers, cloud storage, document management system",
+   mentions={"file servers": ["T-02"], "cloud storage": ["T-03"], "document management system": ["C-203"]},
+   domain=["Technology"], apps={"C-203"}, classification="Not stated", security=None,
+   artefact={"T-03"}, owners={"Infrastructure Services Lead", "Administration Systems Lead"}),
+ D(110, "Customer feedback portal", "Customer Services",
+   "Customers cannot give feedback after a service. We want a feedback form linked to the customer record in the CRM and a thank-you SMS.",
+   "Feedback collected for every completed service", "New solution", "Medium", "", "2027-03-15",
+   "CRM, SMS application, customer data",
+   mentions={"CRM": ["C-213"], "SMS application": ["C-211"], "customer data": ["DE-07"]},
+   domain=["Application", "Security"], apps={"C-213", "C-211"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact={"C-213"}, owners={"Customer Experience Lead", "Communications Systems Lead"}),
+ D(111, "Mobile inspection app for field inspectors", "Operations",
+   "Inspectors fill paper forms on site and type them in at the office. We want a tablet app that works without a connection and uploads results.",
+   "Inspection results available the same day", "New solution", "Medium", "", "2027-09-30",
+   "inspection tablets, field inspection app",
+   mentions={"inspection tablets": [], "field inspection app": []},
+   domain=["Application"], apps=set(), classification="Not stated", security=None, artefact=None, owners=None),
+ D(112, "Improve reporting", "Operations",
+   "Reporting is slow and people are unhappy with it. We want it improved.",
+   "Better reporting", "Other", "Low", "", "2027-12-31", "",
+   mentions={}, domain=None, apps=set(), classification="Not stated", security=None, artefact=None, owners=None),
+ D(113, "Peoplex payroll module and att. devices alignment", "Human Resources",
+   "Attendance from the att. devices is copied into the Peoplex payroll module every month. Corrections take a week.",
+   "Attendance flows to payroll without copying", "Interface between systems", "Medium", "", "2027-03-01",
+   "Peoplex payroll module, att. devices",
+   mentions={"Peoplex payroll module": ["C-204"], "att. devices": []},
+   domain=["Application"], apps={"C-204"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact=None, owners={"HR Systems Lead"}),
+ D(114, "HR analytics on the data warehouse", "Human Resources",
+   "HR cannot report on headcount trends. HR data sits in the HR system and is not in the data warehouse.",
+   "Headcount and leave trends available in the data warehouse", "Data & analytics", "Medium", "", "2027-06-30",
+   "HR data, data warehouse, HR system",
+   mentions={"HR data": ["DE-01"], "data warehouse": ["C-205"], "HR system": ["C-204"]},
+   domain=["Data"], apps={"C-205", "C-204"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact={"P-104"}, owners={"Head of Data Office", "HR Systems Lead"}),
+]

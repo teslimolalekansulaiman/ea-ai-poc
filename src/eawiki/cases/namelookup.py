@@ -1,0 +1,236 @@
+"""Look up a NAME (a system, a data set, a platform, a control) in the knowledge base.
+
+One generic lookup serves every property that starts from names the demand mentions. For one name it
+  1. resolves the name to the entities it could mean, each with the kind of thing it is and HOW it
+     matched (the exact name, an alias, only part of its name, the nearest by meaning);
+  2. reads the wiki page of the best candidates (the type, the summary, what it is connected to);
+  3. searches the catalog passages for an entry that is NAMED that, as against one that only mentions it;
+  4. says so when nothing matches ("no entry of its own"), and when the name could mean entities of
+     different kinds ("HR" the data category, "HR system" the application).
+
+Structure is code, meaning is the model: this module only finds and labels candidates. It never
+decides which one the demand means; that stays with the answer step, which sees all of them.
+
+`resolve_entities` is a pure function over a list of nodes, so it is tested without a knowledge base.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Callable, Optional
+
+# Words that say what KIND of thing a mention is, not which one. They are left out of the name match
+# and used to prefer a candidate of the matching kind ("HR system" prefers an application to the HR data).
+GENERIC = {
+    "system": "app", "systems": "app", "app": "app", "apps": "app", "application": "app", "applications": "app",
+    "tool": "app", "tools": "app", "portal": "app", "solution": "app", "software": "app", "service": "app",
+    "module": "app", "modules": "app", "component": "app", "feature": "app", "function": "app",
+    "platform": "tech", "server": "tech", "servers": "tech", "database": "tech", "databases": "tech", "db": "tech",
+    "infrastructure": "tech", "network": "tech", "cloud": "tech",
+    "data": "data", "records": "data", "record": "data", "information": "data", "reports": "data", "report": "data",
+    "control": "security", "controls": "security",
+}
+STOP = {"the", "a", "an", "of", "our", "my", "your", "new", "old", "existing", "current", "for", "to", "in", "on", "and", "&", "with"}
+
+FAMILIES = {
+    "app": ("application", "information_system_service"),
+    "tech": ("technology", "platform_service"),
+    "data": ("data_entity", "data_component", "data"),
+    "security": ("control",),
+    "role": ("role", "organization_unit", "actor"),
+}
+
+MIN_SCORE = 0.3        # below this a candidate is noise
+PARTIAL = 0.5          # at or above: an entity whose name overlaps the mention
+STRONG = 0.75          # at or above: the exact name, an alias, or the same core words
+
+
+def _stem(t: str) -> str:
+    """A light, language-neutral stem so 'reports', 'reporting' and 'report' meet. Used on both sides of a match."""
+    if len(t) > 4 and t.endswith("ies"):
+        t = t[:-3] + "y"
+    elif len(t) > 4 and t.endswith(("sses", "xes", "ches", "shes")):
+        t = t[:-2]
+    elif len(t) > 3 and t.endswith("s") and not t.endswith(("ss", "us", "is")):
+        t = t[:-1]
+    if len(t) - 3 >= 4 and t.endswith("ing"):
+        t = t[:-3]
+    elif len(t) - 2 >= 4 and t.endswith("ed"):
+        t = t[:-2]
+    return t
+
+
+def tokens(s: str) -> list[str]:
+    s = str(s or "").casefold().replace("&", " and ")
+    return [_stem(t) for t in re.findall(r"[^\W_]+(?:[-.][^\W_]+)*", s) if t not in STOP]
+
+
+def norm(s: str) -> str:
+    return " ".join(tokens(s))
+
+
+def core(s: str) -> frozenset:
+    return frozenset(t for t in tokens(s) if t not in GENERIC)
+
+
+def hint(s: str) -> Optional[str]:
+    """The kind a mention points to through its generic words ('HR system' -> app), if any."""
+    kinds = [GENERIC[t] for t in tokens(s) if t in GENERIC]
+    return max(set(kinds), key=kinds.count) if kinds else None
+
+
+LABEL = {"app": "application", "tech": "technology", "data": "data set", "security": "security control", "role": "role"}
+
+
+def label(node_type: str) -> str:
+    """The word a reader uses for a kind of entity ('application'), not the code's short name for it."""
+    return LABEL.get(family(node_type) or "", str(node_type or "entity"))
+
+
+_ID = re.compile(r"\b[A-Za-z]{1,4}-\d+\b")
+
+
+def names_head(head: str, mention: str) -> bool:
+    """A passage starts with the thing it is about. True when its first words, set apart from any ID
+    and any table cell, are exactly the mention (same words, kind words aside). A head that merely
+    CONTAINS the mention ('HR & Payroll Portal' for 'payroll') is a partial name, not the name."""
+    mc = core(mention)
+    if not mc:
+        return False
+    cells = [head] + re.split(r"\s*[|,]\s*", head)
+    return any(core(_ID.sub(" ", c)) == mc for c in cells if c.strip())
+
+
+def family(node_type: str) -> Optional[str]:
+    t = str(node_type or "")
+    for fam, keys in FAMILIES.items():
+        if any(k in t for k in keys):
+            return fam
+    return None
+
+
+def _names(node: dict) -> list[tuple[str, str]]:
+    """(text, kind) for every way a node can be called: its name, aliases and ids."""
+    out = [(node.get("name", ""), "name")]
+    out += [(a, "alias") for a in node.get("aliases") or [] if a]
+    out += [(i, "id") for i in node.get("ids") or [] if i]
+    return [(t, k) for t, k in out if t]
+
+
+def _score_node(mention: str, node: dict) -> tuple[float, str, str]:
+    """(score, how, the name that matched) for one node."""
+    mn, mc, mh = norm(mention), core(mention), hint(mention)
+    best = (0.0, "", "")
+    for text, kind in _names(node):
+        tn, tc = norm(text), core(text)
+        if not tn:
+            continue
+        if kind == "id":
+            s, how = (1.0, "id") if tn == mn or mn in tn.split() else (0.0, "")
+        elif tn == mn:
+            s, how = (1.0, "exact") if kind == "name" else (0.97, "alias")
+        elif mc and tc and mc == tc:
+            s, how = 0.8, "same words"
+        elif mc and tc and mc < tc:
+            s, how = 0.5 + 0.2 * len(mc) / len(tc), "only part of its name"
+        elif mc and tc and tc < mc:
+            s, how = 0.45 + 0.2 * len(tc) / len(mc), "its name is inside the mention"
+        else:
+            continue
+        if s > best[0]:
+            best = (s, how, text)
+    if best[0]:
+        fam = family(node.get("type"))
+        adj = 0.0
+        if mh and fam:
+            adj = 0.1 if mh == fam else -0.2
+        best = (max(0.0, min(1.0, best[0] + adj)), best[1], best[2])
+    return best
+
+
+def resolve_entities(mention: str, nodes: list[dict], nearest: Optional[Callable[[str], list]] = None,
+                     k: int = 4, kinds: Optional[list[str]] = None) -> list[dict]:
+    """The entities a mention could mean, best first. Each: id, name, type, family, score, how, matched, strong.
+    `nearest(mention)` may return [(node id, cosine)] from the entity index; it is used only when no
+    name overlaps, so a vector never outranks a name."""
+    by_id = {n["node_id"]: n for n in nodes}
+    cands = {}
+    for n in nodes:
+        s, how, matched = _score_node(mention, n)
+        if s >= MIN_SCORE:
+            cands[n["node_id"]] = (s, how, matched)
+    if nearest and not any(s >= PARTIAL for s, _h, _m in cands.values()):
+        try:
+            for nid, cos in nearest(mention) or []:
+                if nid in by_id and nid not in cands and cos >= 0.55:
+                    cands[nid] = (0.3 + 0.3 * float(cos), "nearest by meaning", "")
+        except Exception:
+            pass
+    out = []
+    for nid, (s, how, matched) in cands.items():
+        n = by_id[nid]
+        fam = family(n.get("type"))
+        if kinds and fam not in kinds:
+            continue
+        out.append({"id": nid, "name": n.get("name", ""), "type": n.get("type", ""), "family": fam, "score": round(s, 2),
+                    "how": how, "matched": matched, "strong": s >= STRONG})
+    out.sort(key=lambda c: (-c["score"], c["name"]))
+    return out[:k]
+
+
+def other_kinds(mention: str, nodes: list[dict], kinds: list[str]) -> list[dict]:
+    """Entities that match the mention strongly but are of a kind the lookup does not accept, so the
+    answer can say 'also exists as a data entity' without that entity being offered as a candidate."""
+    if not kinds:
+        return []
+    allc = resolve_entities(mention, nodes, None, k=8)
+    return [c for c in allc if c["family"] not in kinds and c["score"] >= PARTIAL][:2]
+
+
+def ambiguous(cands: list[dict]) -> bool:
+    """The name could mean more than one thing: a rival of ANOTHER kind close behind the best candidate
+    ('HR' the data category and 'HR' the application), or two of the same kind almost level. A weaker
+    partial match behind a clear winner is not ambiguity; it is shown as a candidate and no more."""
+    good = [c for c in cands if c["score"] >= PARTIAL]
+    if len(good) < 2:
+        return False
+    top = good[0]
+    for c in good[1:]:
+        gap = top["score"] - c["score"]
+        if c["family"] != top["family"] and gap < 0.3:
+            return True
+        if c["family"] == top["family"] and gap < 0.1:
+            return True
+    return False
+
+
+# ---- the wiki page of an entity -------------------------------------------------------------------
+
+def digest_page(md: str, limit: int = 900) -> dict:
+    """The parts of a wiki page worth reading for a lookup: title, the 'Type:' line, the summary, and the
+    related context. Pages are written by a model: a page that says it names nothing says so here too."""
+    lines = [ln.rstrip() for ln in (md or "").splitlines()]
+    title = next((ln.lstrip("# ").strip() for ln in lines if ln.startswith("#")), "") or (lines[0].strip() if lines else "")
+    typ = next((ln.split(":", 1)[1].strip() for ln in lines[:8] if ln.strip().lower().startswith("type:")), "")
+
+    def section(*names) -> str:
+        out, on = [], False
+        for ln in lines:
+            low = ln.strip().lstrip("# ").rstrip(":").lower()
+            if low in names:
+                on = True
+                continue
+            if on and (ln.startswith("#") or (ln.strip() and ln.strip().rstrip(":").lower() in
+                                               ("what it is", "related context", "rationale and risks", "summary"))):
+                break
+            if on and ln.strip():
+                out.append(ln.strip())
+        return " ".join(out)
+
+    summary = section("summary") or " ".join(ln.strip() for ln in lines[1:12] if ln.strip() and not ln.lower().startswith("type:"))
+    related = section("related context", "related", "connections")
+    return {"title": title, "type": typ, "summary": summary[:limit], "related": related[:limit]}
+
+
+def evidence_id(slug: str) -> str:
+    return f"wiki:{slug}"
