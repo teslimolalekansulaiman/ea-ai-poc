@@ -287,7 +287,13 @@ def test_api_runs_in_the_background_and_the_screen_can_follow_it():
     from openpyxl import load_workbook
     ws = load_workbook(io.BytesIO(x.content)).active
     assert [c.value for c in ws[1]][:3] == ["Demand", "Title", "Is it a true demand?"] and ws.max_row == 4
+    assert client.patch(f"/api/cases/{cid}", json={"name": "  Renamed   case "}).json()["name"] == "Renamed case"
+    assert client.patch(f"/api/cases/{cid}", json={"name": "   "}).status_code == 400
+    assert client.get(f"/api/cases/{cid}").json()["case"]["name"] == "Renamed case"
     assert client.post(f"/api/cases/{cid}/phases/recommendation/approve").status_code == 409   # not ready for review
+    assert client.delete(f"/api/cases/{cid}").json()["deleted"] is True
+    assert client.get(f"/api/cases/{cid}").status_code == 404
+    assert client.patch(f"/api/cases/{cid}", json={"name": "x"}).status_code == 404
     api.set_engine(None)
 
 

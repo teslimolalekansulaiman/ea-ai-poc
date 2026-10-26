@@ -47,6 +47,7 @@ export const api = {
   casesList: () => J('/api/cases'),
   caseGet: (id, after = 0) => J('/api/cases/' + encodeURIComponent(id) + '?after=' + after),
   caseCreate: (body) => post('/api/cases', body),
+  caseRename: (id, name) => J('/api/cases/' + encodeURIComponent(id), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }),
   caseDelete: (id) => J('/api/cases/' + encodeURIComponent(id), { method: 'DELETE' }),
   caseParseText: (use_case_id, text) => post('/api/cases/parse-text', { use_case_id, text }),
   caseParseFile: (ucId, file) => { const fd = new FormData(); fd.append('file', file); return J('/api/cases/parse-file?use_case_id=' + encodeURIComponent(ucId), { method: 'POST', body: fd }) },

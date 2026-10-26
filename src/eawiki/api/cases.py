@@ -78,8 +78,23 @@ def list_cases():
     return {"cases": store().list_cases()}
 
 
+class RenameBody(BaseModel):
+    name: str
+
+
+@router.patch("/cases/{cid}")
+def rename_case(cid: str, body: RenameBody):
+    name = " ".join(body.name.split())
+    if not name or len(name) > 120:
+        raise HTTPException(400, "A case name is 1 to 120 characters.")
+    if not store().rename_case(cid, name):
+        raise HTTPException(404, "no such case")
+    return {"id": cid, "name": name}
+
+
 @router.delete("/cases/{cid}")
 def delete_case(cid: str):
+    get_engine().cancel(cid)                    # a run in progress stops before its rows go
     return {"deleted": store().delete_case(cid)}
 
 

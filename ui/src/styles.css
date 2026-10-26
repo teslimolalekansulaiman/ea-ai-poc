@@ -84,8 +84,25 @@ button{font-family:inherit}
 .side-case{display:grid;gap:1px;text-align:left;padding:7px 10px;border-radius:var(--radius-sm);border:none;background:none;cursor:pointer;color:var(--fg-muted)}
 .side-case b{font-weight:500;color:var(--fg);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .side-case span{font-size:11.5px;color:var(--fg-faint)}
-.side-case:hover{background:var(--surface-2)}
-.side-case.active{background:var(--surface-2)}
+.side-case{width:100%;min-width:0}
+.side-case-row{position:relative;display:flex;align-items:center;flex-wrap:wrap;border-radius:var(--radius-sm)}
+.side-case-row:hover,.side-case-row.active{background:var(--surface-2)}
+.side-case-row .side-case{flex:1;padding-right:30px}
+.side-more{position:absolute;right:4px;top:8px;width:24px;height:24px;border:none;background:none;border-radius:6px;cursor:pointer;color:var(--fg-muted);font-size:16px;line-height:1;opacity:0}
+.side-case-row:hover .side-more,.side-more:focus-visible,.side-more[aria-expanded="true"]{opacity:1}
+.side-more:hover{background:var(--surface-3);color:var(--fg)}
+@media (hover:none){.side-more{opacity:1}}
+.side-menu{position:absolute;right:4px;top:34px;z-index:20;min-width:130px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:4px;display:grid}
+.side-menu button{border:none;background:none;text-align:left;padding:7px 10px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--fg)}
+.side-menu button:hover{background:var(--surface-2)}
+.side-menu .danger{color:var(--crit)}
+.side-rename{flex:1;margin:4px 6px;font:inherit;font-size:13px;color:var(--fg);background:var(--surface);border:1px solid var(--accent);border-radius:6px;padding:5px 8px;min-width:0}
+.side-confirm{flex:0 0 100%;display:flex;gap:6px;align-items:center;padding:2px 10px 8px;font-size:12.5px;color:var(--fg-muted)}
+.side-confirm span{flex:1}
+.side-section{display:flex;flex-direction:column;min-height:0}
+.side-section.cases{flex:0 1 auto;max-height:45%}
+.side-section.chats{flex:1 1 0}
+.side-section .side-history{flex:1 1 auto}
 .side-heading{padding:14px 10px 6px}
 
 /* ---- view area ---- */

@@ -119,6 +119,7 @@ function Case({ id }) {
     const t = setInterval(() => { tick += 1; if (running || Date.now() < burst.current || tick % 3 === 0) load() }, 2000)   // never stops: a run can start late
     return () => clearInterval(t)
   }, [running, load])
+  useEffect(() => { window.addEventListener('cases-changed', load); return () => window.removeEventListener('cases-changed', load) }, [load])
   const poke = () => { burst.current = Date.now() + 20000; load() }
   const say = (m) => { setNote(m); setTimeout(() => setNote(''), 2600) }
 

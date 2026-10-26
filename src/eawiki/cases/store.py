@@ -97,6 +97,11 @@ class CaseStore(history._Store):
                       (json.dumps(st), time.time(), cid))
         return ph
 
+    def rename_case(self, cid: str, name: str) -> bool:
+        with self._conn() as c:
+            cur = c.execute(self._sql("UPDATE cases SET name=? WHERE id=?"), (name, cid))
+        return cur.rowcount > 0
+
     def delete_case(self, cid: str) -> bool:
         with self._conn() as c:
             for t in ("cells", "case_events", "questions"):
