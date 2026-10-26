@@ -180,6 +180,12 @@ def test_api_runs_in_the_background_and_the_screen_can_follow_it():
     assert d["phases"][0]["state"]["status"] == "review"
     assert d["cells"]["screening"]["D-2026-001"]["Domain"]["display"] == "answered"
     assert any(e["kind"] == "phase_done" for e in d["events"]) and d["last_seq"] >= 1
+    x = client.get(f"/api/cases/{cid}/export", params={"phase": "screening"})
+    assert x.status_code == 200 and "spreadsheetml" in x.headers["content-type"]
+    import io
+    from openpyxl import load_workbook
+    ws = load_workbook(io.BytesIO(x.content)).active
+    assert [c.value for c in ws[1]][:3] == ["Demand", "Title", "Is it a true demand?"] and ws.max_row == 4
     assert client.post(f"/api/cases/{cid}/phases/recommendation/approve").status_code == 409   # not ready for review
     api.set_engine(None)
 

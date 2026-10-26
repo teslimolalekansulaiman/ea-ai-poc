@@ -1,5 +1,6 @@
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { api } from './api'
 import { useChats } from './chats'
 
 const NAV = [
@@ -25,16 +26,28 @@ try { const t = localStorage.getItem('aa-theme'); if (t) document.documentElemen
 export default function App() {
   const { chats, activeChatId, openChat, newChat } = useChats()
   const [recents, setRecents] = useState(true)
-  const rail = useLocation().pathname.startsWith('/cases')     // the use-case screens need the room
+  const nav = useNavigate()
+  const { pathname } = useLocation()
+  const inCases = pathname.startsWith('/cases')        // on these screens the sidebar lists cases, not chats
+  const activeCase = (pathname.match(/^\/cases\/([^/]+)/) || [])[1]
+  const [cases, setCases] = useState([])
+  useEffect(() => {
+    if (!inCases) return undefined
+    let on = true
+    const load = () => api.casesList().then(r => { if (on) setCases(r.cases || []) }).catch(() => {})
+    load()
+    const t = setInterval(load, 5000)
+    return () => { on = false; clearInterval(t) }
+  }, [inCases, pathname])
 
   return (
-    <div className={'app' + (rail ? ' rail' : '')}>
+    <div className="app">
       <aside className="sidebar" aria-label="Primary">
         <div className="side-brand"><span className="brand">AA</span><span className="side-title">Architecture Atlas</span></div>
 
-        <button className="btn primary side-new" onClick={newChat}>
+        <button className="btn primary side-new" onClick={inCases ? () => nav('/cases') : newChat}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 5v14M5 12h14" /></svg>
-          <span>New chat</span>
+          <span>{inCases ? 'New case' : 'New chat'}</span>
         </button>
 
         <nav className="side-nav">
@@ -46,6 +59,20 @@ export default function App() {
           ))}
         </nav>
 
+        {inCases ? (<>
+          <div className="eyebrow side-heading">Cases</div>
+          <div className="side-history">
+            {cases.length === 0 && <div className="chat-empty">No cases yet.</div>}
+            {cases.map(c => {
+              const ph = Object.values((c.state || {}).phases || {})
+              const status = ph.some(p => p.status === 'running') ? 'running' : ph.some(p => ['review', 'approved'].includes(p.status)) ? 'finished' : 'new'
+              return (
+                <button key={c.id} className={'side-case' + (c.id === activeCase ? ' active' : '')} onClick={() => nav('/cases/' + c.id)}>
+                  <b>{c.name}</b><span>{c.n_items} demand{c.n_items === 1 ? '' : 's'} · {status}</span>
+                </button>)
+            })}
+          </div>
+        </>) : (<>
         <button className="side-recents" onClick={() => setRecents(r => !r)} aria-expanded={recents}>
           <span>Recents</span>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={recents ? 'open' : ''}><path d="M6 9l6 6 6-6" /></svg>
@@ -60,6 +87,7 @@ export default function App() {
               </button>
             )))}
         </div>
+        </>)}
 
         <button className="iconbtn side-theme" onClick={toggleTheme} title="Toggle theme" aria-label="Toggle theme">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></svg>

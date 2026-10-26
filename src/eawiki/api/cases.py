@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from eawiki import usecases
@@ -169,6 +169,7 @@ def cancel(cid: str):
 class CaseAsk(BaseModel):
     question: str
     history: list = []
+    focus: Optional[str] = None         # the demand the architect has open, if any
 
 
 def case_context(case: dict, cells: list[dict], limit: int = 14000) -> str:
@@ -201,6 +202,8 @@ def ask_case(cid: str, body: CaseAsk):
     from eawiki.api import app as appmod
     from eawiki.query.ask import ask as run
     ctx = case_context(case, store().cells(cid))
+    if body.focus and any(i["_id"] == body.focus for i in case["items"]):
+        ctx = f"The architect has {body.focus} open: questions without a demand number are about it.\n\n" + ctx
     out = run(body.question, k=8, backend=appmod.API_BACKEND, model=appmod.ASK_MODEL, use_llm=True,
               safety_llm=False, history=body.history, case_context=ctx)
     return {k: v for k, v in out.items() if k not in ("context",)}
@@ -225,3 +228,58 @@ def readiness(uc_id: str, body: ReadyBody):
     for i, it in enumerate(items):
         it.setdefault("_id", it.get("demand_id") or f"item-{i + 1}")
     return rd.readiness(spec, items, e.tools_factory(), e._plans)
+
+
+def _show(v) -> str:
+    return "; ".join(map(str, v)) if isinstance(v, list) else ("" if v is None else str(v))
+
+
+@router.get("/cases/{cid}/export")
+def export(cid: str, phase: str = ""):
+    """The case's table for one phase (default: the first that has results) as an Excel file: one row
+    per demand, one column per property, in the order the use case declares them."""
+    import io
+    case = store().get_case(cid)
+    if not case:
+        raise HTTPException(404, "no such case")
+    spec = case["spec"]
+    cells = store().cells(cid)
+    stage = next((s for s in spec["stages"] if phase_id(s) == phase), None) or next(
+        (s for s in spec["stages"] if any(c["phase_id"] == phase_id(s) for c in cells)), spec["stages"][0])
+    pid = phase_id(stage)
+    cols = [c["name"] for c in stage["output"]["columns"]]
+    by = {(c["item_id"], c["column"]): c for c in cells if c["phase_id"] == pid}
+    title = (spec.get("input") or {}).get("title_field") or "title"
+    head = ["Demand", "Title"] + cols
+    rows = [[it["_id"], it.get(title, "")] + [_show((by.get((it["_id"], c)) or {}).get("value")) for c in cols]
+            for it in case["items"] if any((it["_id"], c) in by for c in cols)]
+    name = "".join(ch if ch.isalnum() or ch in " -_" else "_" for ch in f"{case['name']} - {stage.get('name')}")
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font
+    except ImportError:
+        import csv
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(head)
+        w.writerows(rows)
+        return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}.csv"'})
+    wb = Workbook()
+    ws = wb.active
+    ws.title = (stage.get("name") or "Case")[:31]
+    ws.append(head)
+    for r in rows:
+        ws.append(r)
+    for c in ws[1]:
+        c.font = Font(bold=True)
+    for row in ws.iter_rows(min_row=2):
+        for c in row:
+            c.alignment = Alignment(wrap_text=True, vertical="top")
+    for i, h in enumerate(head, 1):
+        ws.column_dimensions[ws.cell(1, i).column_letter].width = 44 if h in ("Title", "Screening observation", "Justification") else 22
+    ws.freeze_panes = "C2"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return Response(buf.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.xlsx"'})
