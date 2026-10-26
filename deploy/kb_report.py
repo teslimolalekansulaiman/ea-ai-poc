@@ -83,6 +83,14 @@ def main():
     proposals = [f for f in flagged if f.get("decision") in ("would merge", "merge")]
     for f in proposals[:15]:
         print(f"  {f['decision']:>11}: {f['a']}  =  {f['b']}   ({f.get('llm_reason', '')})")
+    # A random sample, not the most similar pairs: the easy cases hide the mistakes.
+    import random
+    rnd = random.Random(7)
+    for label, keep in (("merged", ("merge", "would merge")), ("kept separate", ("separate",))):
+        pool = [f for f in flagged if f.get("decision") in keep]
+        print(f"\nrandom sample of {label} ({len(pool)} in all):")
+        for f in rnd.sample(pool, min(15, len(pool))):
+            print(f"  [{f.get('type', '?')}] {f['a']}  |  {f['b']}   ({f.get('llm_reason', '')[:110]})")
     typed = Counter(n.get("type") for n in isolated)
     print("edgeless by type:", dict(typed.most_common(6)))
     print("\nsample edgeless 'element' entities:",
