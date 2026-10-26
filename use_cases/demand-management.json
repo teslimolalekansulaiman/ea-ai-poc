@@ -3,7 +3,7 @@
   "name": "Demand Management",
   "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
   "enabled": true,
-  "version": 6,
+  "version": 7,
   "trigger": "user_selects",
   "input": {
     "mode": "list",
@@ -24,70 +24,80 @@
         "type": "text",
         "label": "Demand ID",
         "required": true,
-        "description": "Unique ID: D-YYYY-NNN."
+        "description": "The unique number of the demand, written as D-YYYY-NNN (for example D-2026-004). It is given once when the request is registered and never reused. Every other sheet refers to the demand by this ID."
       },
       {
         "name": "date_submitted",
         "type": "text",
         "label": "Date submitted",
         "required": true,
-        "description": "YYYY-MM-DD."
+        "description": "The date the request was registered. It is used to order demands and to compare similar requests."
       },
       {
         "name": "department",
         "type": "text",
         "label": "Requesting department",
         "required": true,
-        "description": "The requesting department (a pick list)."
+        "description": "The department that asks for the change and will use the result. Pick it from the list. It is the business domain, not an architecture domain."
       },
       {
         "name": "requester_role",
         "type": "text",
         "label": "Requester role",
         "required": true,
-        "description": "Role, not a personal name."
+        "description": "The job role of the person who submitted the request, for example Payroll Manager. Write a role, never a personal name."
       },
       {
         "name": "sponsor",
         "type": "text",
         "label": "Business sponsor",
         "required": true,
-        "description": "Role of the person who owns the benefit."
+        "description": "The role that owns the benefit and stands behind the request, for example Chief Financial Officer. The sponsor confirms the need, the deadline and the benefit. It can differ from the requester."
       },
       {
         "name": "title",
         "type": "text",
         "label": "Demand title",
         "required": true,
-        "description": "Short title, max 12 words."
+        "description": "A short name for the demand that says what is wanted, for example \"Complaint tracking system\"."
       },
       {
         "name": "business_need",
         "type": "textarea",
         "label": "Business need / problem",
         "required": true,
-        "description": "Free text: what is wrong today, in the requester's own words."
+        "description": "What is wrong or missing today, in the requester's own words. Describe the problem and who is affected, not the solution."
       },
       {
         "name": "expected_outcome",
         "type": "textarea",
         "label": "Expected outcome / benefit",
         "required": true,
-        "description": "Free text: what will be better. Add numbers if known."
+        "description": "What will be better after the change, with numbers if known (hours saved, errors avoided, people served)."
       },
       {
         "name": "request_type",
-        "type": "text",
+        "type": "enum",
         "label": "Request type",
         "required": true,
-        "description": "A pick list, for example New solution or Enhancement of existing."
+        "description": "The kind of request, picked from the list: New solution, Enhancement of existing, Interface between systems, Data & analytics, Infrastructure & platform, Licence or renewal, Support issue, Other. It helps the first sorting only. The architecture domain is decided later.",
+        "values": [
+          "New solution",
+          "Enhancement of existing",
+          "Interface between systems",
+          "Data & analytics",
+          "Infrastructure & platform",
+          "Licence or renewal",
+          "Support issue",
+          "Other"
+        ]
       },
       {
         "name": "requester_urgency",
         "type": "enum",
         "label": "Requester urgency",
         "required": true,
-        "description": "Pick list: Critical, High, Medium, Low.",
+        "description": "The requester's own view of how urgent it is. Critical: a service is stopped, or a legal or mandated deadline is within 3 months. High: a deadline or significant risk within 6 months. Medium: a clear benefit with a deadline within 12 months. Low: nice to have, no deadline. The agent sets its own urgency in screening, so this field may be changed.",
         "values": [
           "Critical",
           "High",
@@ -100,28 +110,21 @@
         "type": "textarea",
         "label": "Reason for urgency / deadline",
         "required": false,
-        "description": "Free text. Say what happens if it is late."
+        "description": "What drives the date and what happens if it is late, for example a mandate, an audit finding or a service failure. It is optional, but without it the agent cannot confirm a Critical or High urgency."
       },
       {
         "name": "target_go_live",
         "type": "text",
         "label": "Target go-live",
         "required": true,
-        "description": "YYYY-MM-DD."
+        "description": "The date the requester wants the solution in use. It is compared with the delivery calendar and with other projects."
       },
       {
         "name": "systems_mentioned",
         "type": "text",
         "label": "Systems or data mentioned",
         "required": false,
-        "description": "Names as the requester knows them."
-      },
-      {
-        "name": "attachments",
-        "type": "text",
-        "label": "Attachments provided",
-        "required": false,
-        "description": "Y or N, and type of document."
+        "description": "The systems, tools or data the request involves, named as the requester knows them, for example \"HR app, payroll, attendance devices\". The agent matches these names to the Application Catalog and the Data Catalog."
       }
     ]
   },
