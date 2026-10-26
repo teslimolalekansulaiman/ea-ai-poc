@@ -12,6 +12,7 @@ import Coverage from './views/Coverage'
 import KB from './views/KB'
 import UseCases from './views/UseCases'
 import Run from './views/Run'
+import Cases from './views/Cases'
 import Model from './views/Model'
 
 createRoot(document.getElementById('root')).render(
@@ -28,6 +29,8 @@ createRoot(document.getElementById('root')).render(
             <Route path="coverage" element={<Coverage />} />
             <Route path="kb" element={<KB />} />
             <Route path="usecases" element={<UseCases />} />
+            <Route path="cases" element={<Cases />} />
+            <Route path="cases/:id" element={<Cases />} />
             <Route path="run" element={<Run />} />
             <Route path="run/:id" element={<Run />} />
             <Route path="model" element={<Model />} />
