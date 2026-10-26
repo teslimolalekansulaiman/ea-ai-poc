@@ -17,6 +17,9 @@ from typing import Optional
 
 DIR = Path("use_cases")
 COLUMN_TYPES = {"text", "textarea", "list", "enum", "citations", "bool", "number"}
+# A column or input field may carry a free-text description: what the property means and how
+# to resolve it. It is written by the EA team and read by the model, so it is bounded.
+MAX_DESCRIPTION = 1500
 
 
 def _slug(name: str) -> str:
@@ -43,10 +46,39 @@ def validate(spec: dict) -> list[str]:
                 errs.append(f"Stage {i}: column '{c.get('name','?')}' has invalid type '{c.get('type')}'.")
             if c.get("type") == "enum" and not (c.get("values") or []):
                 errs.append(f"Stage {i}: enum column '{c.get('name','?')}' needs at least one value.")
+    for f in (spec.get("input") or {}).get("item_fields") or []:
+        errs += _description_errors(f"Input field '{f.get('name', '?')}'", f)
+    for i, s in enumerate(stages, 1):
+        for c in ((s.get("output") or {}).get("columns")) or []:
+            errs += _description_errors(f"Stage {i}: column '{c.get('name', '?')}'", c)
     v = spec.get("validation") or {}
     if v.get("enabled") and not (v.get("questions") or []):
         errs.append("Validation is enabled but has no intake questions.")
     return errs
+
+
+def _description_errors(where: str, item: dict) -> list[str]:
+    d = item.get("description")
+    if d is None:
+        return []
+    if not isinstance(d, str):
+        return [f"{where}: description must be text."]
+    if len(d.strip()) > MAX_DESCRIPTION:
+        return [f"{where}: description is longer than {MAX_DESCRIPTION} characters."]
+    return []
+
+
+def _tidy_descriptions(spec: dict) -> None:
+    """Trim descriptions and drop empty ones, so a blank box in the form leaves no key behind."""
+    items = list((spec.get("input") or {}).get("item_fields") or [])
+    for s in spec.get("stages") or []:
+        items += list((s.get("output") or {}).get("columns") or [])
+    for it in items:
+        d = (it.get("description") or "").strip()
+        if d:
+            it["description"] = d
+        else:
+            it.pop("description", None)
 
 
 def list_specs() -> list[dict]:
@@ -71,7 +103,8 @@ def save(spec: dict, uc_id: Optional[str] = None) -> dict:
     errs = validate(spec)
     if errs:
         raise ValueError("; ".join(errs))
-    spec = dict(spec)
+    spec = json.loads(json.dumps(spec))      # copy, so tidying never edits the caller's object
+    _tidy_descriptions(spec)
     spec["id"] = uc_id or spec.get("id") or _slug(spec["name"])
     spec.setdefault("enabled", True)
     spec["version"] = int(spec.get("version", 0)) + 1

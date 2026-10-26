@@ -3,6 +3,7 @@ import { api } from '../api'
 
 const COLUMN_TYPES = ['text', 'textarea', 'list', 'enum', 'citations', 'bool', 'number']
 const FIELD_TYPES = ['text', 'textarea', 'enum', 'number']
+const DESC_MAX = 1500   // matches the limit the server enforces
 
 const BLANK = () => ({
   name: '', description: '', enabled: true,
@@ -102,7 +103,8 @@ export default function UseCases() {
       <div className="card" style={{ padding: 16, ...sec }}>
         <div style={h}>1 · Input (what the user / sheet provides)</div>
         {uc.input.item_fields.map((f, i) => (
-          <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+          <div key={i} style={{ marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
             <input style={{ ...inp, flex: 2 }} placeholder="field name" value={f.name} onChange={e => patch(d => d.input.item_fields[i].name = e.target.value)} />
             <select style={{ ...inp, flex: 1 }} value={f.type} onChange={e => patch(d => d.input.item_fields[i].type = e.target.value)}>
               {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
@@ -111,6 +113,9 @@ export default function UseCases() {
               <input type="checkbox" checked={!!f.required} onChange={e => patch(d => d.input.item_fields[i].required = e.target.checked)} /> required
             </label>
             <button className="btn" onClick={() => patch(d => d.input.item_fields.splice(i, 1))}>✕</button>
+          </div>
+          <textarea style={{ ...inp, minHeight: 38 }} placeholder="Description: what this field holds and how to read it (optional)"
+            maxLength={DESC_MAX} value={f.description || ''} onChange={e => patch(d => d.input.item_fields[i].description = e.target.value)} />
           </div>
         ))}
         <button className="btn" onClick={() => patch(d => d.input.item_fields.push({ name: '', type: 'text', required: false }))}>+ field</button>
@@ -158,7 +163,8 @@ export default function UseCases() {
           <textarea style={{ ...inp, minHeight: 70 }} value={s.instructions} onChange={e => patch(d => d.stages[si].instructions = e.target.value)} />
           <label className="meta" style={{ marginTop: 12, display: 'block' }}>Output columns (the result table)</label>
           {s.output.columns.map((c, ci) => (
-            <div key={ci} style={{ display: 'flex', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+            <div key={ci} style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
               <input style={{ ...inp, flex: 2, minWidth: 140 }} placeholder="column name" value={c.name} onChange={e => patch(d => d.stages[si].output.columns[ci].name = e.target.value)} />
               <select style={{ ...inp, flex: 1, minWidth: 110 }} value={c.type} onChange={e => patch(d => d.stages[si].output.columns[ci].type = e.target.value)}>
                 {COLUMN_TYPES.map(t => <option key={t}>{t}</option>)}
@@ -169,6 +175,11 @@ export default function UseCases() {
                   onChange={e => patch(d => d.stages[si].output.columns[ci].values = e.target.value.split(',').map(x => x.trim()).filter(Boolean))} />
               )}
               <button className="btn" onClick={() => patch(d => d.stages[si].output.columns.splice(ci, 1))}>✕</button>
+            </div>
+            <textarea style={{ ...inp, minHeight: 38 }}
+              placeholder="Description: what this column means, where to look and how to decide it (the agent reads this)"
+              maxLength={DESC_MAX} value={c.description || ''}
+              onChange={e => patch(d => d.stages[si].output.columns[ci].description = e.target.value)} />
             </div>
           ))}
           <button className="btn" onClick={() => patch(d => d.stages[si].output.columns.push({ name: '', type: 'text', values: [] }))}>+ column</button>

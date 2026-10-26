@@ -343,6 +343,19 @@ def _schema_hint(cols: list[dict]) -> str:
     for c in cols:
         t = c["type"] + (f" (one of: {', '.join(c['values'])})" if c.get("values") else "")
         out.append(f"  - {c['name']}  [{t}]")
+        d = (c.get("description") or "").strip()
+        if d:
+            out.append(f"      what it means and how to resolve it: {d}")
+    return "\n".join(out)
+
+
+def _fields_hint(spec: dict) -> str:
+    """What each input field means, when the use case says so (empty when it does not)."""
+    out = []
+    for f in (spec.get("input") or {}).get("item_fields") or []:
+        d = (f.get("description") or "").strip()
+        if d:
+            out.append(f"  - {f.get('label') or f['name']} ({f['name']}): {d}")
     return "\n".join(out)
 
 
@@ -373,6 +386,8 @@ def n_generate(s: UCState) -> dict:
             lines.append(f"[{b['block_id']}] {(b.get('text') or '')[:300]}")
         return "\n".join(lines)
 
+    fields_hint = _fields_hint(s["spec"])
+
     def do(iid: str):
         c = s["ctx"].get(iid, {})
         prior = results.get(iid, {})
@@ -385,7 +400,8 @@ def n_generate(s: UCState) -> dict:
             f"  status 'needs_input' if the demand lacks it (set needs = what the requester must provide).\n"
             f"Never invent — use needs_* instead of guessing.\n\n"
             f"COLUMNS:\n{_schema_hint(cols)}\n\n"
-            f"ITEM: {by_id[iid]}\n"
+            + (f"ITEM FIELDS:\n{fields_hint}\n\n" if fields_hint else "")
+            + f"ITEM: {by_id[iid]}\n"
             f"DUPLICATE ANALYSIS: {s.get('dup_map',{}).get(iid)}\n"
             + (f"PRIOR STAGE RESULT: {prior}\n" if prior else "")
             + f"\nCONTEXT:\n{render_ctx(c)}\n\n"
