@@ -32,6 +32,7 @@ MAX_MENTIONS = 6            # mentions searched per lookup
 PER_MENTION = 3             # passages kept per mention
 GLOBAL_EXTRA = 2            # passages of ANY document added after the named kinds
 MAX_OTHERS = 6
+HEAD_CHARS = 80             # an entry's name is at the start of its passage
 
 
 @dataclass
@@ -87,6 +88,13 @@ def with_hint(plan: dict, hint: dict) -> dict:
         p["documents"] = [doc]
         p["strict"] = True
     return p
+
+
+def _head(text: str) -> str:
+    """The start of a passage that names what it is about: its first sentence, at most HEAD_CHARS."""
+    t = str(text or "").strip()
+    m = re.search(r"[.!?:;\n]", t)
+    return t[:min(m.start() if m else HEAD_CHARS, HEAD_CHARS)]
 
 
 def _search(tools: Tools, query: str, k: int, prefer: list, strict: bool) -> list:
@@ -157,17 +165,23 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                 for b in hits:
                     keep(b)
                 if m and lk["match"] == "name":
-                    exact = [b for b in hits if _toks(m) <= _toks(b.get("text", ""))]
-                    rec["items"].append({"mention": m, "exact": [b["block_id"] for b in exact],
-                                         "closest": [b["block_id"] for b in hits if b not in exact][:2],
-                                         "none": not exact})
+                    # an entry NAMED m starts with the name (a catalog row begins with what it describes);
+                    # a passage that only mentions m is about something else
+                    named = [b for b in hits if _toks(m) <= _toks(_head(b.get("text", "")))]
+                    said = [b for b in hits if b not in named and _toks(m) <= _toks(b.get("text", ""))]
+                    rec["items"].append({"mention": m, "exact": [b["block_id"] for b in named],
+                                         "mentioned": [b["block_id"] for b in said][:3],
+                                         "closest": [b["block_id"] for b in hits if b not in named and b not in said][:2],
+                                         "none": not named})
                 else:
                     rec["items"].append({"mention": m or "the demand as a whole", "exact": [b["block_id"] for b in hits],
-                                         "closest": [], "none": not hits})
+                                         "mentioned": [], "closest": [], "none": not hits})
             ev["lookups"].append(rec)
             for it in rec["items"]:
-                ev["searched"].append(f"{rec['from']} '{it['mention']}' in {where}: "
-                                      + (("found " + ", ".join(it["exact"][:2])) if not it["none"] else "no match"))
+                ev["searched"].append(f"{rec['from']} '{it['mention']}' in {where}: " + (
+                    ("found " + ", ".join(it["exact"][:2])) if not it["none"]
+                    else ("no entry of its own; only mentioned in " + ", ".join(it["mentioned"][:2])) if it.get("mentioned")
+                    else "no match"))
         ev["used"].append(("documents: " + ", ".join(plan["documents"])) if plan.get("documents") else "the ingested documents")
     if "graph" in plan["sources"]:
         key = item.get("_id")
@@ -244,7 +258,10 @@ def render(ev: dict) -> str:
                 lines.append(f"     {rec['note']}")
             for it in rec["items"]:
                 if not it["none"]:
-                    lines.append(f"     \"{it['mention']}\": found in " + ", ".join(f"[{b}]" for b in it["exact"][:3]))
+                    lines.append(f"     \"{it['mention']}\": has an entry: " + ", ".join(f"[{b}]" for b in it["exact"][:3]))
+                elif it.get("mentioned"):
+                    lines.append(f"     \"{it['mention']}\": NO entry of its own. It is only mentioned inside: "
+                                 + ", ".join(f"[{b}]" for b in it["mentioned"]))
                 else:
                     near = (" Closest, not a confirmed match: " + ", ".join(f"[{b}]" for b in it["closest"])) if it["closest"] else ""
                     lines.append(f"     \"{it['mention']}\": NO passage names it.{near}")

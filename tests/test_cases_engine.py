@@ -127,7 +127,15 @@ def test_lookups_search_each_mention_and_say_when_nothing_names_it():
     assert [i["mention"] for i in rec["items"]] == ["digitally", "zeppelin"]
     assert rec["items"][0]["none"] is False and rec["items"][1]["none"] is True       # one named in a passage, one not
     txt = gmod.render(ev)
-    assert 'NO passage names it' in txt and "LOOKUPS" in txt and any("no match" in x for x in ev["searched"])
+    assert 'NO passage names it' in txt and "has an entry" in txt and "LOOKUPS" in txt and any("no match" in x for x in ev["searched"])
+    # a passage that only mentions a name is not an entry of its own
+    plan2 = dict(plan, lookups=[dict(plan["lookups"][0], docs=["Strategy"])])
+    t2 = fake_tools()
+    t2.search = lambda q, k, docs: [{"block_id": "Strategy:9", "doc_id": "Strategy", "text": "C-204 Peoplex HR system. Interfaces to a payroll export. Owner: HR Systems Lead."}]
+    ev3 = gmod.gather(t2, plan2, SPEC, item, [], {}, None, {"systems": [{"text": "payroll", "field": "x"}, {"text": "Peoplex HR", "field": "x"}], "origin": "model"})
+    a, b = ev3["lookups"][0]["items"]
+    assert a["none"] is True and a["mentioned"] == ["Strategy:9"] and b["none"] is False
+    assert "NO entry of its own" in gmod.render(ev3) and any("only mentioned in" in x for x in ev3["searched"])
     # a profile that could not be built falls back to the whole text, and never claims "mentions no systems"
     ev2 = gmod.gather(tools, plan, SPEC, item, [], {}, None, {"origin": "none"})
     assert ev2["lookups"][0]["items"][0]["mention"] == "the demand as a whole"
@@ -281,6 +289,25 @@ def test_the_verified_sheet_is_loaded_into_the_use_case_by_property_name():
     assert "Mandate / business or DT objective" in rep["skipped"]                  # only a note to the reader: left alone
     assert usecases.validate(new) == []
     assert "examples" not in next(c for c in SPEC["stages"][0]["output"]["columns"] if c["name"] == "Domain")      # the original is untouched
+
+
+def test_a_list_property_keeps_to_its_pick_list_and_gets_one_retry():
+    from eawiki.cases import solve as smod
+    col = {"name": "Domain", "type": "list", "values": ["Business", "Data", "Application", "Technology", "Security"],
+           "evidence_required": False}
+    ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "allowed": {"demand:x"}, "used": [], "searched": []}
+    calls = []
+
+    def llm(prompt):
+        calls.append(prompt)
+        if "REJECTED" in prompt:
+            return {"value": ["Application", "security"], "status": "answered", "evidence": ["demand:x"]}
+        return {"value": ["Application", "Integration"], "status": "answered", "evidence": ["demand:x"]}
+    cell = smod.solve(col, {}, SPEC, ev, {}, llm)
+    assert cell["status"] == "answered" and cell["value"] == ["Application", "Security"] and len(calls) == 2
+    assert "'Integration' is not one of" in calls[1] and "second was accepted" in cell["how"][-1]
+    stubborn = smod.solve(col, {}, SPEC, ev, {}, lambda p: {"value": ["Integration"], "status": "answered", "evidence": ["demand:x"]})
+    assert stubborn["status"] == "needs_input" and "not one of" in stubborn["need"]
 
 
 def test_the_use_case_names_its_items_and_what_each_property_is_doing():

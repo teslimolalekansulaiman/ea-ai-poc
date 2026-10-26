@@ -8,7 +8,9 @@ decided, so the screen can show it filling in and a crash loses nothing.
 from __future__ import annotations
 
 import json
+import random
 import sqlite3
+import threading
 import time
 import uuid
 from functools import lru_cache
@@ -18,6 +20,8 @@ from eawiki import history
 
 
 class CaseStore(history._Store):
+    _EVENT_LOCK = threading.Lock()                # one worker at a time takes the next event number
+
     def _connect(self):
         if self.backend == "sqlite":
             history.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -153,17 +157,20 @@ class CaseStore(history._Store):
 
     # --- events -------------------------------------------------------------
     def add_event(self, cid: str, kind: str, data: Optional[dict] = None) -> int:
-        for _ in range(8):                                   # another worker may take the same seq
+        """Append an event with the next number for the case. Workers of this process take turns; another
+        instance writing to the same database can still take the same number, so a clash is retried."""
+        payload = json.dumps(data or {}, ensure_ascii=False)
+        for attempt in range(30):
             try:
-                with self._conn() as c:
+                with CaseStore._EVENT_LOCK, self._conn() as c:
                     r = c.execute(self._sql("SELECT COALESCE(MAX(seq),0) AS m FROM case_events WHERE case_id=?"),
                                   (cid,)).fetchone()
                     seq = int(r["m"]) + 1
                     c.execute(self._sql("INSERT INTO case_events(case_id,seq,ts,kind,data_json) VALUES(?,?,?,?,?)"),
-                              (cid, seq, time.time(), kind, json.dumps(data or {}, ensure_ascii=False)))
+                              (cid, seq, time.time(), kind, payload))
                 return seq
             except Exception:
-                time.sleep(0.02)
+                time.sleep(0.01 + random.random() * 0.03 * (attempt + 1))
         raise RuntimeError("could not record the event")
 
     def last_event_ts(self, cid: str) -> float:

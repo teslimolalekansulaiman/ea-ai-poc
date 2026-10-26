@@ -78,7 +78,22 @@ def _coerce(col: dict, value):
             value = [v.strip() for v in re.split(r"[;\n]", value) if v.strip()]
         if not isinstance(value, list):
             return [], "the value is not a list"
-        return [str(v).strip() for v in value if str(v).strip()], ""
+        items = [str(v).strip() for v in value if str(v).strip()]
+        vals = col.get("values") or []
+        if vals and items:                                  # a list with a pick list holds only its words
+            canon, bad = [], []
+            for it in items:
+                hit = next((v for v in vals if v.lower() == it.lower()), None)
+                if hit:
+                    canon.append(hit)
+                elif NONE_WORDS.match(it) or it in NA_WORDS:
+                    canon.append(it)
+                else:
+                    bad.append(it)
+            if bad:
+                return items, f"{', '.join(repr(b) for b in bad)} {'is' if len(bad) == 1 else 'are'} not one of: {', '.join(vals)}"
+            items = list(dict.fromkeys(canon))
+        return items, ""
     if isinstance(value, list):
         value = "; ".join(str(v) for v in value)
     value = "" if value is None else str(value).strip()
@@ -101,11 +116,13 @@ def verify(col: dict, res, ev: dict) -> dict:
         return {"value": "", "status": "needs_input", "evidence": [], "how": how,
                 "need": col.get("info_needed") or f"No usable answer for '{col['name']}'.", "source": "model"}
     status = res.get("status") if res.get("status") in STATUSES else "answered"
+    rejected = ""
     value, problem = _coerce(col, res.get("value"))
     evidence = [e for e in (res.get("evidence") or []) if isinstance(e, str) and e in ev.get("allowed", set())]
     need = str(res.get("needs") or "").strip()
     if problem and status == "answered":
         status, need = "needs_input", need or problem
+        rejected = problem
     empty = value == "" or value == []
     if status == "answered" and empty:
         status = "needs_input"
@@ -130,6 +147,8 @@ def verify(col: dict, res, ev: dict) -> dict:
         how.append("No cited source: this rests on the demand, a definition or a rule.")
     out = {"value": value, "status": status, "evidence": evidence, "how": how, "need": need if status != "answered" else "",
            "source": "model", "looked": ev.get("looked", "")}
+    if rejected:
+        out["problem"] = rejected
     if status != "answered":
         q = str(res.get("question") or "").strip()
         out["question"] = q[:240]
@@ -156,11 +175,26 @@ def _suggestions(col: dict, raw, ev: dict) -> list[dict]:
 
 
 def solve(col: dict, item: dict, spec: dict, ev: dict, decided: dict, llm: Callable) -> dict:
+    """One model call, checked in code. If the answer breaks the property's own rules (a word that is not
+    on its pick list), the model is told what was wrong and asked once more, before anyone is asked."""
+    prompt = _prompt(col, item, spec, ev, decided)
     try:
-        res = llm(_prompt(col, item, spec, ev, decided))
+        res = llm(prompt)
     except Exception:
         res = None
-    return verify(col, res, ev)
+    cell = verify(col, res, ev)
+    if cell.get("problem"):
+        try:
+            res2 = llm(prompt + f"\n\nYOUR PREVIOUS ANSWER WAS REJECTED: {cell['problem']}. "
+                                "Answer again, using only the allowed words.")
+        except Exception:
+            res2 = None
+        cell2 = verify(col, res2, ev)
+        if not cell2.get("problem"):
+            cell2["how"].append(f"The first answer was rejected ({cell['problem']}); the second was accepted.")
+            return cell2
+        cell["how"].append("The answer was asked for twice and still broke the pick list.")
+    return cell
 
 
 # ---- the gate ---------------------------------------------------------------------------
