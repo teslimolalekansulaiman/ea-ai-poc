@@ -57,7 +57,9 @@ ALREADY DECIDED FOR THIS DEMAND:
 EVIDENCE:
 {gmod.render(ev)}
 
-JSON: {{"value": <{'a list of strings' if col.get('type') == 'list' else 'a string'}>, "status": "answered|needs_source|needs_input", "evidence": ["<id from the evidence>"], "needs": "<what is missing, or empty>", "note": "<one short sentence on how you decided>"}}"""
+If you cannot decide it: status needs_input or needs_source, "needs" says what is missing, "question" is ONE specific question to the architect about THIS demand (not about the property in general), and "suggestions" lists up to 3 candidate answers the evidence supports but does not settle, each with the evidence ids it rests on. Never suggest anything no evidence id supports.
+
+JSON: {{"value": <{'a list of strings' if col.get('type') == 'list' else 'a string'}>, "status": "answered|needs_source|needs_input", "evidence": ["<id from the evidence>"], "needs": "<what is missing, or empty>", "question": "<the specific question, or empty>", "suggestions": [{{"value": <the candidate answer>, "why": "<one short sentence>", "evidence": ["<id>"]}}], "note": "<one short sentence on how you decided>"}}"""
 
 
 def _coerce(col: dict, value):
@@ -111,8 +113,31 @@ def verify(col: dict, res, ev: dict) -> dict:
         how.append("Model's note: " + note[:240])
     if status == "answered" and not cited_blocks and not evidence:
         how.append("No cited source: this rests on the demand, a definition or a rule.")
-    return {"value": value, "status": status, "evidence": evidence, "how": how, "need": need if status != "answered" else "",
-            "source": "model"}
+    out = {"value": value, "status": status, "evidence": evidence, "how": how, "need": need if status != "answered" else "",
+           "source": "model", "looked": ev.get("looked", "")}
+    if status != "answered":
+        q = str(res.get("question") or "").strip()
+        out["question"] = q[:240]
+        out["suggestions"] = _suggestions(col, res.get("suggestions"), ev)
+    return out
+
+
+def _suggestions(col: dict, raw, ev: dict) -> list[dict]:
+    """Candidate answers the model offered: kept only when they fit the property and rest on evidence
+    that was shown. They are offered to the architect, never stored as an answer."""
+    out = []
+    for s in raw if isinstance(raw, list) else []:
+        if not isinstance(s, dict):
+            continue
+        value, problem = _coerce(col, s.get("value"))
+        ids = [e for e in (s.get("evidence") or []) if isinstance(e, str) and e in ev.get("allowed", set())]
+        if problem or value in ("", []) or not ids:
+            continue
+        label = "; ".join(value) if isinstance(value, list) else value
+        out.append({"value": value, "label": label[:120], "why": str(s.get("why") or "").strip()[:200], "evidence": ids})
+        if len(out) == 3:
+            break
+    return out
 
 
 def solve(col: dict, item: dict, spec: dict, ev: dict, decided: dict, llm: Callable) -> dict:

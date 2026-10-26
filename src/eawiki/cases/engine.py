@@ -65,16 +65,22 @@ def steps(spec: dict, stage: dict, first: bool) -> list[dict]:
     gname = gate_column(spec)
     cols = stage["output"]["columns"]
     out = []
+    by = {c["name"]: c for c in cols}
+
+    def label(names: list[str]) -> str:
+        c = by[names[0]]
+        return c.get("activity") or f"Working out {names[0]}"
+
     if first and (spec.get("validation") or {}).get("enabled") is not False and any(c["name"] == gname for c in cols):
-        out.append({"label": "Checking each demand is a true demand", "columns": [gname]})
+        out.append({"label": label([gname]), "columns": [gname]})
     summ = set(summary_columns(stage))
     skip = {gname} if first else set()
     main = [c for c in cols if c["name"] not in skip | summ and c.get("type") != "citations"]
     for level in levels(main):
-        out.append({"label": ", ".join(c["name"] for c in level), "columns": [c["name"] for c in level]})
+        out.append({"label": label([c["name"] for c in level]), "columns": [c["name"] for c in level]})
     last = [c["name"] for c in cols if c["name"] in summ]
     if last:
-        out.append({"label": ", ".join(last), "columns": last})
+        out.append({"label": label(last), "columns": last})
     return out
 
 
@@ -89,6 +95,9 @@ class Engine:
         self.workers = workers or int(os.environ.get("EAWIKI_UC_WORKERS", "6"))
         self._cancel: set = set()
         self._plans: dict = {}
+        from eawiki.cases import flow
+        self.phase_graph = flow.build_phase_graph(self)
+        self.cell_graph = flow.build_cell_graph(self)
 
     # ---- starting ----------------------------------------------------------------------
     def create(self, spec: dict, items: list[dict], name: str) -> str:
@@ -124,11 +133,22 @@ class Engine:
 
     def run_phase(self, cid: str, pid: str, only_item: Optional[str] = None,
                   only_cols: Optional[set] = None) -> None:
-        st, ev = self.store, self.store.add_event
+        """Run one phase through the phase graph (see eawiki.cases.flow)."""
+        run = {"pool": ThreadPoolExecutor(max_workers=self.workers)}
+        try:
+            self.phase_graph.invoke({"cid": cid, "pid": pid, "only_item": only_item, "only_cols": only_cols,
+                                     "run": run, "li": 0})
+        finally:
+            run["pool"].shutdown(wait=True)
+
+    # ---- the phase graph's nodes ------------------------------------------------------
+    def _n_prepare(self, s) -> dict:
+        cid, pid, only_item, only_cols, run = s["cid"], s["pid"], s["only_item"], s["only_cols"], s["run"]
+        st = self.store
         case = st.get_case(cid)
         spec = case["spec"]
         stages = spec["stages"]
-        idx = next(i for i, s in enumerate(stages) if phase_id(s) == pid)
+        idx = next(i for i, x in enumerate(stages) if phase_id(x) == pid)
         stage = stages[idx]
         cols = stage["output"]["columns"]
         rows = self._rows(case, idx)
@@ -138,38 +158,55 @@ class Engine:
         fields = [f["name"] for f in (spec.get("input") or {}).get("item_fields") or []]
         docs = tools.doc_ids()
         plans = {c["name"]: pmod.build_plan(c, fields, docs, tools.llm_json, self._plans) for c in cols}
-        link_cache: dict = {}
         if not only_item:
             st.set_phase(cid, pid, status="running", started=time.time(), total=len(rows), approved=False)
-            ev(cid, "phase_start", {"phase": pid, "items": len(rows), "properties": len(cols)})
-        pool = ThreadPoolExecutor(max_workers=self.workers)
-        try:
-            passing = rows
-            if idx == 0 and (spec.get("validation") or {}).get("enabled") is not False and not only_item:
-                passing = self._gate(cid, pid, spec, stage, rows, tools, pool)
-            if only_item and idx == 0:
-                gc = {c["column"]: c for c in st.cells(cid, pid) if c["item_id"] == only_item}.get(gate_column(spec))
-                passing = rows if (gc and gc["value"] == "Yes") or not gc else []
-            skip = {gate_column(spec)} if idx == 0 else set()
-            summary = set(summary_columns(stage))
-            main = [c for c in cols if c["name"] not in skip | summary and c.get("type") != "citations"]
-            if only_cols is not None:
-                main = [c for c in main if c["name"] in only_cols]
-            for level in levels(main):
-                self._run_level(cid, pid, spec, level, passing, rows, plans, tools, link_cache, pool)
-            last = [c for c in cols if c["name"] in summary and (only_cols is None or c["name"] in only_cols)]
-            if last:
-                self._run_level(cid, pid, spec, last, passing, rows, plans, tools, link_cache, pool)
-            for c in cols:                                                  # citations: a union, in code
-                if c.get("type") == "citations":
-                    self._citations(cid, pid, c, rows)
-        finally:
-            pool.shutdown(wait=True)
-        if not only_item:
-            n_q = sum(1 for q in st.questions(cid) if q["status"] == "open" and q["phase_id"] == pid)
-            st.set_phase(cid, pid, status="review", finished=time.time(), open_questions=n_q)
-            ev(cid, "phase_done", {"phase": pid, "open_questions": n_q})
+            st.add_event(cid, "phase_start", {"phase": pid, "items": len(rows), "properties": len(cols)})
+        skip = {gate_column(spec)} if idx == 0 else set()
+        summary = set(summary_columns(stage))
+        main = [c for c in cols if c["name"] not in skip | summary and c.get("type") != "citations"]
+        if only_cols is not None:
+            main = [c for c in main if c["name"] in only_cols]
+        run.update(spec=spec, stage=stage, idx=idx, cols=cols, rows=rows, passing=rows, tools=tools, plans=plans,
+                   link_cache={}, rounds=levels(main),
+                   last=[c for c in cols if c["name"] in summary and (only_cols is None or c["name"] in only_cols)])
+        return {"li": 0}
+
+    def _n_gate(self, s) -> dict:
+        run, cid, pid = s["run"], s["cid"], s["pid"]
+        spec, idx, rows = run["spec"], run["idx"], run["rows"]
+        if idx == 0 and (spec.get("validation") or {}).get("enabled") is not False and not s["only_item"]:
+            run["passing"] = self._gate(cid, pid, spec, run["stage"], rows, run["tools"], run["pool"])
+        if s["only_item"] and idx == 0:
+            gc = {c["column"]: c for c in self.store.cells(cid, pid) if c["item_id"] == s["only_item"]}.get(gate_column(spec))
+            run["passing"] = rows if (gc and gc["value"] == "Yes") or not gc else []
+        return {}
+
+    def _n_round(self, s) -> dict:
+        run = s["run"]
+        self._run_level(s["cid"], s["pid"], run["rounds"][s["li"]], run)
+        return {"li": s["li"] + 1}
+
+    def _n_summaries(self, s) -> dict:
+        run = s["run"]
+        if run["last"]:
+            self._run_level(s["cid"], s["pid"], run["last"], run)
+        return {}
+
+    def _n_citations(self, s) -> dict:
+        run = s["run"]
+        for c in run["cols"]:                                              # citations: a union, in code
+            if c.get("type") == "citations":
+                self._citations(s["cid"], s["pid"], c, run["rows"])
+        return {}
+
+    def _n_finish(self, s) -> dict:
+        cid, pid = s["cid"], s["pid"]
+        if not s["only_item"]:
+            n_q = sum(1 for q in self.store.questions(cid) if q["status"] == "open" and q["phase_id"] == pid)
+            self.store.set_phase(cid, pid, status="review", finished=time.time(), open_questions=n_q)
+            self.store.add_event(cid, "phase_done", {"phase": pid, "open_questions": n_q})
         self._cancel.discard(cid)
+        return {}
 
     # ---- the gate ----------------------------------------------------------------------
     def _gate(self, cid, pid, spec, stage, rows, tools, pool) -> list[dict]:
@@ -220,31 +257,83 @@ class Engine:
             out[c["column"]] = "(unknown: asked the architect)" if c["status"] == "needs_input" else _show(c["value"])
         return out
 
-    def _run_level(self, cid, pid, spec, level, passing, rows, plans, tools, link_cache, pool) -> None:
+    def _run_level(self, cid, pid, level, run) -> None:
         names = ", ".join(c["name"] for c in level)
         self.store.add_event(cid, "step", {"phase": pid, "label": names, "columns": [c["name"] for c in level]})
-        tasks = [(it, c) for c in level for it in passing]
+        tasks = [(it, c) for c in level for it in run["passing"]]
 
         def one(t):
             it, col = t
             if cid in self._cancel:
                 return
-            try:
-                others = [o for o in rows if o["_id"] != it["_id"]]
-                ev = gmod.gather(tools, plans[col["name"]], spec, it, others, link_cache)
-                cell = smod.solve(col, it, spec, ev, self._decided(cid, pid, it["_id"]), tools.llm_json)
-            except Exception as e:                               # one property failing never stops the sheet
-                cell = {"value": "", "status": "needs_input", "evidence": [], "source": "model",
-                        "how": [f"The step failed ({type(e).__name__})."],
-                        "need": col.get("info_needed") or f"'{col['name']}' could not be decided."}
-            self.store.save_cell(cid, it["_id"], pid, col["name"], value=cell["value"], status=cell["status"],
-                                 source=cell["source"], evidence=cell["evidence"], how=cell["how"], need=cell["need"])
-            self.store.add_event(cid, "cell", {"phase": pid, "item": it["_id"], "column": col["name"], "status": cell["status"]})
-            if cell["status"] == "needs_input":
-                self.store.add_question(cid, it["_id"], pid, col["name"], cell["need"])
-                self.store.add_event(cid, "question", {"phase": pid, "item": it["_id"], "column": col["name"]})
+            self.cell_graph.invoke({"cid": cid, "pid": pid, "spec": run["spec"], "item": it, "col": col,
+                                    "others": [o for o in run["rows"] if o["_id"] != it["_id"]],
+                                    "plan": run["plans"][col["name"]], "tools": run["tools"],
+                                    "link_cache": run["link_cache"], "hint": None, "question": None})
 
-        list(pool.map(one, tasks))
+        list(run["pool"].map(one, tasks))
+
+    # ---- the cell graph's nodes -------------------------------------------------------
+    def _c_gather(self, s) -> dict:
+        try:
+            ev = gmod.gather(s["tools"], s["plan"], s["spec"], s["item"], s["others"], s["link_cache"], s.get("hint"))
+            return {"ev": ev, "failed": False}
+        except Exception as e:                                   # one property failing never stops the sheet
+            return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}
+
+    def _c_solve(self, s) -> dict:
+        if s.get("failed"):
+            return {}
+        try:
+            cell = smod.solve(s["col"], s["item"], s["spec"], s["ev"], self._decided(s["cid"], s["pid"], s["item"]["_id"]),
+                              s["tools"].llm_json)
+        except Exception as e:
+            cell = self._failed_cell(s["col"], e)
+        return {"cell": cell}
+
+    @staticmethod
+    def _failed_cell(col: dict, e: Exception) -> dict:
+        return {"value": [] if col.get("type") == "list" else "", "status": "needs_input", "evidence": [], "source": "model",
+                "how": [f"The step failed ({type(e).__name__})."],
+                "need": col.get("info_needed") or f"'{col['name']}' could not be decided."}
+
+    def _save(self, s, cell: dict, how=None, status=None) -> None:
+        self.store.save_cell(s["cid"], s["item"]["_id"], s["pid"], s["col"]["name"], value=cell["value"],
+                             status=status or cell["status"], source=cell["source"], evidence=cell["evidence"],
+                             how=how or cell["how"], need=cell["need"] if (status or cell["status"]) != "answered" else "")
+        self.store.add_event(s["cid"], "cell", {"phase": s["pid"], "item": s["item"]["_id"], "column": s["col"]["name"],
+                                                "status": status or cell["status"]})
+
+    def _c_save_answer(self, s) -> dict:
+        self._save(s, s["cell"])
+        return {}
+
+    def _c_open_question(self, s) -> dict:
+        """The human step: save what is known, ask, and end. Nothing waits."""
+        cell, cid, pid, it, col = s["cell"], s["cid"], s["pid"], s["item"], s["col"]
+        self._save(s, cell)
+        self.store.add_question(cid, it["_id"], pid, col["name"], cell.get("question") or cell["need"],
+                                {"needs": cell["need"], "looked": cell.get("looked", ""),
+                                 "suggestions": cell.get("suggestions", [])})
+        self.store.add_event(cid, "question", {"phase": pid, "item": it["_id"], "column": col["name"]})
+        return {}
+
+    def _c_look_found(self, s) -> dict:
+        cell, q, h = s["cell"], s["question"], s["hint"]
+        pointed = "; ".join(x for x in (f"document {h['document']}" if h.get("document") else "", h.get("where") or "") if x)
+        self._save(s, cell, how=[f"The architect pointed to: {pointed}."] + cell["how"], status="answered")
+        self.store.close_question(q["id"], "answered", f"look: {pointed}")
+        self.store.add_event(s["cid"], "question_closed", {"id": q["id"]})
+        return {}
+
+    def _c_look_missed(self, s) -> dict:
+        cell, q, h = s["cell"], s["question"], s["hint"]
+        pointed = "; ".join(x for x in (f"document {h['document']}" if h.get("document") else "", h.get("where") or "") if x)
+        looked = (s.get("ev") or {}).get("looked") or "nothing came back"
+        self.store.set_question_meta(q["id"], looked=f"{pointed}: {looked}. Nothing there decides '{s['col']['name']}'. "
+                                                      "Point somewhere else, or give the value.")
+        self.store.add_event(s["cid"], "question", {"phase": s["pid"], "item": s["item"]["_id"], "column": s["col"]["name"], "retry": True})
+        return {}
 
     def _citations(self, cid, pid, col, rows) -> None:
         by_item: dict = {}
@@ -257,7 +346,7 @@ class Engine:
                                  source="rule", how=["Every source block cited by the answers above."])
 
     # ---- the architect answers a question ------------------------------------------
-    def answer(self, qid: str, answer: Optional[str], background: bool = True) -> dict:
+    def answer(self, qid: str, answer: Optional[str], background: bool = True, via: Optional[str] = None) -> dict:
         q = self.store.get_question(qid)
         if not q or q["status"] != "open":
             raise ValueError("no such open question")
@@ -270,9 +359,11 @@ class Engine:
             return {"id": qid, "status": "skipped"}
         text = answer.strip()
         value = [v.strip() for v in re.split(r"[;\n]", text) if v.strip()] if col.get("type") == "list" else text
+        how = ("The architect picked a suggestion from the sources, so this is recorded as theirs, not as a sourced fact. Question: "
+               if via == "suggestion" else "Supplied by the architect in answer to: ") + q["text"]
         self.store.save_cell(q["case_id"], q["item_id"], q["phase_id"], q["column"], value=value, status="user",
-                             source="user", how=["Supplied by the architect in answer to: " + q["text"]])
-        self.store.close_question(qid, "answered", text)
+                             source="user", how=[how])
+        self.store.close_question(qid, "answered", ("suggestion: " if via == "suggestion" else "") + text)
         self.store.add_event(q["case_id"], "cell", {"phase": q["phase_id"], "item": q["item_id"], "column": q["column"], "status": "user"})
         dependants = self._dependants(stage, q["column"])
         if dependants:
@@ -299,34 +390,18 @@ class Engine:
         cid, pid = q["case_id"], q["phase_id"]
         case = self.store.get_case(cid)
         spec = case["spec"]
-        stage = next(s for s in spec["stages"] if phase_id(s) == pid)
+        stage = next(x for x in spec["stages"] if phase_id(x) == pid)
         col = next(c for c in stage["output"]["columns"] if c["name"] == q["column"])
         it = next(i for i in case["items"] if i["_id"] == q["item_id"])
         fields = [f["name"] for f in (spec.get("input") or {}).get("item_fields") or []]
         plan = pmod.build_plan(col, fields, tools.doc_ids(), tools.llm_json, self._plans)
-        hint = {"document": document, "where": where}
-        pointed = "; ".join(x for x in (f"document {document}" if document else "", where) if x)
-        try:
-            others = [o for o in case["items"] if o["_id"] != it["_id"]]
-            ev = gmod.gather(tools, plan, spec, it, others, {}, hint)
-            cell = smod.solve(col, it, spec, ev, self._decided(cid, pid, it["_id"]), tools.llm_json)
-        except Exception as e:
-            cell = {"status": "needs_input", "need": f"The search failed ({type(e).__name__}).", "how": [], "value": "",
-                    "evidence": [], "source": "model"}
-        if cell["status"] == "answered":
-            self.store.save_cell(cid, it["_id"], pid, col["name"], value=cell["value"], status="answered", source="model",
-                                 evidence=cell["evidence"], how=[f"The architect pointed to: {pointed}."] + cell["how"], need="")
-            qid = q["id"]
-            self.store.close_question(qid, "answered", f"look: {pointed}")
-            self.store.add_event(cid, "cell", {"phase": pid, "item": it["_id"], "column": col["name"], "status": "answered"})
-            self.store.add_event(cid, "question_closed", {"id": qid})
+        out = self.cell_graph.invoke({"cid": cid, "pid": pid, "spec": spec, "item": it, "col": col, "plan": plan,
+                                      "others": [o for o in case["items"] if o["_id"] != it["_id"]], "tools": tools,
+                                      "link_cache": {}, "hint": {"document": document, "where": where}, "question": q})
+        if out["cell"]["status"] == "answered":
             deps = self._dependants(stage, col["name"])
             if deps:
                 self.run_phase(cid, pid, only_item=it["_id"], only_cols=deps)
-        else:
-            self.store.set_question_text(q["id"], f"Looked at {pointed} and found nothing that decides '{col['name']}'. "
-                                         + (cell.get("need") or "") + " Point somewhere else, or give the value.")
-            self.store.add_event(cid, "question", {"phase": pid, "item": it["_id"], "column": col["name"], "retry": True})
 
     @staticmethod
     def _dependants(stage: dict, column: str) -> set:

@@ -22,6 +22,7 @@ COLUMN_TYPES = {"text", "textarea", "list", "enum", "citations", "bool", "number
 MAX_DESCRIPTION = 1500
 MAX_INFO_NEEDED = 300
 MAX_LOOK_IN = 10
+MAX_ACTIVITY = 80          # the short sentence the live card shows while a property is worked
 
 
 def _slug(name: str) -> str:
@@ -50,6 +51,11 @@ def validate(spec: dict) -> list[str]:
                 errs.append(f"Stage {i}: enum column '{c.get('name','?')}' needs at least one value.")
     for f in (spec.get("input") or {}).get("item_fields") or []:
         errs += _description_errors(f"Input field '{f.get('name', '?')}'", f)
+    il = (spec.get("input") or {}).get("item_label")
+    blank = isinstance(il, dict) and not any(isinstance(il.get(k), str) and il[k].strip() for k in ("singular", "plural"))
+    if il is not None and not blank and (not isinstance(il, dict) or any(not isinstance(il.get(k), str) or not il[k].strip() or len(il[k]) > 40
+                                                          for k in ("singular", "plural"))):
+        errs.append("Input: the item label needs a singular and a plural word of at most 40 characters.")
     for i, s in enumerate(stages, 1):
         cols = ((s.get("output") or {}).get("columns")) or []
         names = [c.get("name") for c in cols]
@@ -88,6 +94,9 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
         errs.append(f"{where}: look in must be a list of at most {MAX_LOOK_IN} document names.")
     if c.get("evidence_required") is not None and not isinstance(c["evidence_required"], bool):
         errs.append(f"{where}: evidence required must be true or false.")
+    a = c.get("activity")
+    if a is not None and (not isinstance(a, str) or len(a.strip()) > MAX_ACTIVITY):
+        errs.append(f"{where}: activity must be text of at most {MAX_ACTIVITY} characters.")
     uses = c.get("uses")
     if uses is not None:
         if not isinstance(uses, list):
@@ -101,11 +110,17 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
 
 def _tidy_descriptions(spec: dict) -> None:
     """Trim descriptions and drop empty ones, so a blank box in the form leaves no key behind."""
+    il = (spec.get("input") or {}).get("item_label")
+    if isinstance(il, dict):
+        if any(isinstance(il.get(k), str) and il[k].strip() for k in ("singular", "plural")):
+            spec["input"]["item_label"] = {k: il[k].strip() for k in ("singular", "plural")}
+        else:
+            spec["input"].pop("item_label", None)
     items = list((spec.get("input") or {}).get("item_fields") or [])
     for s in spec.get("stages") or []:
         items += list((s.get("output") or {}).get("columns") or [])
     for it in items:
-        for key in ("description", "how_to_resolve", "info_needed"):
+        for key in ("description", "how_to_resolve", "info_needed", "activity"):
             d = (it.get(key) or "").strip() if isinstance(it.get(key), str) else ""
             if d:
                 it[key] = d

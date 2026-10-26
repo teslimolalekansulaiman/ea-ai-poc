@@ -3,7 +3,7 @@
   "name": "Demand Management",
   "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
   "enabled": true,
-  "version": 7,
+  "version": 8,
   "trigger": "user_selects",
   "input": {
     "mode": "list",
@@ -126,7 +126,11 @@
         "required": false,
         "description": "The systems, tools or data the request involves, named as the requester knows them, for example \"HR app, payroll, attendance devices\". The agent matches these names to the Application Catalog and the Data Catalog."
       }
-    ]
+    ],
+    "item_label": {
+      "singular": "demand",
+      "plural": "demands"
+    }
   },
   "validation": {
     "enabled": true,
@@ -151,7 +155,8 @@
             "name": "Is it a true demand?",
             "type": "text",
             "description": "Yes, or Not yet: return for information when the request is incomplete, or the type of not-a-demand (for example No: incident, No: standard service).",
-            "evidence_required": false
+            "evidence_required": false,
+            "activity": "Checking each demand is a true demand"
           },
           {
             "name": "Demand type",
@@ -163,13 +168,15 @@
               "People",
               "Not assessed"
             ],
-            "evidence_required": false
+            "evidence_required": false,
+            "activity": "Deciding the demand type"
           },
           {
             "name": "Domain",
             "type": "list",
             "description": "Architecture domains, main one first: Business, Data, Application, Integration, Technology, Security. A technical demand is Application, Data, Technology or Security. A people demand has no domain: write Not applicable.",
-            "evidence_required": false
+            "evidence_required": false,
+            "activity": "Classifying domains"
           },
           {
             "name": "Urgency",
@@ -186,7 +193,8 @@
             "how_to_resolve": "Read the deadline and what happens if it is missed from the demand text. If the demand states neither, answer needs_input and say so.",
             "uses": [
               "Mandate / business or DT objective"
-            ]
+            ],
+            "activity": "Setting urgency"
           },
           {
             "name": "Priority",
@@ -203,31 +211,36 @@
             "uses": [
               "Urgency",
               "Mandate / business or DT objective"
-            ]
+            ],
+            "activity": "Working out priority"
           },
           {
             "name": "Mandate / business or DT objective",
             "type": "text",
             "description": "Objective and initiative IDs from the strategy, and any mandate. Write No link found if none.",
-            "info_needed": "The objective, initiative ID or mandate this demand supports, or confirmation that there is none."
+            "info_needed": "The objective, initiative ID or mandate this demand supports, or confirmation that there is none.",
+            "activity": "Linking to objectives and mandates"
           },
           {
             "name": "Linked initiative or project",
             "type": "text",
             "description": "Initiative or project IDs from the roadmap and the initiative list. Write No link found if none.",
-            "info_needed": "The initiative or project ID from the roadmap this demand belongs to, or confirmation that there is none."
+            "info_needed": "The initiative or project ID from the roadmap this demand belongs to, or confirmation that there is none.",
+            "activity": "Linking to initiatives and projects"
           },
           {
             "name": "Impacted business capability",
             "type": "list",
             "description": "Capability names from the business architecture. Write Not identified if none.",
-            "info_needed": "The business capability this demand affects."
+            "info_needed": "The business capability this demand affects.",
+            "activity": "Mapping business capabilities"
           },
           {
             "name": "Impacted application",
             "type": "list",
             "description": "Names with IDs from the application inventory or the contract register.",
-            "info_needed": "The application (with its ID) this demand affects."
+            "info_needed": "The application (with its ID) this demand affects.",
+            "activity": "Mapping applications"
           },
           {
             "name": "Is duplicate",
@@ -240,19 +253,22 @@
               "Not assessed"
             ],
             "evidence_required": false,
-            "how_to_resolve": "Compare with the other demands in the same sheet first, then with existing applications, services, initiatives and contracts. A match needs the same need and the same systems, not the same words."
+            "how_to_resolve": "Compare with the other demands in the same sheet first, then with existing applications, services, initiatives and contracts. A match needs the same need and the same systems, not the same words.",
+            "activity": "Checking for duplicates"
           },
           {
             "name": "Duplicate demand number (in the sheet)",
             "type": "text",
             "description": "Demand ID from the Input sheet, or blank.",
-            "evidence_required": false
+            "evidence_required": false,
+            "activity": "Finding the duplicate demand"
           },
           {
             "name": "Duplicate with existing artefact / artefact name",
             "type": "text",
             "description": "ID and name of the existing application, service, initiative or contract, or None.",
-            "info_needed": "Whether an existing application, service, initiative or contract already covers this need."
+            "info_needed": "Whether an existing application, service, initiative or contract already covers this need.",
+            "activity": "Comparing with existing artefacts"
           },
           {
             "name": "Architecture principles and standards alignment",
@@ -263,7 +279,8 @@
               "Conflict found",
               "Not checked"
             ],
-            "info_needed": "The principles or standards to check this demand against."
+            "info_needed": "The principles or standards to check this demand against.",
+            "activity": "Checking principles and standards"
           },
           {
             "name": "Data classification",
@@ -277,13 +294,15 @@
               "Not stated",
               "Not assessed"
             ],
-            "info_needed": "The classification level of the data involved."
+            "info_needed": "The classification level of the data involved.",
+            "activity": "Classifying the data"
           },
           {
             "name": "Linked security capability",
             "type": "list",
             "description": "Digital or technical demand: the security capabilities it touches, at a general level (based on the NORA framework). People demand: Not applicable. The detailed assessment is with the security and infrastructure teams.",
-            "info_needed": "The security capabilities this demand touches."
+            "info_needed": "The security capabilities this demand touches.",
+            "activity": "Linking security capabilities"
           },
           {
             "name": "Security review needed",
@@ -295,13 +314,15 @@
               "Not assessed"
             ],
             "evidence_required": false,
-            "how_to_resolve": "Yes for every digital or technical demand. Not assessed when the demand is not a true demand."
+            "how_to_resolve": "Yes for every digital or technical demand. Not assessed when the demand is not a true demand.",
+            "activity": "Deciding if a security review is needed"
           },
           {
             "name": "Screening observation",
             "type": "text",
             "description": "Free text with all the insights for the architect: what was found, what is unclear, what to confirm. Say if it is a digital, technical or people demand; a digital or technical demand needs a security review by the cyber team.",
-            "evidence_required": false
+            "evidence_required": false,
+            "activity": "Writing the observations"
           },
           {
             "name": "Evidence",

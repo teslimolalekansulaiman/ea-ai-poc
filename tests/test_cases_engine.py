@@ -53,7 +53,11 @@ def fake_llm(prompt: str):
     val = CANNED.get(name)
     ids = re.findall(r"\[([^\]\s]+:\d+)\]", prompt)
     if val is None:
-        return {"value": "I Guess", "status": "answered", "evidence": [], "needs": "", "note": "guess"}
+        return {"value": "I Guess", "status": "answered", "evidence": [], "needs": "", "note": "guess",
+                "question": "Which roadmap project does this demand belong to?",
+                "suggestions": [{"value": "P-103 HR cloud move", "why": "the roadmap lists it", "evidence": ids[:1]},
+                                {"value": "P-999 invented", "why": "no source", "evidence": ["Nope:9"]},
+                                {"value": "P-104 no evidence", "why": "unsupported", "evidence": []}]}
     ev = ids[:1] if name == "Mandate / business or DT objective" else []
     return {"value": val, "status": "answered", "evidence": ev, "needs": "", "note": "from the evidence"}
 
@@ -105,6 +109,12 @@ def test_a_sheet_runs_asks_for_what_is_missing_and_moves_to_the_next_phase():
     assert c["status"] == "needs_input" and c["value"] == "" and "roadmap" in c["need"]
     qs = [q for q in st.questions(cid) if q["status"] == "open"]
     assert {q["column"] for q in qs} >= {"Linked initiative or project"} and len(qs) >= 3
+    # the question is the model's specific one; its suggestions kept only when a shown source supports them;
+    # what was searched is recorded from the results
+    q0 = next(q for q in qs if q["item_id"] == "D-2026-001" and q["column"] == "Linked initiative or project")
+    assert q0["text"] == "Which roadmap project does this demand belong to?"
+    assert [x["value"] for x in q0["meta"]["suggestions"]] == ["P-103 HR cloud move"] and q0["meta"]["suggestions"][0]["evidence"] == ["Strategy:1"]
+    assert "passage" in q0["meta"]["looked"] and "Strategy" in q0["meta"]["looked"]
     # a cited source is real; a property that needs none may rest on the demand
     assert cells[("D-2026-001", "Mandate / business or DT objective")]["evidence"] == ["Strategy:1"]
     assert cells[("D-2026-001", "Priority")]["status"] == "answered"
@@ -117,8 +127,9 @@ def test_a_sheet_runs_asks_for_what_is_missing_and_moves_to_the_next_phase():
     assert "Which demands were returned, and why?" in sm["suggested"]
     # the architect answers: stored as theirs, and what builds on it is decided again
     q = next(q for q in qs if q["item_id"] == "D-2026-001" and q["column"] == "Linked initiative or project")
-    out = e.answer(q["id"], "P-103 HR system cloud migration", background=False)
+    out = e.answer(q["id"], "P-103 HR system cloud migration", background=False, via="suggestion")
     assert out["status"] == "answered"
+    assert e.store.get_question(q["id"])["answer"].startswith("suggestion: ")
     again = {c["column"]: c for c in st.cells(cid, "screening") if c["item_id"] == "D-2026-001"}
     assert again["Linked initiative or project"]["status"] == "user" and again["Linked initiative or project"]["source"] == "user"
     # approve: the next phase runs for the assessed demands only
@@ -142,13 +153,35 @@ def test_the_architect_can_point_at_a_document_instead_of_giving_the_value():
     # a document that has nothing: the question stays open and says what was tried; nothing is guessed
     e.look(q["id"], "Strategy", "the roadmap row", background=False)
     q2 = e.store.get_question(q["id"])
-    assert q2["status"] == "open" and "Looked at document Strategy" in q2["text"]
+    assert q2["status"] == "open" and "document Strategy" in q2["meta"]["looked"] and "Nothing there decides" in q2["meta"]["looked"]
     # the right document: answered with a real citation, the question closes
     e.look(q["id"], "Roadmap", "HR cloud move", background=False)
     assert e.store.get_question(q["id"])["status"] == "answered"
     c = next(c for c in e.store.cells(cid, "screening") if c["column"] == "Linked initiative or project")
     assert c["status"] == "answered" and c["source"] == "model" and c["evidence"] == ["Roadmap:7"]
     assert c["how"][0].startswith("The architect pointed to: document Roadmap")
+
+
+def test_the_flows_are_langgraph_graphs_that_can_be_drawn():
+    from eawiki.cases import flow
+    d = flow.draw(_engine())
+    for node in ("prepare", "gate", "run_round", "summaries", "citations", "finish"):
+        assert node in d["phase"]
+    for node in ("gather", "solve", "save_answer", "open_question", "look_found", "look_missed"):
+        assert node in d["cell"]
+
+
+def test_the_use_case_names_its_items_and_what_each_property_is_doing():
+    from eawiki import usecases
+    assert SPEC["input"]["item_label"] == {"singular": "demand", "plural": "demands"}
+    assert usecases.validate(SPEC) == []
+    bad = json.loads(json.dumps(SPEC))
+    bad["input"]["item_label"] = {"singular": "demand"}
+    bad["stages"][0]["output"]["columns"][1]["activity"] = "x" * 200
+    errs = usecases.validate(bad)
+    assert any("item label" in x for x in errs) and any("activity" in x for x in errs)
+    st = [x["label"] for x in __import__("eawiki.cases.engine", fromlist=["steps"]).steps(SPEC, SPEC["stages"][0], True)]
+    assert st[0] == "Checking each demand is a true demand" and "Deciding the demand type" in st
 
 
 def test_readiness_names_the_missing_document_and_the_empty_source():
@@ -182,6 +215,9 @@ def test_api_runs_in_the_background_and_the_screen_can_follow_it():
     assert any(e["kind"] == "phase_done" for e in d["events"]) and d["last_seq"] >= 1
     x = client.get(f"/api/cases/{cid}/export", params={"phase": "screening"})
     assert x.status_code == 200 and "spreadsheetml" in x.headers["content-type"]
+    assert d["item_label"]["plural"] == "demands" and d["phases"][0]["steps"][0]["label"] == "Checking each demand is a true demand"
+    qd = next(q for q in d["questions"] if q["column"] == "Linked initiative or project")
+    assert qd["options"] == [] and qd["meta"]["suggestions"]
     import io
     from openpyxl import load_workbook
     ws = load_workbook(io.BytesIO(x.content)).active

@@ -103,6 +103,10 @@ def get_case(cid: str, after: int = 0):
     spec = case["spec"]
     cells = st.cells(cid)
     questions = st.questions(cid)
+    for q in questions:                                   # the pick list is the property's own, never the model's
+        col = next((c for s_ in spec["stages"] if phase_id(s_) == q["phase_id"] for c in s_["output"]["columns"]
+                    if c["name"] == q["column"]), {})
+        q["options"] = list(col.get("values") or []) if col.get("type") == "enum" else (["Yes", "No"] if col.get("type") == "bool" else [])
     tree: dict = {}
     progress: dict = {}
     for c in cells:
@@ -123,6 +127,7 @@ def get_case(cid: str, after: int = 0):
     return {"case": {"id": cid, "name": case["name"], "use_case_id": case["use_case_id"],
                      "use_case_name": spec.get("name"), "created_at": case["created_at"]},
             "input_fields": (spec.get("input") or {}).get("item_fields") or [],
+            "item_label": (spec.get("input") or {}).get("item_label") or {"singular": "item", "plural": "items"},
             "gate_column": gate_column(spec), "items": case["items"], "phases": phases, "cells": tree,
             "questions": questions, "events": events,
             "last_seq": events[-1]["seq"] if events else after}
@@ -130,6 +135,7 @@ def get_case(cid: str, after: int = 0):
 
 class AnswerBody(BaseModel):
     answer: Optional[str] = None
+    via: Optional[str] = None           # "suggestion" when the architect picked one the sources support
     mode: str = "value"                 # "value": this is the answer; "look": search where I point
     document: Optional[str] = None      # look: an ingested document (checked against the list)
     where: Optional[str] = None         # look: where in it, in words
@@ -145,7 +151,7 @@ def answer(cid: str, qid: str, body: AnswerBody):
     try:
         if body.mode == "look":
             return get_engine().look(qid, body.document, body.where)
-        return get_engine().answer(qid, body.answer)
+        return get_engine().answer(qid, body.answer, via=body.via if body.via == "suggestion" else None)
     except ValueError as e:
         raise HTTPException(409, str(e))
 

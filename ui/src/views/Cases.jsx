@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Markdown, useCite } from '../cite'
 import '../cases.css'
-import { AnsweredCard, AskCard, FinCard, FullTable, LiveCard, PhaseTrack, ResultCard, Workspace } from '../components/CasesParts'
+import { AnsweredCard, AskCard, FinCard, FullTable, LiveCard, PhaseTrack, ResultCard, Workspace, count } from '../components/CasesParts'
 
 // A sheet or a typed demand becomes a case: read it, create it, and the run starts at once.
 async function beginCase(ucId, file, text) {
@@ -25,6 +25,7 @@ function Intake({ ucs }) {
   const nav = useNavigate()
   const fileRef = useRef(null)
   const uc = ucs.find(u => u.enabled !== false)                // chosen automatically; changed from the case card
+  const L = (uc && uc.input && uc.input.item_label) || { singular: 'item', plural: 'items' }
 
   const start = async () => {
     if (busy || !uc || (!file && !text.trim())) return
@@ -41,12 +42,12 @@ function Intake({ ucs }) {
   return (
     <>
       <div className="cs-scroll"><div className="cs-col cs-empty">
-        <div><div className="eyebrow">Architecture Atlas</div><h1 style={{ marginTop: 6 }}>Bring your demands.</h1></div>
-        <p className="cs-muted" style={{ maxWidth: '58ch' }}>Drop a sheet of demands, or type one. The agents work through the EA procedure for each demand and fill the table. Everything you ask afterwards is about this case until you start another.</p>
+        <div><div className="eyebrow">{uc.name}</div><h1 style={{ marginTop: 6 }}>Start a new case</h1></div>
+        <p className="cs-muted" style={{ maxWidth: '58ch' }}>Attach a spreadsheet, or enter a single {L.singular}. The agents apply the {uc.name} procedure to each {L.singular} and fill in the table. Questions you ask afterwards refer to this case until you start another.</p>
         <div className="cs-how">
-          <div><b>1. Bring it</b><span>An Excel or CSV sheet, or a single demand typed here.</span></div>
-          <div><b>2. Watch it worked</b><span>A live card shows the step it is on, which demands it has reached, and where it needs you.</span></div>
-          <div><b>3. Ask about it</b><span>Why a demand got its priority, which overlap, what to ask the requester.</span></div>
+          <div><b>1. Provide the input</b><span>A spreadsheet (Excel or CSV), or one {L.singular} entered here.</span></div>
+          <div><b>2. Follow the progress</b><span>A live card shows what the agents are doing, how many {L.plural} they have reached, and where they need an answer from you.</span></div>
+          <div><b>3. Review and ask</b><span>Why a {L.singular} got its result, which {L.plural} overlap, what to ask the requester.</span></div>
         </div>
         <div className="cs-actions"><button className="btn" onClick={() => fileRef.current.click()}>Attach a file</button></div>
         {err && <div className="cs-need">{err}</div>}
@@ -54,7 +55,7 @@ function Intake({ ucs }) {
 
       <div className="cs-composer-wrap"><div className="cs-composer">
         <textarea rows={1} value={text} disabled={busy} onChange={e => setText(e.target.value)}
-          placeholder={file ? 'Press Enter to start with this sheet' : 'Type or paste a demand, or attach a sheet of demands...'}
+          placeholder={file ? 'Press Enter to start with this sheet' : `Type or paste a ${L.singular}, or attach a sheet of ${L.plural}...`}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); start() } }} />
         <div className="cs-crow">
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xlsm" hidden onChange={e => { setFile(e.target.files[0] || null); e.target.value = '' }} />
@@ -109,7 +110,7 @@ function Case({ id }) {
       setData(d)
     } catch (e) { setErr(String(e.message || e)) }
   }, [id])
-  useEffect(() => { api.caseDocuments().then(r => setDocs(r.documents || [])).catch(() => {}) }, [])
+  useEffect(() => { api.caseDocuments().then(r => setDocs(r.documents || [])).catch(() => {}); api.usecases().then(r => setUcs(r.usecases || [])).catch(() => {}) }, [])
   useEffect(() => { seq.current = 0; setEvents([]); setData(null); setThread([]); setViewed(null); setFocus(null); load() }, [id, load])
 
   const running = !!data && data.phases.some(p => p.state.status === 'running')
@@ -129,6 +130,7 @@ function Case({ id }) {
   }, [data])
   const phaseId = viewed || current
   const phase = data && data.phases.find(p => p.id === phaseId)
+  const L = (data && data.item_label) || { singular: 'item', plural: 'items' }
   const idx = data ? data.phases.findIndex(p => p.id === phaseId) : 0
   const next = data && data.phases[idx + 1]
   const titleOf = (iid) => phase?.summary.rows.find(x => x.id === iid)?.title
@@ -145,6 +147,7 @@ function Case({ id }) {
 
   const act = async (fn) => { setBusy(true); setErr(''); try { await fn(); poke() } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) } }
   const openActivity = () => { setTab('activity'); setWsOpen(true) }
+  const jumpToQuestion = () => { const el = document.querySelector('.cs-ask:not(.done)'); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }) }
   const pickPhase = (p, kind, i) => {
     if (kind === 'locked') return say('Finish and approve the previous phase first, then this one starts.')
     if (kind === 'ready') { say(`Approved. Starting ${p.name}.`); return act(async () => { await api.caseApprove(id, data.phases[i - 1].id); setViewed(p.id) }) }
@@ -174,7 +177,7 @@ function Case({ id }) {
     catch (e) { say(String(e.message || e)) } finally { setBusy(false) }
   }
 
-  const openPop = () => { setPop(p => !p); if (!ucs.length) api.usecases().then(r => setUcs(r.usecases || [])).catch(() => {}) }
+  const ucsOn = ucs.filter(u => u.enabled !== false)
   const changeUc = (u) => act(async () => {
     setPop(false)
     await api.caseCancel(id)
@@ -194,7 +197,7 @@ function Case({ id }) {
       <div className="cs-main">
         <div className="cs-bar">
           <div className="cs-top">
-            <div className="ttl"><b>{data.case.name}</b><span>{data.items.length} demand{data.items.length === 1 ? '' : 's'} · {data.case.use_case_name}</span></div>
+            <div className="ttl"><b>{data.case.name}</b><span>{count(data.items.length, L)} · {data.case.use_case_name}</span></div>
             <button className="btn sm" onClick={() => setWsOpen(o => !o)} aria-expanded={wsOpen}>Workspace</button>
             <button className="btn sm" onClick={() => nav('/cases')}>Replace case</button>
           </div>
@@ -204,18 +207,17 @@ function Case({ id }) {
         <div className="cs-scroll" ref={scroller}><div className="cs-col">
           <div className="cs-msg"><div className="cs-body"><div className="cs-card">
             <div className="eyebrow">New case</div><h3>{data.case.name}</h3>
-            <div className="cs-det">{data.items.length} demand{data.items.length === 1 ? '' : 's'} found · using <span className="cs-pill user">{data.case.use_case_name}</span> · {data.phases.length} phase{data.phases.length === 1 ? '' : 's'}
-              <button className="cs-link" onClick={openPop}>Change</button>
-              {pop && <div className="cs-pop" role="menu">{ucs.map(u => (
-                <button key={u.id} disabled={u.id === data.case.use_case_id || u.enabled === false} onClick={() => changeUc(u)}>
-                  <span>{u.name}</span><span className="cs-faint">{u.id === data.case.use_case_id ? 'selected' : u.enabled === false ? 'planned' : 'switch'}</span></button>))}
-                {ucs.length === 0 && <span className="cs-faint" style={{ padding: '6px 10px' }}>Loading…</span>}</div>}</div>
+            <div className="cs-det">{count(data.items.length, L)} found · using <span className="cs-pill user">{data.case.use_case_name}</span> · {data.phases.length} phase{data.phases.length === 1 ? '' : 's'}
+              {ucsOn.length > 1 && <button className="cs-link" onClick={() => setPop(p => !p)}>Change</button>}
+              {pop && <div className="cs-pop" role="menu">{ucsOn.map(u => (
+                <button key={u.id} disabled={u.id === data.case.use_case_id} onClick={() => changeUc(u)}>
+                  <span>{u.name}</span><span className="cs-faint">{u.id === data.case.use_case_id ? 'selected' : 'switch'}</span></button>))}</div>}</div>
             {unmatched.length > 0 && <p className="cs-muted" style={{ margin: '8px 0 0', fontSize: 13 }}>Columns not recognised and ignored: {unmatched.join(', ')}.</p>}
           </div></div></div>
 
           {!started && <div className="cs-card cs-muted">{phase.name} has not started. {idx > 0 ? `It begins when you approve ${data.phases[idx - 1].name}.` : ''}</div>}
-          {runningHere && <LiveCard phase={phase} events={events} data={data} onActivity={openActivity} onCancel={() => act(() => api.caseCancel(id))} />}
-          {finished && <FinCard phase={phase} n={phase.summary.rows.length} onActivity={openActivity} />}
+          {runningHere && <LiveCard phase={phase} events={events} data={data} needs={openQs.length} onJump={jumpToQuestion} onActivity={openActivity} onCancel={() => act(() => api.caseCancel(id))} />}
+          {finished && <FinCard phase={phase} n={phase.summary.rows.length} L={L} onActivity={openActivity} />}
 
           {closedQs.map(x => <AnsweredCard key={x.id} q={x} title={titleOf(x.item_id)} />)}
           {shownQs.map(x => <AskCard key={x.id} q={x} title={titleOf(x.item_id)} docs={docs}
@@ -223,7 +225,7 @@ function Case({ id }) {
           {openQs.length > shownQs.length && <div className="cs-msg"><div className="cs-av" style={{ visibility: 'hidden' }}>AA</div><div className="cs-body">
             <button className="btn sm" onClick={() => setShowAllQs(true)}>Show the other {openQs.length - shownQs.length} question{openQs.length - shownQs.length === 1 ? '' : 's'}</button></div></div>}
 
-          {finished && <ResultCard phase={phase} next={next} busy={busy || runningHere}
+          {finished && <ResultCard phase={phase} next={next} L={L} busy={busy || runningHere}
             onApprove={() => act(async () => { await api.caseApprove(id, phase.id); if (next) setViewed(next.id) })}
             onOpenTable={() => setTable(true)} onExport={exportXlsx}
             onPickItem={(iid) => { setWsOpen(true); setTab('demands'); setOpenItem(iid); setOpenCol(null); focusOn(iid) }} />}
@@ -245,7 +247,7 @@ function Case({ id }) {
 
         <div className="cs-composer-wrap"><div className="cs-composer">
           {prompt && <div className="cs-newprompt">
-            <span>{prompt.file ? 'You attached a file. Start a new case from it?' : 'This looks like a new demand. Start a new case?'}</span>
+            <span>{prompt.file ? 'You attached a file. Start a new case from it?' : `This looks like a new ${L.singular}. Start a new case?`}</span>
             <button className="btn sm primary" disabled={busy} onClick={startNew}>Start a new case</button>
             {!prompt.file && <button className="btn sm" onClick={() => { const t = prompt.text; setPrompt(null); ask(t) }}>Ask it as a question</button>}
             <button className="btn sm" onClick={() => setPrompt(null)}>Cancel</button></div>}
@@ -271,14 +273,14 @@ function Case({ id }) {
 
       <div className={'cs-scrim' + (wsOpen ? ' on' : '')} onClick={() => setWsOpen(false)} />
       <aside className={'cs-work' + (wsOpen ? ' open' : '')}>
-        <Workspace data={data} phase={phase} docs={docs} tab={tab} setTab={setTab} openItem={openItem}
+        <Workspace data={data} phase={phase} docs={docs} L={L} tab={tab} setTab={setTab} openItem={openItem}
           setOpenItem={(iid) => { setOpenItem(iid); if (iid) focusOn(iid) }}
           openCol={openCol} setOpenCol={setOpenCol} readiness={readiness} onClose={() => setWsOpen(false)}
           onTable={() => { setTable(true); setWsOpen(false) }}
           onReadiness={async () => { setReadiness('loading'); try { setReadiness(await api.readiness(data.case.use_case_id, { case_id: id })) } catch (e) { setReadiness({ error: String(e.message || e) }) } }} />
       </aside>
 
-      {table && <FullTable data={data} phase={phase} onPhase={setViewed} onClose={() => setTable(false)} onExport={exportXlsx} />}
+      {table && <FullTable data={data} phase={phase} L={L} onPhase={setViewed} onClose={() => setTable(false)} onExport={exportXlsx} />}
       {note && <div className="cs-toast on" role="status">{note}</div>}
     </div>
   )

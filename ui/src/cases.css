@@ -208,3 +208,21 @@
 .cs-srcitem{border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 11px;margin:8px 4px;background:var(--surface-2)}
 .cs-srcitem p{font-size:12.5px;color:var(--fg-muted);margin:2px 0 0}
 .cs-faint{color:var(--fg-faint)}
+
+/* question card: suggestions, type box, look here; the need chip on the live card */
+.cs-cap{font-size:12.5px;color:var(--fg-muted);margin-top:6px}
+.cs-sugg{display:grid;gap:6px;margin-top:12px}
+.cs-sugg .lbl{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-faint);font-weight:600}
+.cs-sugg .row{display:flex;gap:8px;flex-wrap:wrap}
+.cs-sugg .opt1{border:1px solid var(--border-strong);background:var(--surface);border-radius:var(--radius-sm);padding:6px 14px;cursor:pointer;font-weight:500;color:var(--fg)}
+.cs-sugg .cand{display:grid;gap:4px;border:1px solid var(--border-strong);background:var(--surface);border-radius:var(--radius-sm);padding:8px 12px}
+.cs-sugg .cand .pick{display:grid;gap:2px;text-align:left;border:none;background:none;padding:0;cursor:pointer;color:var(--fg)}
+.cs-sugg .cand .pick b{font-weight:600}
+.cs-sugg .cand .pick small{font-size:12.5px;color:var(--fg-muted);font-weight:400}
+.cs-sugg .opt1:hover:not([disabled]),.cs-sugg .cand:hover{border-color:var(--accent);background:var(--accent-soft)}
+.cs-sugg .srcs{display:flex;gap:6px;flex-wrap:wrap}
+.cs-typebox{display:flex;gap:8px;margin-top:12px}
+.cs-typebox input{flex:1;min-width:0;font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:6px 10px}
+.cs-lookbox{display:grid;gap:8px;margin-top:10px;padding:10px 12px;background:var(--surface-2);border-radius:var(--radius-sm)}
+.cs-lookbox select,.cs-lookbox input{font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:6px 10px;width:100%}
+.cs-need-chip{border:1px solid var(--warn);background:var(--warn-soft);color:var(--warn);border-radius:99px;padding:1px 10px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}

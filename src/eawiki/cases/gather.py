@@ -121,7 +121,33 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             ev["allowed"].add(f"demand:{o.get('_id')}")
         if ev["others"]:
             ev["used"].append("the other demands in the sheet")
+    ev["looked"] = looked_in(ev, plan, tools)
     return ev
+
+
+def looked_in(ev: dict, plan: dict, tools: Tools) -> str:
+    """What was actually searched, in words the architect can read: the documents the passages came
+    from and how many, the graph entities, the demand's own fields. Built from the results."""
+    parts = []
+    by_doc: dict = {}
+    for b in ev["blocks"]:
+        d = b.get("doc_id") or str(b.get("block_id", "")).rsplit(":", 1)[0]
+        by_doc[d] = by_doc.get(d, 0) + 1
+    if by_doc:
+        parts.append(", ".join(f"{n} passage{'s' if n != 1 else ''} of {d}" for d, n in by_doc.items()))
+    elif "documents" in plan["sources"]:
+        try:
+            n = len(tools.doc_ids() or [])
+        except Exception:
+            n = 0
+        parts.append(f"all {n} ingested documents, and nothing relevant came back" if n else "the ingested documents, and nothing relevant came back")
+    if ev.get("graph") and ev["graph"].get("names"):
+        parts.append("the graph (" + ", ".join(ev["graph"]["names"][:4]) + ")")
+    if ev["others"]:
+        parts.append(f"the other {len(ev['others'])} demands in the sheet")
+    if ev["demand"]:
+        parts.append("the demand's own fields")
+    return "; ".join(parts) or "nothing"
 
 
 def render(ev: dict) -> str:

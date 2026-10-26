@@ -45,6 +45,14 @@ class CaseStore(history._Store):
                 id TEXT PRIMARY KEY, case_id TEXT, item_id TEXT, phase_id TEXT, col TEXT,
                 text TEXT, status TEXT, answer TEXT, created_at {r})"""))
             c.execute(self._sql("CREATE INDEX IF NOT EXISTS cases_uc ON cases(use_case_id, updated_at)"))
+        self._add_column("questions", "meta_json", "TEXT")          # a store made before suggestions existed
+
+    def _add_column(self, table: str, col: str, typ: str) -> None:
+        try:
+            with self._conn() as c:
+                c.execute(self._sql(f"ALTER TABLE {table} ADD COLUMN {col} {typ}"))
+        except Exception:
+            pass                                                       # it is already there
 
     # --- cases --------------------------------------------------------------
     def create_case(self, use_case_id: str, name: str, spec: dict, items: list[dict]) -> str:
@@ -162,18 +170,30 @@ class CaseStore(history._Store):
                 for r in rows]
 
     # --- questions ----------------------------------------------------------
-    def add_question(self, cid: str, item_id: str, phase_id: str, col: str, text: str) -> str:
+    def add_question(self, cid: str, item_id: str, phase_id: str, col: str, text: str,
+                     meta: Optional[dict] = None) -> str:
+        """Open a question for the architect. `meta` carries what the card shows besides the question:
+        what is missing, where it looked, and the candidate answers the sources support."""
+        mj = json.dumps(meta or {}, ensure_ascii=False)
         with self._conn() as c:
             r = c.execute(self._sql(
                 "SELECT id FROM questions WHERE case_id=? AND item_id=? AND phase_id=? AND col=? AND status='open'"),
                 (cid, item_id, phase_id, col)).fetchone()
-            if r:
+            if r:                                                     # asked again after a re-run: keep the newer wording
+                c.execute(self._sql("UPDATE questions SET text=?, meta_json=? WHERE id=?"), (text, mj, r["id"]))
                 return r["id"]
             qid = uuid.uuid4().hex[:10]
             c.execute(self._sql(
-                "INSERT INTO questions(id,case_id,item_id,phase_id,col,text,status,answer,created_at) "
-                "VALUES(?,?,?,?,?,?,?,?,?)"), (qid, cid, item_id, phase_id, col, text, "open", "", time.time()))
+                "INSERT INTO questions(id,case_id,item_id,phase_id,col,text,status,answer,created_at,meta_json) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?)"), (qid, cid, item_id, phase_id, col, text, "open", "", time.time(), mj))
         return qid
+
+    @staticmethod
+    def _meta(r) -> dict:
+        try:
+            return json.loads(r["meta_json"] or "{}")
+        except Exception:
+            return {}
 
     def questions(self, cid: str) -> list[dict]:
         with self._conn() as c:
@@ -181,7 +201,7 @@ class CaseStore(history._Store):
                              (cid,)).fetchall()
         return [{"id": r["id"], "item_id": r["item_id"], "phase_id": r["phase_id"], "column": r["col"],
                  "text": r["text"], "status": r["status"], "answer": r["answer"],
-                 "created_at": r["created_at"]} for r in rows]
+                 "created_at": r["created_at"], "meta": self._meta(r)} for r in rows]
 
     def get_question(self, qid: str) -> Optional[dict]:
         with self._conn() as c:
@@ -189,11 +209,16 @@ class CaseStore(history._Store):
         if not r:
             return None
         return {"id": r["id"], "case_id": r["case_id"], "item_id": r["item_id"], "phase_id": r["phase_id"],
-                "column": r["col"], "text": r["text"], "status": r["status"], "answer": r["answer"]}
+                "column": r["col"], "text": r["text"], "status": r["status"], "answer": r["answer"],
+                "meta": self._meta(r)}
 
-    def set_question_text(self, qid: str, text: str) -> None:
+    def set_question_meta(self, qid: str, **fields) -> None:
+        q = self.get_question(qid)
+        if not q:
+            return
+        meta = dict(q["meta"], **fields)
         with self._conn() as c:
-            c.execute(self._sql("UPDATE questions SET text=? WHERE id=?"), (text, qid))
+            c.execute(self._sql("UPDATE questions SET meta_json=? WHERE id=?"), (json.dumps(meta, ensure_ascii=False), qid))
 
     def close_question(self, qid: str, status: str, answer: str = "") -> None:
         with self._conn() as c:

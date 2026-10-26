@@ -13,6 +13,8 @@ export function Chip({ s }) {
 }
 const QUIET = new Set(['answered', 'none', 'na', 'blank'])        // not worth a chip in a dense table
 export const show = (v) => Array.isArray(v) ? v.join('; ') : (v ?? '')
+export const count = (n, L) => `${n} ${n === 1 ? L.singular : L.plural}`
+export const cap = (w) => w ? w[0].toUpperCase() + w.slice(1) : w
 export const clock = (sec) => { const m = Math.floor(sec / 60), r = Math.floor(sec % 60); return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0') }
 
 export function RowTag({ row }) {
@@ -60,19 +62,20 @@ export function stepStates(phase) {
     const done = total > 0 && n >= total
     const run = !done && !found
     if (run) found = true
-    const names = st.columns.length > 3 ? `${st.columns.slice(0, 3).join(', ')} and ${st.columns.length - 3} more` : st.columns.join(', ')
-    return { ...st, label: st.columns.length === 1 ? st.label : names, n, state: done ? 'done' : run ? 'run' : 'pend' }
+    return { ...st, n, state: done ? 'done' : run ? 'run' : 'pend' }
   })
 }
 
-export function LiveCard({ phase, events, data, onCancel, onActivity }) {
+export function LiveCard({ phase, events, data, needs, onJump, onCancel, onActivity }) {
   const [more, setMore] = useState(true)
+  const L = data.item_label
   const steps = stepStates(phase)
   const total = phase.state.total || data.items.length
   const cur = steps.find(s => s.state === 'run')
   const done = steps.filter(s => s.state === 'done').length
   const label = cur ? cur.label : 'Starting'
-  const sub = cur ? `${cur.n} of ${total} demand${total === 1 ? '' : 's'}` : ''
+  const alongside = cur ? cur.columns.length - 1 : 0
+  const sub = cur ? `${cur.n} of ${count(total, L)}${alongside > 0 ? ` · ${alongside} more at the same time` : ''}` : ''
   const elapsed = phase.state.started ? Math.max(0, Date.now() / 1000 - phase.state.started) : 0
   const cells = (data.cells[phase.id]) || {}
   const feed = events.filter(e => e.kind === 'cell' && e.data.phase === phase.id && e.data.status !== 'user').slice(-3).reverse()
@@ -80,7 +83,8 @@ export function LiveCard({ phase, events, data, onCancel, onActivity }) {
     <div className="cs-card cs-live cs-pin">
       <div className="lv">
         <span className="cs-spin" />
-        <div style={{ flex: 1, minWidth: 0 }}><b>{label}</b><small>{sub}{steps.length ? `${sub ? ' · ' : ''}step ${Math.min(done + 1, steps.length)} of ${steps.length}` : ''}</small></div>
+        <div style={{ flex: 1, minWidth: 0 }}><b>{label}</b><small>{sub}</small></div>
+        {needs > 0 && <button className="cs-need-chip" onClick={onJump}>{needs} {needs > 1 ? 'need' : 'needs'} you</button>}
         <span className="t">{clock(elapsed)}</span>
         <button className="btn sm" onClick={onCancel}>Stop</button>
       </div>
@@ -95,52 +99,72 @@ export function LiveCard({ phase, events, data, onCancel, onActivity }) {
   )
 }
 
-export function FinCard({ phase, n, onActivity }) {
+export function FinCard({ phase, n, L, onActivity }) {
   const secs = phase.state.finished && phase.state.started ? phase.state.finished - phase.state.started : null
   return (
     <div className="cs-card cs-fin">
-      <span className="cs-ok">✓</span><b>{phase.name} done for {n} demand{n === 1 ? '' : 's'}</b>
+      <span className="cs-ok">✓</span><b>{phase.name} done for {count(n, L)}</b>
       {secs !== null && <span className="cs-faint" style={{ fontSize: 12.5 }}>in {clock(secs)}</span>}
       <button className="cs-link" style={{ marginLeft: 'auto' }} onClick={onActivity}>View activity</button>
     </div>
   )
 }
 
-// ---- a question to the architect: give the value, or say where to look --------------------------
+// ---- a question to the architect: specific, with suggestions, a type box, and a pointer ------------
 export function AskCard({ q, title, docs, onAnswer }) {
-  const [mode, setMode] = useState('value')
+  const cite = useCite()
   const [text, setText] = useState('')
+  const [look, setLook] = useState(false)
   const [doc, setDoc] = useState('')
+  const [where, setWhere] = useState('')
   const [busy, setBusy] = useState(false)
-  useEffect(() => { setBusy(false) }, [q.text])          // a retry came back: the card is live again
+  useEffect(() => { setBusy(false) }, [q.text, q.meta?.looked])          // a retry came back: the card is live again
   const send = async (body) => { setBusy(true); try { await onAnswer(body) } catch { setBusy(false) } }
+  const opts = q.options || []
+  const cands = q.meta?.suggestions || []
+  const why = q.meta?.needs && q.meta.needs !== q.text ? q.meta.needs : ''
   return (
     <div className="cs-msg"><div className="cs-av">AA</div>
       <div className="cs-body"><div className="cs-card cs-ask">
-        <div className="eyebrow" style={{ color: 'var(--warn)' }}>I need one answer</div>
-        <h4>{q.item_id}{title ? ' · ' + title : ''}: {q.column}</h4>
-        <div className="cs-muted" style={{ fontSize: 13 }}>{q.text}</div>
-        <div className="cs-seg2" role="group" aria-label="How to answer">
-          <button aria-pressed={mode === 'value'} onClick={() => setMode('value')}>Give the value</button>
-          <button aria-pressed={mode === 'look'} onClick={() => setMode('look')}>Look here</button>
+        <div className="eyebrow" style={{ color: 'var(--warn)' }}>{q.column} needs one answer</div>
+        <h4>{q.item_id}{title ? ' · ' + title : ''}: {q.text}</h4>
+        {why && <div className="cs-muted" style={{ fontSize: 13 }}>{why}</div>}
+        {q.meta?.looked && <div className="cs-cap">I looked in: {q.meta.looked}</div>}
+        {(opts.length > 0 || cands.length > 0) && (
+          <div className="cs-sugg"><div className="lbl">Suggested{opts.length ? ' · the pick list for this property' : ' from the sources'}</div>
+            {opts.length > 0 && <div className="row">{opts.map(o => <button key={o} className="opt1" disabled={busy} onClick={() => send({ answer: o })}>{o}</button>)}</div>}
+            {cands.map((c, i) => (
+              <div className="cand" key={i}>
+                <button className="pick" disabled={busy} onClick={() => send({ answer: Array.isArray(c.value) ? c.value.join('; ') : String(c.value), via: 'suggestion' })}>
+                  <b>{c.label}</b>{c.why && <small>{c.why}</small>}</button>
+                <span className="srcs">{c.evidence.filter(e => !e.startsWith('demand:')).map(e => <button key={e} className="cs-cite" onClick={() => cite.open(e)}>{e}</button>)}</span>
+              </div>))}
+          </div>)}
+        <div className="cs-typebox">
+          <input value={text} disabled={busy} aria-label="Type the answer" onChange={e => setText(e.target.value)}
+            placeholder={opts.length ? 'Or type the answer' : 'Type the answer. It is recorded as from you, not as a sourced fact.'}
+            onKeyDown={e => { if (e.key === 'Enter' && text.trim()) send({ answer: text.trim() }) }} />
+          <button className="btn primary sm" disabled={busy || !text.trim()} onClick={() => send({ answer: text.trim() })}>Use this answer</button>
         </div>
-        {mode === 'look' && (
-          <select value={doc} onChange={e => setDoc(e.target.value)} aria-label="Document to look in">
-            <option value="">Any ingested document</option>
-            {(docs || []).map(d => <option key={d} value={d}>{d}</option>)}
-          </select>)}
-        <textarea rows={2} value={text} onChange={e => setText(e.target.value)} disabled={busy}
-          placeholder={mode === 'value'
-            ? 'Type the value. It is recorded as from you, not as a sourced fact.'
-            : 'Where in it, in words (optional if you chose a document), for example: the HR row of the roadmap'} />
-        <div className="cs-actions" style={{ marginTop: 8 }}>
-          {mode === 'value'
-            ? <button className="btn primary sm" disabled={busy || !text.trim()} onClick={() => send({ answer: text.trim() })}>Use this as the answer</button>
-            : <button className="btn primary sm" disabled={busy || (!doc && !text.trim())}
-                onClick={() => send({ mode: 'look', document: doc || null, where: text.trim() })}>{busy ? 'Looking…' : 'Look here'}</button>}
-          <button className="btn sm" disabled={busy} onClick={() => send({ answer: null })}>I don't know</button>
+        <div className="cs-actions" style={{ marginTop: 8, alignItems: 'center' }}>
+          <button className="cs-link" aria-expanded={look} onClick={() => setLook(l => !l)}>Look in a document…</button>
+          <span style={{ flex: 1 }} />
+          <button className="btn sm" disabled={busy} onClick={() => send({ answer: null })}>I don't know, leave it open</button>
         </div>
-        {mode === 'look' && <div className="note">The document must be ingested. If it is not, add it under Sources first, or give the value.</div>}
+        {look && (
+          <div className="cs-lookbox">
+            <select value={doc} onChange={e => setDoc(e.target.value)} aria-label="Document to look in">
+              <option value="">Any ingested document</option>
+              {(docs || []).map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <input value={where} onChange={e => setWhere(e.target.value)} aria-label="Where in the document"
+              placeholder="Where in it (optional), for example: the HR row" />
+            <div className="cs-actions" style={{ alignItems: 'center' }}>
+              <button className="btn primary sm" disabled={busy || (!doc && !where.trim())}
+                onClick={() => send({ mode: 'look', document: doc || null, where: where.trim() })}>{busy ? 'Looking…' : 'Look here'}</button>
+              <span className="cs-cap">The document must be ingested. If it is not, add it under Sources first.</span>
+            </div>
+          </div>)}
       </div></div>
     </div>
   )
@@ -148,14 +172,16 @@ export function AskCard({ q, title, docs, onAnswer }) {
 
 // a question already dealt with stays in the thread, with what was done
 export function AnsweredCard({ q, title }) {
+  const a = q.answer || ''
   const said = q.status === 'skipped' ? "You didn't know. It stays open for a later review."
-    : (q.answer || '').startsWith('look: ') ? `You pointed to ${q.answer.slice(6)}. Answered from what was found there.`
-    : `You answered: ${q.answer}`
+    : a.startsWith('look: ') ? `You pointed to ${a.slice(6)}. Answered from what was found there, not from you.`
+    : a.startsWith('suggestion: ') ? `You picked a suggestion: ${a.slice(12)}. Recorded as from you, not as a sourced fact.`
+    : `You answered: ${a}. Recorded as from you.`
   return (
     <div className="cs-msg"><div className="cs-av">AA</div>
       <div className="cs-body"><div className="cs-card cs-ask done">
-        <div className="eyebrow">Answered</div>
-        <h4>{q.item_id}{title ? ' · ' + title : ''}: {q.column}</h4>
+        <div className="eyebrow">{q.column}</div>
+        <h4>{q.item_id}{title ? ' · ' + title : ''}: {q.text}</h4>
         <div className="cs-muted" style={{ fontSize: 13 }}>{said}</div>
       </div></div>
     </div>
@@ -163,7 +189,7 @@ export function AnsweredCard({ q, title }) {
 }
 
 // ---- the result box ---------------------------------------------------------------------
-export function ResultCard({ phase, next, onApprove, onOpenTable, onExport, onPickItem, busy }) {
+export function ResultCard({ phase, next, L, onApprove, onOpenTable, onExport, onPickItem, busy }) {
   const sm = phase.summary
   const [allDec, setAllDec] = useState(false)
   const decisions = allDec ? sm.decisions : sm.decisions.slice(0, 3)
@@ -171,7 +197,7 @@ export function ResultCard({ phase, next, onApprove, onOpenTable, onExport, onPi
     <div className="cs-msg"><div className="cs-av">AA</div>
       <div className="cs-body"><div className="cs-card">
         <div className="eyebrow">Result · {phase.name}</div>
-        <h3>{sm.assessed} of {sm.total} demand{sm.total === 1 ? '' : 's'} assessed</h3>
+        <h3>{sm.assessed} of {count(sm.total, L)} assessed</h3>
         {sm.returned.length > 0 && <p className="cs-muted" style={{ margin: '-2px 0 10px' }}>
           {sm.returned.length} not assessed ({sm.returned.map(r => r.id.slice(-3)).join(', ')}). Each shows its reason in the table.</p>}
         {sm.kpis.length > 0 && <div className="cs-kpis">{sm.kpis.map(k => <div key={k.label}><span>{k.label}</span><b>{k.value}</b></div>)}</div>}
@@ -188,7 +214,7 @@ export function ResultCard({ phase, next, onApprove, onOpenTable, onExport, onPi
           <button className="btn sm" onClick={onOpenTable}>Open full table</button>
           <button className="btn sm" onClick={onExport}>Export to Excel</button>
         </div>
-        {phase.state.status === 'review' && next && <div className="cs-used" style={{ marginTop: 8 }}>Only approved, assessed demands move on. Returned demands stay out.</div>}
+        {phase.state.status === 'review' && next && <div className="cs-used" style={{ marginTop: 8 }}>Only approved, assessed {L.plural} move on. Returned {L.plural} stay out.</div>}
       </div></div>
     </div>
   )
@@ -218,7 +244,7 @@ export function CellDetail({ col, cell }) {
 // ---- workspace --------------------------------------------------------------------------
 const stateLabel = (s) => s === 'running' ? ['user', 'working'] : (s === 'review' || s === 'approved') ? ['ok', 'finished'] : ['', 'waiting']
 
-export function Workspace({ data, phase, docs, tab, setTab, openItem, setOpenItem, openCol, setOpenCol, readiness, onReadiness, onTable, onClose }) {
+export function Workspace({ data, phase, docs, L, tab, setTab, openItem, setOpenItem, openCol, setOpenCol, readiness, onReadiness, onTable, onClose }) {
   const items = data.items
   const cells = (data.cells[phase.id]) || {}
   const rows = Object.fromEntries(phase.summary.rows.map(r => [r.id, r]))
@@ -236,7 +262,7 @@ export function Workspace({ data, phase, docs, tab, setTab, openItem, setOpenIte
           <button className="btn sm" onClick={onClose} aria-label="Close workspace">✕</button>
         </span></div>
       <div className="cs-wtabs" role="tablist">
-        {[['demands', 'Demands'], ['activity', 'Activity'], ['refs', 'Reference sets']].map(([k, l]) => (
+        {[['demands', cap(L.plural)], ['activity', 'Activity'], ['refs', 'Reference sets']].map(([k, l]) => (
           <button key={k} role="tab" className="cs-wtab" aria-selected={tab === k} onClick={() => { setTab(k); if (k !== 'demands') setOpenItem(null) }}>
             {l}{k === 'demands' && <span className="cs-pill" style={{ marginLeft: 6 }}>{items.length}</span>}</button>))}
         <button className="btn sm" onClick={onTable}>Full table</button>
@@ -254,7 +280,7 @@ export function Workspace({ data, phase, docs, tab, setTab, openItem, setOpenIte
             </button>) })}
         </>)}
         {tab === 'demands' && detail && (<>
-          <button className="cs-back" onClick={() => setOpenItem(null)}>← All demands</button>
+          <button className="cs-back" onClick={() => setOpenItem(null)}>← All {L.plural}</button>
           <div style={{ padding: '2px 6px 6px' }}><div className="eyebrow mono">{detail._id}</div>
             <h3 style={{ fontSize: 15, margin: '2px 0 6px' }}>{title(detail)}</h3>{rows[detail._id] && <RowTag row={rows[detail._id]} />}</div>
           {phase.columns.map(c => { const cell = (cells[detail._id] || {})[c.name]; const open = openCol === c.name
@@ -307,7 +333,7 @@ export function Workspace({ data, phase, docs, tab, setTab, openItem, setOpenIte
 }
 
 // ---- the full table -----------------------------------------------------------------------
-export function FullTable({ data, phase, onPhase, onClose, onExport, initial }) {
+export function FullTable({ data, phase, L, onPhase, onClose, onExport, initial }) {
   const [sel, setSel] = useState(initial || null)
   const [filter, setFilter] = useState('all')
   const cells = data.cells[phase.id] || {}
@@ -321,7 +347,7 @@ export function FullTable({ data, phase, onPhase, onClose, onExport, initial }) 
   return (
     <div className="cs-sheet" role="dialog" aria-label="Table">
       <div className="cs-sheet-bar">
-        <h3>{data.case.name}<div className="cs-muted" style={{ fontSize: 12, fontWeight: 400 }}>One row per demand. Click a cell to see how it was resolved.</div></h3>
+        <h3>{data.case.name}<div className="cs-muted" style={{ fontSize: 12, fontWeight: 400 }}>One row per {L.singular}. Click a cell to see how it was resolved.</div></h3>
         <span className="cs-tools">
           {started.length > 1 && started.map(p => <button key={p.id} className="cs-fchip" aria-pressed={p.id === phase.id} onClick={() => { setSel(null); setFilter('all'); onPhase(p.id) }}>{p.name}</button>)}
           <button className="cs-fchip" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>All</button>
@@ -335,9 +361,9 @@ export function FullTable({ data, phase, onPhase, onClose, onExport, initial }) 
         <div className="cs-sheet-scroll">
           <table className="cs-tbl"><thead>
             <tr className="g1"><th className="idc pre">From the input</th><th colSpan={phase.columns.length} className="out">{data.case.use_case_name} · {phase.name}</th></tr>
-            <tr className="g2"><th className="idc pre">Demand</th>
+            <tr className="g2"><th className="idc pre">{cap(L.singular)}</th>
               {phase.columns.map(c => <th key={c.name} className={'out ' + (wide(c.name) ? 'wide' : '')}>{c.name}</th>)}</tr></thead>
-            <tbody>{rows.length === 0 && <tr><td colSpan={phase.columns.length + 1} className="cs-muted" style={{ padding: 16 }}>No demands match this filter.</td></tr>}{rows.map(r => (
+            <tbody>{rows.length === 0 && <tr><td colSpan={phase.columns.length + 1} className="cs-muted" style={{ padding: 16 }}>No {L.plural} match this filter.</td></tr>}{rows.map(r => (
               <tr key={r.id} className={r.gate !== 'Yes' ? 'ret' : ''}>
                 <td className="idc"><b>{r.id}</b>{r.title}</td>
                 {phase.columns.map(c => { const cell = (cells[r.id] || {})[c.name]

@@ -103,6 +103,13 @@ export default function UseCases() {
       {/* Input fields */}
       <div className="card" style={{ padding: 16, ...sec }}>
         <div style={h}>1 · Input (what the user / sheet provides)</div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+          <span className="meta">What one input is called, singular and plural (shown on screen):</span>
+          <input style={{ ...inp, width: 150 }} maxLength={40} placeholder="singular, e.g. demand" value={(uc.input.item_label || {}).singular || ''}
+            onChange={e => patch(d => { d.input.item_label = { ...d.input.item_label, singular: e.target.value } })} />
+          <input style={{ ...inp, width: 150 }} maxLength={40} placeholder="plural, e.g. demands" value={(uc.input.item_label || {}).plural || ''}
+            onChange={e => patch(d => { d.input.item_label = { ...d.input.item_label, plural: e.target.value } })} />
+        </div>
         {uc.input.item_fields.map((f, i) => (
           <div key={i} style={{ marginBottom: 10 }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
@@ -202,6 +209,9 @@ export default function UseCases() {
                     onChange={e => patch(d => { d.stages[si].output.columns[ci].evidence_required = e.target.checked })} />
                   A cited source is required (if none is found, the architect is asked)
                 </label>
+                <input style={inp} maxLength={80} placeholder="Activity: the short sentence shown while it is worked, e.g. Classifying domains"
+                  value={c.activity || ''}
+                  onChange={e => patch(d => d.stages[si].output.columns[ci].activity = e.target.value)} />
                 <input style={inp} maxLength={300} placeholder="Info needed: what to ask for when the source is missing"
                   value={c.info_needed || ''}
                   onChange={e => patch(d => d.stages[si].output.columns[ci].info_needed = e.target.value)} />
