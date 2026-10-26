@@ -3,7 +3,7 @@
   "name": "Demand Management",
   "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
   "enabled": true,
-  "version": 2,
+  "version": 3,
   "trigger": "user_selects",
   "input": {
     "mode": "list",
@@ -44,74 +44,142 @@
     {
       "id": "screening",
       "name": "Screening & Impact Assessment",
-      "instructions": "Classify the demand (architecture domain, business capability, category), prioritize it, record the mandate/objective, map impact to business capabilities, services, applications and their owners, check conformance against principles and security controls, and flag duplicates within the list and against existing artefacts. Answer only what the knowledge base supports; for anything it doesn't, say what is needed rather than guessing.",
+      "instructions": "Screen each demand and assess its impact, filling the columns below. First decide whether it is a true demand. If it is not (not yet complete, an incident, or a standard service), answer only what can still be answered and write Not assessed in the other columns. Use Not applicable where a step does not apply to this kind of demand, None where you checked and found nothing, and No link found or Not identified where a link or capability could not be found. Answer only what the knowledge base supports; for anything it does not, say what is needed rather than guessing.",
       "output": {
         "mode": "table",
         "columns": [
           {
-            "name": "Domain",
-            "type": "text"
+            "name": "Is it a true demand?",
+            "type": "text",
+            "description": "Yes, or Not yet: return for information when the request is incomplete, or the type of not-a-demand (for example No: incident, No: standard service)."
           },
           {
-            "name": "Category",
+            "name": "Demand type",
             "type": "enum",
+            "description": "Digital, Technical or People. Not assessed when the demand is not a true demand.",
             "values": [
-              "Business",
-              "Data",
-              "Application",
-              "Integration",
-              "Technology"
+              "Digital",
+              "Technical",
+              "People",
+              "Not assessed"
+            ]
+          },
+          {
+            "name": "Domain",
+            "type": "list",
+            "description": "Architecture domains, main one first: Business, Data, Application, Integration, Technology, Security. A technical demand is Application, Data, Technology or Security. A people demand has no domain: write Not applicable."
+          },
+          {
+            "name": "Urgency",
+            "type": "enum",
+            "description": "Critical, High, Medium or Low. Set from the deadline and what happens if it is missed. Not assessed when the demand is not a true demand.",
+            "values": [
+              "Critical",
+              "High",
+              "Medium",
+              "Low",
+              "Not assessed"
             ]
           },
           {
             "name": "Priority",
             "type": "enum",
+            "description": "Fast-track, Standard or Backlog, from the weighted score of the prioritization model. No score when the demand is not assessed.",
             "values": [
-              "High",
-              "Medium",
-              "Low"
+              "Fast-track",
+              "Standard",
+              "Backlog",
+              "No score"
             ]
           },
           {
-            "name": "Mandate / objective",
-            "type": "text"
+            "name": "Mandate / business or DT objective",
+            "type": "text",
+            "description": "Objective and initiative IDs from the strategy, and any mandate. Write No link found if none."
+          },
+          {
+            "name": "Linked initiative or project",
+            "type": "text",
+            "description": "Initiative or project IDs from the roadmap and the initiative list. Write No link found if none."
           },
           {
             "name": "Impacted business capability",
-            "type": "list"
+            "type": "list",
+            "description": "Capability names from the business architecture. Write Not identified if none."
           },
           {
             "name": "Impacted application",
-            "type": "list"
-          },
-          {
-            "name": "Owners",
-            "type": "list"
+            "type": "list",
+            "description": "Names with IDs from the application inventory or the contract register."
           },
           {
             "name": "Is duplicate",
             "type": "enum",
+            "description": "Whether another demand in the sheet or an existing artefact already covers the same need.",
             "values": [
               "Yes",
-              "Partial",
-              "No"
+              "No",
+              "Possible",
+              "Not assessed"
             ]
           },
           {
-            "name": "Duplicate demand number",
-            "type": "text"
+            "name": "Duplicate demand number (in the sheet)",
+            "type": "text",
+            "description": "Demand ID from the Input sheet, or blank."
           },
           {
-            "name": "Duplicate with existing artefact",
-            "type": "text"
+            "name": "Duplicate with existing artefact / artefact name",
+            "type": "text",
+            "description": "ID and name of the existing application, service, initiative or contract, or None."
+          },
+          {
+            "name": "Architecture principles and standards alignment",
+            "type": "enum",
+            "description": "Checked against the architecture principles and standards, including the security standards.",
+            "values": [
+              "Conforms",
+              "Conflict found",
+              "Not checked"
+            ]
+          },
+          {
+            "name": "Data classification",
+            "type": "enum",
+            "description": "Level of the data involved, checked against the organization's data classification standard and the national data classification standard.",
+            "values": [
+              "Public",
+              "Internal",
+              "Confidential",
+              "Restricted",
+              "Not stated",
+              "Not assessed"
+            ]
+          },
+          {
+            "name": "Linked security capability",
+            "type": "list",
+            "description": "Digital or technical demand: the security capabilities it touches, at a general level (based on the NORA framework). People demand: Not applicable. The detailed assessment is with the security and infrastructure teams."
+          },
+          {
+            "name": "Security review needed",
+            "type": "enum",
+            "description": "Yes for every digital or technical demand: review by the cyber team.",
+            "values": [
+              "Yes",
+              "No",
+              "Not assessed"
+            ]
           },
           {
             "name": "Screening observation",
-            "type": "text"
+            "type": "text",
+            "description": "Free text with all the insights for the architect: what was found, what is unclear, what to confirm. Say if it is a digital, technical or people demand; a digital or technical demand needs a security review by the cyber team."
           },
           {
             "name": "Evidence",
-            "type": "citations"
+            "type": "citations",
+            "description": "The source blocks that support the answers above. Added by the system; not part of the EA team's sheet."
           }
         ]
       }
@@ -175,5 +243,5 @@
       }
     }
   ],
-  "updated_at": "2026-10-22T18:03:24+00:00"
+  "updated_at": "2026-10-26T03:12:44+00:00"
 }
