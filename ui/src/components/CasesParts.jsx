@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useCite } from '../cite'
 
 // ---- chips: how a cell reads ---------------------------------------------------------
@@ -41,48 +41,88 @@ export function PhaseTrack({ phases, viewed, onPick }) {
   )
 }
 
-// ---- the live card (calm: one sentence and a bar) ---------------------------------------
-export function LiveCard({ phase, events, items, onCancel }) {
-  const cols = phase.columns.length
-  const total = items.length * cols
-  const done = Object.values(phase.progress).reduce((a, b) => a + b, 0)
-  const step = [...events].reverse().find(e => e.kind === 'step' && e.data.phase === phase.id)
-  const label = step ? step.data.label : 'Starting'
+// ---- the live card: pinned while a phase runs ------------------------------------------------
+const clock = (sec) => { const m = Math.floor(sec / 60), r = Math.floor(sec % 60); return m + ':' + String(r).padStart(2, '0') }
+
+export function stepStates(phase) {
+  const total = phase.state.total || 0
+  let found = false
+  return (phase.steps || []).map(st => {
+    const n = Math.min(...st.columns.map(c => phase.progress[c] || 0))
+    const done = total > 0 && n >= total
+    const run = !done && !found
+    if (run) found = true
+    const names = st.columns.length > 3 ? `${st.columns.slice(0, 3).join(', ')} and ${st.columns.length - 3} more` : st.columns.join(', ')
+    return { ...st, label: st.columns.length === 1 ? st.label : names, n, state: done ? 'done' : run ? 'run' : 'pend' }
+  })
+}
+
+export function LiveCard({ phase, events, data, waiting, onCancel }) {
+  const [more, setMore] = useState(true)
+  const steps = stepStates(phase)
+  const total = phase.state.total || data.items.length
+  const cur = steps.find(s => s.state === 'run')
+  const done = steps.filter(s => s.state === 'done').length
+  const label = waiting ? 'Waiting for your answer' : cur ? cur.label : 'Starting'
+  const sub = waiting ? 'The other demands keep going' : cur ? `${cur.n} of ${total} demand${total === 1 ? '' : 's'}` : ''
+  const elapsed = phase.state.started ? Math.max(0, Date.now() / 1000 - phase.state.started) : 0
+  const cells = (data.cells[phase.id]) || {}
+  const feed = events.filter(e => e.kind === 'cell' && e.data.phase === phase.id && e.data.status !== 'user').slice(-3).reverse()
   return (
-    <div className="cs-card cs-live">
+    <div className="cs-card cs-live cs-pin">
       <div className="lv">
-        <span className="cs-spin" />
-        <div style={{ flex: 1, minWidth: 0 }}><b>Working: {label}</b><small>{done} of {total} answers recorded</small></div>
+        <span className={'cs-spin'} />
+        <div style={{ flex: 1, minWidth: 0 }}><b>{label}</b><small>{sub}{steps.length ? ` · step ${Math.min(done + 1, steps.length)} of ${steps.length}` : ''}</small></div>
+        <span className="t">{clock(elapsed)}</span>
         <button className="btn sm" onClick={onCancel}>Stop</button>
       </div>
-      <div className="cs-bar2"><i style={{ width: Math.min(100, total ? (100 * done) / total : 0) + '%' }} /></div>
+      {steps.length > 0 && <div className="cs-seg" title={`${done} of ${steps.length} steps done`}>{steps.map((s, i) => <i key={i} className={s.state} />)}</div>}
+      {feed.length > 0 && (more
+        ? <><ul className="cs-feed">{feed.map((e, i) => { const c = (cells[e.data.item] || {})[e.data.column]
+            return <li key={i}><span className="id">{e.data.item.slice(-3)}</span><span>{e.data.column}{c && show(c.value) ? ': ' + String(show(c.value)).slice(0, 70) : ''}</span></li> })}</ul>
+          <button className="cs-link" style={{ justifySelf: 'start', fontSize: 12.5 }} onClick={() => setMore(false)}>Hide details</button></>
+        : <button className="cs-link" style={{ justifySelf: 'start', fontSize: 12.5 }} onClick={() => setMore(true)}>Show what was just decided</button>)}
     </div>
   )
 }
 
-// ---- a question to the architect --------------------------------------------------------
-export function AskCard({ q, title, onAnswer }) {
+// ---- a question to the architect: give the value, or say where to look --------------------------
+export function AskCard({ q, title, docs, onAnswer }) {
+  const [mode, setMode] = useState('value')
+  const [text, setText] = useState('')
+  const [doc, setDoc] = useState('')
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { setBusy(false) }, [q.text])          // a retry came back: the card is live again
+  const send = async (body) => { setBusy(true); try { await onAnswer(body) } catch { setBusy(false) } }
   return (
     <div className="cs-msg"><div className="cs-av">AA</div>
       <div className="cs-body"><div className="cs-card cs-ask">
         <div className="eyebrow" style={{ color: 'var(--warn)' }}>I need one answer</div>
         <h4>{q.item_id}{title ? ' · ' + title : ''}: {q.column}</h4>
         <div className="cs-muted" style={{ fontSize: 13 }}>{q.text}</div>
-        <AskForm onAnswer={onAnswer} />
+        <div className="cs-seg2" role="group" aria-label="How to answer">
+          <button aria-pressed={mode === 'value'} onClick={() => setMode('value')}>Give the value</button>
+          <button aria-pressed={mode === 'look'} onClick={() => setMode('look')}>Look here</button>
+        </div>
+        {mode === 'look' && (
+          <select value={doc} onChange={e => setDoc(e.target.value)} aria-label="Document to look in">
+            <option value="">Any ingested document</option>
+            {(docs || []).map(d => <option key={d} value={d}>{d}</option>)}
+          </select>)}
+        <textarea rows={2} value={text} onChange={e => setText(e.target.value)} disabled={busy}
+          placeholder={mode === 'value'
+            ? 'Type the value. It is recorded as from you, not as a sourced fact.'
+            : 'Where in it, in words (optional if you chose a document), for example: the HR row of the roadmap'} />
+        <div className="cs-actions" style={{ marginTop: 8 }}>
+          {mode === 'value'
+            ? <button className="btn primary sm" disabled={busy || !text.trim()} onClick={() => send({ answer: text.trim() })}>Use this as the answer</button>
+            : <button className="btn primary sm" disabled={busy || (!doc && !text.trim())}
+                onClick={() => send({ mode: 'look', document: doc || null, where: text.trim() })}>{busy ? 'Looking…' : 'Look here'}</button>}
+          <button className="btn sm" disabled={busy} onClick={() => send({ answer: null })}>I don't know</button>
+        </div>
+        {mode === 'look' && <div className="note">The document must be ingested. If it is not, add it under Sources first, or give the value.</div>}
       </div></div>
     </div>
-  )
-}
-function AskForm({ onAnswer }) {
-  const [text, setText] = useState('')
-  return (
-    <>
-      <textarea rows={2} value={text} onChange={e => setText(e.target.value)} placeholder="Type the answer. It is recorded as from you, not as a sourced fact." />
-      <div className="cs-actions" style={{ marginTop: 8 }}>
-        <button className="btn primary sm" disabled={!text.trim()} onClick={() => onAnswer(text.trim())}>Answer</button>
-        <button className="btn sm" onClick={() => onAnswer(null)}>I don't know</button>
-      </div>
-    </>
   )
 }
 

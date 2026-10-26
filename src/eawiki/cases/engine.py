@@ -59,6 +59,25 @@ def levels(columns: list[dict]) -> list[list[dict]]:
     return out
 
 
+def steps(spec: dict, stage: dict, first: bool) -> list[dict]:
+    """The rounds a phase runs, in order, so the screen can show a segmented bar: the gate, then
+    each level of properties, then the summaries. Mirrors run_phase."""
+    gname = gate_column(spec)
+    cols = stage["output"]["columns"]
+    out = []
+    if first and (spec.get("validation") or {}).get("enabled") is not False and any(c["name"] == gname for c in cols):
+        out.append({"label": "Checking each demand is a true demand", "columns": [gname]})
+    summ = set(summary_columns(stage))
+    skip = {gname} if first else set()
+    main = [c for c in cols if c["name"] not in skip | summ and c.get("type") != "citations"]
+    for level in levels(main):
+        out.append({"label": ", ".join(c["name"] for c in level), "columns": [c["name"] for c in level]})
+    last = [c["name"] for c in cols if c["name"] in summ]
+    if last:
+        out.append({"label": ", ".join(last), "columns": last})
+    return out
+
+
 def _show(v) -> str:
     return "; ".join(map(str, v)) if isinstance(v, list) else str(v)
 
@@ -259,6 +278,55 @@ class Engine:
         if dependants:
             self._spawn(lambda: self.run_phase(q["case_id"], q["phase_id"], only_item=q["item_id"], only_cols=dependants), background)
         return {"id": qid, "status": "answered", "rerun": sorted(dependants)}
+
+    def look(self, qid: str, document: Optional[str], where: Optional[str], background: bool = True) -> dict:
+        """The architect says where to look instead of giving the value: search that document (and
+        that wording) for this one cell. A cited answer is stored like any other; if nothing usable
+        is found the question stays open and says what was tried. Nothing is guessed."""
+        q = self.store.get_question(qid)
+        if not q or q["status"] != "open":
+            raise ValueError("no such open question")
+        document, where = (document or "").strip() or None, (where or "").strip()
+        if not document and not where:
+            raise ValueError("Name a document, or say where to look.")
+        tools = self.tools_factory()
+        if document and document not in (tools.doc_ids() or []):
+            raise ValueError(f"'{document}' is not an ingested document. Add it under Sources, or give the value.")
+        self._spawn(lambda: self._look(q, document, where, tools), background)
+        return {"id": qid, "status": "looking"}
+
+    def _look(self, q: dict, document: Optional[str], where: str, tools) -> None:
+        cid, pid = q["case_id"], q["phase_id"]
+        case = self.store.get_case(cid)
+        spec = case["spec"]
+        stage = next(s for s in spec["stages"] if phase_id(s) == pid)
+        col = next(c for c in stage["output"]["columns"] if c["name"] == q["column"])
+        it = next(i for i in case["items"] if i["_id"] == q["item_id"])
+        fields = [f["name"] for f in (spec.get("input") or {}).get("item_fields") or []]
+        plan = pmod.build_plan(col, fields, tools.doc_ids(), tools.llm_json, self._plans)
+        hint = {"document": document, "where": where}
+        pointed = "; ".join(x for x in (f"document {document}" if document else "", where) if x)
+        try:
+            others = [o for o in case["items"] if o["_id"] != it["_id"]]
+            ev = gmod.gather(tools, plan, spec, it, others, {}, hint)
+            cell = smod.solve(col, it, spec, ev, self._decided(cid, pid, it["_id"]), tools.llm_json)
+        except Exception as e:
+            cell = {"status": "needs_input", "need": f"The search failed ({type(e).__name__}).", "how": [], "value": "",
+                    "evidence": [], "source": "model"}
+        if cell["status"] == "answered":
+            self.store.save_cell(cid, it["_id"], pid, col["name"], value=cell["value"], status="answered", source="model",
+                                 evidence=cell["evidence"], how=[f"The architect pointed to: {pointed}."] + cell["how"], need="")
+            qid = q["id"]
+            self.store.close_question(qid, "answered", f"look: {pointed}")
+            self.store.add_event(cid, "cell", {"phase": pid, "item": it["_id"], "column": col["name"], "status": "answered"})
+            self.store.add_event(cid, "question_closed", {"id": qid})
+            deps = self._dependants(stage, col["name"])
+            if deps:
+                self.run_phase(cid, pid, only_item=it["_id"], only_cols=deps)
+        else:
+            self.store.set_question_text(q["id"], f"Looked at {pointed} and found nothing that decides '{col['name']}'. "
+                                         + (cell.get("need") or "") + " Point somewhere else, or give the value.")
+            self.store.add_event(cid, "question", {"phase": pid, "item": it["_id"], "column": col["name"], "retry": True})
 
     @staticmethod
     def _dependants(stage: dict, column: str) -> set:

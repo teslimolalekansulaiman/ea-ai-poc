@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Markdown, useCite } from '../cite'
 import '../cases.css'
@@ -21,80 +21,57 @@ function download(name, text) {
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-// ---- no case yet: attach a sheet or type one demand --------------------------------------------
-function Intake({ ucs, onStarted }) {
-  const [ucId, setUcId] = useState('')
+// ---- no case yet: attach a sheet or type one demand; Enter starts the run -------------------------
+function Intake({ ucs }) {
   const [text, setText] = useState('')
   const [file, setFile] = useState(null)
-  const [parsed, setParsed] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [recent, setRecent] = useState([])
   const nav = useNavigate()
   const fileRef = useRef(null)
-  useEffect(() => { if (!ucId && ucs.length) setUcId(ucs[0].id) }, [ucs, ucId])
+  const uc = ucs.find(u => u.enabled !== false)                                            // chosen automatically; changed from the case card
   useEffect(() => { api.casesList().then(r => setRecent(r.cases || [])).catch(() => {}) }, [])
-  const uc = ucs.find(u => u.id === ucId)
 
-  const parse = async () => {
-    setErr(''); setParsed(null); setBusy(true)
+  const start = async () => {
+    if (busy || !uc || (!file && !text.trim())) return
+    setErr(''); setBusy(true)
     try {
-      const r = file ? await api.caseParseFile(ucId, file) : await api.caseParseText(ucId, text)
-      if (r.error) setErr(r.error); else setParsed(r)
-    } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) }
-  }
-  const run = async () => {
-    setBusy(true); setErr('')
-    try {
-      const name = file ? file.name.replace(/\.[^.]+$/, '') : (parsed.items[0]?._id || 'Demand')
-      const r = await api.caseCreate({ use_case_id: ucId, items: parsed.items, name: parsed.items.length > 1 && !file ? `${parsed.items.length} demands` : name })
-      onStarted(r.id)
+      const r = file ? await api.caseParseFile(uc.id, file) : await api.caseParseText(uc.id, text)
+      if (r.error) { setErr(r.error); setBusy(false); return }
+      const name = file ? file.name.replace(/\.[^.]+$/, '') : (r.items[0]?._id || 'Demand')
+      const c = await api.caseCreate({ use_case_id: uc.id, items: r.items, name })
+      nav('/cases/' + c.id, { state: { unmatched: r.unmatched || [] } })
     } catch (e) { setErr(String(e.message || e)); setBusy(false) }
   }
-  const reset = () => { setParsed(null); setFile(null); setText(''); setErr('') }
 
-  if (!ucs.length) return <div className="cs-scroll"><div className="cs-col cs-empty"><h1>No use case yet</h1>
+  if (!uc) return <div className="cs-scroll"><div className="cs-col cs-empty"><h1>No use case yet</h1>
     <p className="cs-muted">Create one under <b>Config</b>, then come back to run demands through it.</p></div></div>
 
   return (
     <>
       <div className="cs-scroll"><div className="cs-col cs-empty">
         <div><div className="eyebrow">Use case</div>
-          <h1>{uc ? uc.name : 'Use cases'}</h1>
-          <p className="cs-muted" style={{ marginTop: 6 }}>{uc?.description || 'Attach the demands to assess.'}</p></div>
-        {ucs.length > 1 && <select value={ucId} onChange={e => { setUcId(e.target.value); reset() }} aria-label="Use case">
-          {ucs.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}</select>}
-
-        {parsed && (
-          <div className="cs-card">
-            <div className="eyebrow">Read from {file ? file.name : 'your text'}</div>
-            <h3>{parsed.items.length} demand{parsed.items.length === 1 ? '' : 's'} found</h3>
-            <div className="cs-minilist">{parsed.items.slice(0, 6).map(it => (
-              <div key={it._id}><span>{it._id}</span><span>{show(it[uc?.input?.title_field] ?? Object.values(it).find(v => typeof v === 'string' && v !== it._id))}</span></div>))}
-              {parsed.items.length > 6 && <div><span>…</span><span className="cs-muted">and {parsed.items.length - 6} more</span></div>}</div>
-            {parsed.unmatched?.length > 0 && <p className="cs-muted" style={{ margin: '8px 0 0', fontSize: 13 }}>
-              Columns not recognised and ignored: {parsed.unmatched.join(', ')}.</p>}
-            <div className="cs-actions"><button className="btn primary" disabled={busy} onClick={run}>Run {parsed.items.length} demand{parsed.items.length === 1 ? '' : 's'}</button>
-              <button className="btn" onClick={reset}>Start over</button></div>
-          </div>)}
+          <h1>{uc.name}</h1>
+          <p className="cs-muted" style={{ marginTop: 6 }}>{uc.description || 'Attach the demands to assess.'}</p></div>
         {err && <div className="cs-need">{err}</div>}
-
-        {recent.length > 0 && !parsed && (<div><div className="eyebrow" style={{ marginBottom: 6 }}>Recent cases</div>
+        {recent.length > 0 && (<div><div className="eyebrow" style={{ marginBottom: 6 }}>Recent cases</div>
           <div className="cs-recents">{recent.slice(0, 6).map(c => (
             <button key={c.id} onClick={() => nav('/cases/' + c.id)}><span>{c.name}</span><span className="cs-faint" style={{ fontSize: 12 }}>{when(c.created_at)}</span></button>))}</div></div>)}
       </div></div>
 
-      {!parsed && (
-        <div className="cs-composer-wrap"><div className="cs-composer">
-          {file ? <span className="cs-file">{file.name}<button aria-label="Remove file" onClick={() => setFile(null)}>✕</button></span>
-            : <textarea rows={2} value={text} onChange={e => setText(e.target.value)}
-                placeholder="Paste a demand, or attach the sheet (CSV or Excel) with one demand per row" />}
-          <div className="cs-crow">
-            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xlsm" hidden onChange={e => { setFile(e.target.files[0] || null); e.target.value = '' }} />
-            <button className="btn sm" onClick={() => fileRef.current.click()}>Attach sheet</button>
-            <span className="sp" />
-            <button className="btn primary sm" disabled={busy || !ucId || (!file && !text.trim())} onClick={parse}>{busy ? 'Reading…' : 'Read demands'}</button>
-          </div></div></div>)}
+      <div className="cs-composer-wrap"><div className="cs-composer">
+        {file && <span className="cs-file">{file.name}<button aria-label="Remove file" onClick={() => setFile(null)}>✕</button></span>}
+        <textarea rows={2} value={text} disabled={busy} onChange={e => setText(e.target.value)}
+          placeholder={file ? 'Press Enter to start with this sheet' : 'Type or paste a demand, or attach a sheet (CSV or Excel) with one demand per row'}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); start() } }} />
+        <div className="cs-crow">
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xlsm" hidden onChange={e => { setFile(e.target.files[0] || null); e.target.value = '' }} />
+          <button className="btn sm" onClick={() => fileRef.current.click()}>Attach sheet</button>
+          <span className="cs-pill info">Using {uc.name}</span>
+          <span className="sp" />
+          <button className="btn primary sm" disabled={busy || (!file && !text.trim())} onClick={start}>{busy ? 'Starting…' : 'Start'}</button>
+        </div></div></div>
     </>
   )
 }
@@ -106,7 +83,11 @@ function Case({ id }) {
   const [data, setData] = useState(null)
   const [events, setEvents] = useState([])
   const [viewed, setViewed] = useState(null)
-  const [wsOpen, setWsOpen] = useState(false)
+  const [wsOpen, setWsOpen] = useState(() => window.innerWidth >= 1500)
+  const [docs, setDocs] = useState([])
+  const [pop, setPop] = useState(false)
+  const [ucs, setUcs] = useState([])
+  const unmatched = useLocation().state?.unmatched || []
   const [tab, setTab] = useState('demands')
   const [openItem, setOpenItem] = useState(null)
   const [openCol, setOpenCol] = useState(null)
@@ -130,6 +111,7 @@ function Case({ id }) {
       setData(d)
     } catch (e) { setErr(String(e.message || e)) }
   }, [id])
+  useEffect(() => { api.caseDocuments().then(r => setDocs(r.documents || [])).catch(() => {}) }, [])
   useEffect(() => { seq.current = 0; setEvents([]); setData(null); setThread([]); setViewed(null); load() }, [id, load])
 
   const running = !!data && data.phases.some(p => p.state.status === 'running')
@@ -171,6 +153,15 @@ function Case({ id }) {
     } catch (e) { setThread(t => [...t, { role: 'bot', text: 'That did not work: ' + String(e.message || e) }]) } finally { setAsking(false) }
   }
 
+  const openPop = () => { setPop(p => !p); if (!ucs.length) api.usecases().then(r => setUcs(r.usecases || [])).catch(() => {}) }
+  const changeUc = (u) => act(async () => {
+    setPop(false)
+    await api.caseCancel(id)
+    const r = await api.caseCreate({ use_case_id: u.id, items: data.items, name: data.case.name })
+    await api.caseDelete(id)
+    nav('/cases/' + r.id, { replace: true })
+  })
+
   if (err && !data) return <div className="cs-scroll"><div className="cs-col"><div className="cs-need">{err}</div><button className="btn" onClick={() => nav('/cases')}>Back</button></div></div>
   if (!data || !phase) return <div className="cs-scroll"><div className="cs-col cs-muted">Loading…</div></div>
 
@@ -184,22 +175,31 @@ function Case({ id }) {
           <div className="cs-top">
             <div className="ttl"><b>{data.case.name}</b><span>{data.case.use_case_name} · {data.items.length} demand{data.items.length === 1 ? '' : 's'}</span></div>
             <button className="btn sm" onClick={() => nav('/cases')}>New case</button>
-            <button className="btn sm cs-openwork" onClick={() => setWsOpen(true)}>Workspace</button>
+            <button className="btn sm" onClick={() => setWsOpen(o => !o)} aria-expanded={wsOpen}>{wsOpen ? 'Hide workspace' : 'Workspace'}</button>
           </div>
           <PhaseTrack phases={data.phases} viewed={phaseId} onPick={setViewed} />
         </div>
 
         <div className="cs-scroll" ref={scroller}><div className="cs-col">
-          <div className="cs-msg u"><div className="cs-bubble">{data.case.name}: {data.items.length} demand{data.items.length === 1 ? '' : 's'}, {phase.name}</div></div>
+          <div className="cs-msg"><div className="cs-av">AA</div><div className="cs-body"><div className="cs-card">
+            <div className="eyebrow">New case</div><h3>{data.case.name}</h3>
+            <div className="cs-det">{data.items.length} demand{data.items.length === 1 ? '' : 's'} found · using <span className="cs-pill info">{data.case.use_case_name}</span> · {data.phases.length} phase{data.phases.length === 1 ? '' : 's'}
+              <button className="cs-link" onClick={openPop}>Change</button>
+              {pop && <div className="cs-pop" role="menu">{ucs.map(u => (
+                <button key={u.id} disabled={u.id === data.case.use_case_id || u.enabled === false} onClick={() => changeUc(u)}>
+                  <span>{u.name}</span><span className="cs-faint">{u.id === data.case.use_case_id ? 'selected' : u.enabled === false ? 'planned' : 'switch'}</span></button>))}
+                {ucs.length === 0 && <span className="cs-faint" style={{ padding: '6px 10px' }}>Loading…</span>}</div>}</div>
+            {unmatched.length > 0 && <p className="cs-muted" style={{ margin: '8px 0 0', fontSize: 13 }}>Columns not recognised and ignored: {unmatched.join(', ')}.</p>}
+          </div></div></div>
 
           {!started && <div className="cs-card cs-muted">{phase.name} has not started. {idx > 0 ? `It begins when you approve ${data.phases[idx - 1].name}.` : ''}</div>}
-          {runningHere && <div className="cs-msg"><div className="cs-av">AA</div><div className="cs-body">
-            <LiveCard phase={phase} events={events} items={data.items}
+          {runningHere && <div className="cs-msg"><div className="cs-av">AA</div><div className="cs-body" style={{ minWidth: 0 }}>
+            <LiveCard phase={phase} events={events} data={data} waiting={false}
               onCancel={() => act(() => api.caseCancel(id))} /></div></div>}
 
-          {shownQs.map(x => <AskCard key={x.id} q={x} title={titleOf(x.item_id)}
-            onAnswer={(a) => act(() => api.caseAnswer(id, x.id, a))} />)}
-          {openQs.length > shownQs.length && <div className="cs-msg"><div className="cs-av" /><div className="cs-body">
+          {shownQs.map(x => <AskCard key={x.id} q={x} title={titleOf(x.item_id)} docs={docs}
+            onAnswer={(body) => act(() => api.caseAnswer(id, x.id, body))} />)}
+          {openQs.length > shownQs.length && <div className="cs-msg"><div className="cs-av" style={{ visibility: 'hidden' }}>AA</div><div className="cs-body">
             <button className="btn sm" onClick={() => setShowAllQs(true)}>Show the other {openQs.length - shownQs.length} question{openQs.length - shownQs.length === 1 ? '' : 's'}</button></div></div>}
 
           {hasResult && <ResultCard phase={phase} next={next} busy={busy || runningHere}
@@ -243,10 +243,9 @@ function Case({ id }) {
 
 export default function Cases() {
   const { id } = useParams()
-  const nav = useNavigate()
   const [ucs, setUcs] = useState([])
   useEffect(() => { api.usecases().then(r => setUcs(r.usecases || [])).catch(() => {}) }, [])
   return <div style={{ height: '100%', minHeight: 0 }}>
-    {id ? <Case key={id} id={id} /> : <div className="cs-root"><div className="cs-main"><Intake ucs={ucs} onStarted={(cid) => nav('/cases/' + cid)} /></div></div>}
+    {id ? <Case key={id} id={id} /> : <div className="cs-root"><div className="cs-main"><Intake ucs={ucs} /></div></div>}
   </div>
 }

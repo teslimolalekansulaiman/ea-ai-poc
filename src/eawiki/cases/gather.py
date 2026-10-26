@@ -52,10 +52,24 @@ def _fill(template: str, item: dict, text: str) -> str:
         return text
 
 
+def with_hint(plan: dict, hint: dict) -> dict:
+    """The plan for one cell when the architect said where to look: their document (if they named
+    one) is searched alone, and what they wrote about where in it leads the search wording."""
+    p = dict(plan)
+    p["sources"] = list(dict.fromkeys(list(plan["sources"]) + ["documents"]))
+    if hint.get("document"):
+        p["documents"] = [hint["document"]]
+    where = (hint.get("where") or "").strip()
+    p["queries"] = ([where] if where else []) + list(plan["queries"])
+    return p
+
+
 def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
-           link_cache: Optional[dict] = None) -> dict:
+           link_cache: Optional[dict] = None, hint: Optional[dict] = None) -> dict:
     text = item_text(spec, item)
-    ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "allowed": set(), "used": []}
+    ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "allowed": set(), "used": [], "hint": hint}
+    if hint:
+        plan = with_hint(plan, hint)
     if "demand" in plan["sources"]:
         for name, (label, v) in labelled_fields(spec, item).items():
             ev["demand"][name] = (label, v)
@@ -70,7 +84,8 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                 if b["block_id"] not in seen:
                     seen.add(b["block_id"])
                     blocks.append(b)
-        if docs and len(blocks) < 4:             # the named documents had little: widen to the rest
+        if docs and len(blocks) < 4 and not (hint and hint.get("document")):   # the plan's documents had little: widen to the rest
+            # (never when the architect named the document: say it was empty rather than look elsewhere)
             for b in tools.search(_fill(plan["queries"][0], item, text), 6, None) or []:
                 if b["block_id"] not in seen:
                     seen.add(b["block_id"])
@@ -111,6 +126,11 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
 
 def render(ev: dict) -> str:
     out = []
+    h = ev.get("hint")
+    if h:
+        out.append("THE ARCHITECT POINTED YOU HERE: " + "; ".join(
+            x for x in (f"document {h['document']}" if h.get("document") else "", h.get("where") or "") if x)
+            + ". Use what the source blocks below say; if they do not answer it, say so.")
     if ev["demand"]:
         out.append("DEMAND FIELDS:\n" + "\n".join(f"  [demand:{k}] {label}: {v}" for k, (label, v) in ev["demand"].items()))
     if ev["blocks"]:

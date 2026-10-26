@@ -191,6 +191,10 @@ class CaseStore(history._Store):
         return {"id": r["id"], "case_id": r["case_id"], "item_id": r["item_id"], "phase_id": r["phase_id"],
                 "column": r["col"], "text": r["text"], "status": r["status"], "answer": r["answer"]}
 
+    def set_question_text(self, qid: str, text: str) -> None:
+        with self._conn() as c:
+            c.execute(self._sql("UPDATE questions SET text=? WHERE id=?"), (text, qid))
+
     def close_question(self, qid: str, status: str, answer: str = "") -> None:
         with self._conn() as c:
             c.execute(self._sql("UPDATE questions SET status=?, answer=? WHERE id=?"), (status, answer, qid))

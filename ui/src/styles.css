@@ -80,6 +80,14 @@ button{font-family:inherit}
 .iconbtn:hover{color:var(--fg);border-color:var(--border-strong)}
 .iconbtn svg{width:17px;height:17px}
 
+/* ---- icon rail: the use-case screens give the room to the work ---- */
+.app.rail .sidebar{flex-basis:60px;padding:14px 8px;align-items:center}
+.app.rail .side-brand{padding:2px 0 8px}
+.app.rail .side-title,.app.rail .side-link span,.app.rail .side-new span,.app.rail .side-recents,.app.rail .side-history{display:none}
+.app.rail .side-new{width:40px;height:40px;padding:0}
+.app.rail .side-nav{flex:1}
+.app.rail .side-link{padding:10px;justify-content:center}
+
 /* ---- view area ---- */
 .view-area{flex:1;min-width:0;overflow:auto}
 .view{display:block}

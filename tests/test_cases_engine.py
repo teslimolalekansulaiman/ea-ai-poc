@@ -47,6 +47,9 @@ def fake_llm(prompt: str):
         return {"outcome": "No: incident", "reason": "The VPN worked before."} if "VPN" in prompt else {"outcome": "Yes", "reason": ""}
     m = re.search(r"PROPERTY: (.+?)  \[", prompt)
     name = m.group(1)
+    if "THE ARCHITECT POINTED YOU HERE" in prompt and "document Roadmap" in prompt:
+        ids = re.findall(r"\[([^\]\s]+:\d+)\]", prompt)
+        return {"value": "P-12 HR cloud move", "status": "answered", "evidence": ids[:1], "needs": "", "note": "found in the roadmap"}
     val = CANNED.get(name)
     ids = re.findall(r"\[([^\]\s]+:\d+)\]", prompt)
     if val is None:
@@ -57,10 +60,11 @@ def fake_llm(prompt: str):
 
 def fake_tools():
     block = {"block_id": "Strategy:1", "doc_id": "Strategy", "text": "O-02 employee requests handled digitally."}
-    return gmod.Tools(search=lambda q, k, docs: [block], blocks_by_ids=lambda ids: [block],
+    road = {"block_id": "Roadmap:7", "doc_id": "Roadmap", "text": "P-12 HR cloud move, owner HR."}
+    return gmod.Tools(search=lambda q, k, docs: [road] if docs == ["Roadmap"] else ([] if docs else [block]), blocks_by_ids=lambda ids: [block],
                       link=lambda t: {"entities": [{"mention": "HR system", "ids": ["hr"], "names": ["HR system"]}]},
                       graph_facts=lambda ids: {"facts": "HR system --is_deployed_on--> Oracle DB", "block_ids": ["Strategy:1"]},
-                      llm_json=fake_llm, doc_ids=lambda: ["Strategy", "Gap_Analysis_Sample"])
+                      llm_json=fake_llm, doc_ids=lambda: ["Strategy", "Gap_Analysis_Sample", "Roadmap"])
 
 
 def _engine():
@@ -122,6 +126,29 @@ def test_a_sheet_runs_asks_for_what_is_missing_and_moves_to_the_next_phase():
     e.approve(cid, "screening", background=False)
     rec = {(c["item_id"], c["column"]) for c in st.cells(cid, "recommendation")}
     assert {i for i, _ in rec} == {"D-2026-001", "D-2026-003", "D-2026-004"}
+
+
+def test_the_architect_can_point_at_a_document_instead_of_giving_the_value():
+    e = _engine()
+    cid = e.create(SPEC, ITEMS[:1], "look")
+    e.run_phase(cid, "screening")
+    q = next(q for q in e.store.questions(cid) if q["status"] == "open" and q["column"] == "Linked initiative or project")
+    for bad in (dict(document="Nope", where=""), dict(document=None, where="")):
+        try:
+            e.look(q["id"], bad["document"], bad["where"], background=False)
+            assert False, "should refuse"
+        except ValueError as err:
+            assert str(err)
+    # a document that has nothing: the question stays open and says what was tried; nothing is guessed
+    e.look(q["id"], "Strategy", "the roadmap row", background=False)
+    q2 = e.store.get_question(q["id"])
+    assert q2["status"] == "open" and "Looked at document Strategy" in q2["text"]
+    # the right document: answered with a real citation, the question closes
+    e.look(q["id"], "Roadmap", "HR cloud move", background=False)
+    assert e.store.get_question(q["id"])["status"] == "answered"
+    c = next(c for c in e.store.cells(cid, "screening") if c["column"] == "Linked initiative or project")
+    assert c["status"] == "answered" and c["source"] == "model" and c["evidence"] == ["Roadmap:7"]
+    assert c["how"][0].startswith("The architect pointed to: document Roadmap")
 
 
 def test_readiness_names_the_missing_document_and_the_empty_source():

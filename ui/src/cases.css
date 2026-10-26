@@ -1,9 +1,9 @@
 /* Use cases: a sheet of demands, a live run, the answers table. Uses the app's theme tokens. */
 .cs-root{display:flex;height:100%;min-height:0}
 .cs-main{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
-.cs-work{flex:0 0 400px;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;min-height:0;min-width:0}
+.cs-work{flex:0 0 340px;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;min-height:0;min-width:0}
 .cs-scroll{flex:1;min-height:0;overflow:auto}
-.cs-col{max-width:780px;margin:0 auto;padding:22px clamp(14px,3vw,24px) 26px;display:grid;gap:16px}
+.cs-col{max-width:900px;margin:0 auto;padding:22px clamp(14px,3vw,24px) 26px;display:grid;gap:16px}
 .cs-bar{padding:10px clamp(14px,3vw,22px);border-bottom:1px solid var(--border);background:var(--surface);display:grid;gap:10px}
 .cs-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .cs-top .ttl{min-width:0;flex:1 1 220px}
@@ -71,7 +71,7 @@
 
 /* composer */
 .cs-composer-wrap{padding:8px clamp(14px,3vw,22px) 14px}
-.cs-composer{max-width:780px;margin:0 auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:14px;box-shadow:var(--shadow);padding:10px 12px;display:grid;gap:8px}
+.cs-composer{max-width:900px;margin:0 auto;background:var(--surface);border:1px solid var(--border-strong);border-radius:14px;box-shadow:var(--shadow);padding:10px 12px;display:grid;gap:8px}
 .cs-composer textarea{font:inherit;color:var(--fg);background:transparent;border:none;resize:none;width:100%;min-height:44px;max-height:180px;outline:none;padding:2px}
 .cs-crow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .cs-crow .sp{flex:1}
@@ -144,5 +144,31 @@
   .cs-work.open{transform:none}
   .cs-scrim.on{display:block;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:25}
 }
-@media (min-width:1101px){ .cs-openwork{display:none} }
+@media (min-width:1101px){ .cs-work:not(.open){display:none} }
 @media (max-width:760px){ .cs-drawer{position:absolute;right:0;top:0;bottom:0} }
+
+/* pinned live card, step segments, feed */
+.cs-pin{position:sticky;top:0;z-index:5;box-shadow:var(--shadow)}
+.cs-seg{display:grid;gap:3px;grid-auto-flow:column;grid-auto-columns:1fr}
+.cs-seg i{height:6px;border-radius:3px;background:var(--surface-3)}
+.cs-seg i.done{background:var(--ok)}
+.cs-seg i.run{background:var(--accent);animation:cs-pulse 1.2s ease-in-out infinite}
+@keyframes cs-pulse{50%{opacity:.45}}
+@media (prefers-reduced-motion:reduce){.cs-seg i.run{animation:none}}
+.cs-live .t{margin-left:auto;font-variant-numeric:tabular-nums;color:var(--fg-muted);font-size:12.5px}
+.cs-feed{list-style:none;margin:0;padding:0;display:grid;gap:2px;font-size:12.5px;color:var(--fg-muted)}
+.cs-feed li{display:flex;gap:8px;min-width:0}
+.cs-feed li span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-feed .id{font-family:var(--mono);color:var(--fg-faint);flex:none}
+/* new case card + change popover */
+.cs-det{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13px;color:var(--fg-muted);margin-top:4px;position:relative}
+.cs-pop{position:absolute;top:100%;left:0;z-index:10;margin-top:6px;min-width:260px;background:var(--surface);border:1px solid var(--border-strong);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:4px;display:grid;gap:2px}
+.cs-pop button{display:flex;justify-content:space-between;gap:12px;border:none;background:none;text-align:left;padding:7px 10px;border-radius:6px;cursor:pointer;color:var(--fg);font-size:13px}
+.cs-pop button:hover:not([disabled]){background:var(--surface-2)}
+.cs-pop button[disabled]{color:var(--fg-faint);cursor:default}
+/* ask card modes */
+.cs-seg2{display:inline-flex;border:1px solid var(--border-strong);border-radius:99px;overflow:hidden;margin-top:8px}
+.cs-seg2 button{border:none;background:var(--surface);padding:3px 12px;font-size:12.5px;cursor:pointer;color:var(--fg-muted)}
+.cs-seg2 button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.cs-ask select{width:100%;margin-top:8px}
+.cs-ask .note{font-size:12.5px;color:var(--fg-muted);margin-top:6px}

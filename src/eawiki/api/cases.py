@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from eawiki import usecases
 from eawiki.cases import intake, summary
-from eawiki.cases.engine import Engine, gate_column, phase_id
+from eawiki.cases.engine import Engine, gate_column, phase_id, steps
 from eawiki.cases.store import store
 
 router = APIRouter(prefix="/api")
@@ -88,6 +88,12 @@ def _column_view(c: dict) -> dict:
                                   "evidence_required", "info_needed", "uses") if c.get(k) is not None}
 
 
+@router.get("/cases/documents")
+def documents():
+    """The ingested documents, for the 'look here' picker."""
+    return {"documents": sorted(get_engine().tools_factory().doc_ids() or [])}
+
+
 @router.get("/cases/{cid}")
 def get_case(cid: str, after: int = 0):
     st = store()
@@ -106,12 +112,12 @@ def get_case(cid: str, after: int = 0):
         p = progress.setdefault(c["phase_id"], {}).setdefault(c["column"], 0)
         progress[c["phase_id"]][c["column"]] = p + 1
     phases = []
-    for stage in spec["stages"]:
+    for si, stage in enumerate(spec["stages"]):
         pid = phase_id(stage)
         phases.append({"id": pid, "name": stage.get("name"), "instructions": stage.get("instructions", ""),
                        "columns": [_column_view(c) for c in stage["output"]["columns"]],
                        "state": case["state"].get("phases", {}).get(pid, {"status": "waiting"}),
-                       "progress": progress.get(pid, {}),
+                       "progress": progress.get(pid, {}), "steps": steps(spec, stage, si == 0),
                        "summary": summary.phase_summary(spec, stage, cells, case["items"], questions)})
     events = st.events_after(cid, after)
     return {"case": {"id": cid, "name": case["name"], "use_case_id": case["use_case_id"],
@@ -124,6 +130,9 @@ def get_case(cid: str, after: int = 0):
 
 class AnswerBody(BaseModel):
     answer: Optional[str] = None
+    mode: str = "value"                 # "value": this is the answer; "look": search where I point
+    document: Optional[str] = None      # look: an ingested document (checked against the list)
+    where: Optional[str] = None         # look: where in it, in words
 
 
 @router.post("/cases/{cid}/questions/{qid}/answer")
@@ -131,7 +140,11 @@ def answer(cid: str, qid: str, body: AnswerBody):
     q = store().get_question(qid)
     if not q or q["case_id"] != cid:
         raise HTTPException(404, "no such question")
+    if body.mode not in ("value", "look"):
+        raise HTTPException(400, "mode must be 'value' or 'look'")
     try:
+        if body.mode == "look":
+            return get_engine().look(qid, body.document, body.where)
         return get_engine().answer(qid, body.answer)
     except ValueError as e:
         raise HTTPException(409, str(e))

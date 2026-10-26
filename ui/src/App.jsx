@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useState } from 'react'
 import { useChats } from './chats'
 
@@ -25,15 +25,16 @@ try { const t = localStorage.getItem('aa-theme'); if (t) document.documentElemen
 export default function App() {
   const { chats, activeChatId, openChat, newChat } = useChats()
   const [recents, setRecents] = useState(true)
+  const rail = useLocation().pathname.startsWith('/cases')     // the use-case screens need the room
 
   return (
-    <div className="app">
+    <div className={'app' + (rail ? ' rail' : '')}>
       <aside className="sidebar" aria-label="Primary">
         <div className="side-brand"><span className="brand">AA</span><span className="side-title">Architecture Atlas</span></div>
 
         <button className="btn primary side-new" onClick={newChat}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 5v14M5 12h14" /></svg>
-          New chat
+          <span>New chat</span>
         </button>
 
         <nav className="side-nav">
