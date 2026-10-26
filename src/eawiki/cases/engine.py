@@ -132,14 +132,30 @@ class Engine:
         return [it for it in items if gate.get(it["_id"], {}).get("value") == "Yes"]
 
     def run_phase(self, cid: str, pid: str, only_item: Optional[str] = None,
-                  only_cols: Optional[set] = None) -> None:
-        """Run one phase through the phase graph (see eawiki.cases.flow)."""
+                  only_cols: Optional[set] = None, resume: bool = False) -> None:
+        """Run one phase through the phase graph (see eawiki.cases.flow). A run that fails is recorded
+        on the phase, so the screen can say so and offer to resume; `resume` keeps what was decided."""
         run = {"pool": ThreadPoolExecutor(max_workers=self.workers)}
         try:
+            self._cancel.discard(cid)
             self.phase_graph.invoke({"cid": cid, "pid": pid, "only_item": only_item, "only_cols": only_cols,
-                                     "run": run, "li": 0})
+                                     "run": run, "li": 0, "resume": resume})
+        except Exception as e:
+            if not only_item:
+                msg = f"{type(e).__name__}: {str(e)[:200]}"
+                self.store.set_phase(cid, pid, status="error", error=msg, preparing=False)
+                self.store.add_event(cid, "error", {"phase": pid, "error": msg})
+            raise
         finally:
             run["pool"].shutdown(wait=True)
+
+    def resume(self, cid: str, pid: str, background: bool = True) -> dict:
+        """Run the phase again, keeping every cell already decided and every answer from the architect."""
+        case = self.store.get_case(cid)
+        if not case or not any(phase_id(x) == pid for x in case["spec"]["stages"]):
+            raise ValueError("no such phase")
+        self._spawn(lambda: self.run_phase(cid, pid, resume=True), background)
+        return {"phase": pid, "status": "resuming"}
 
     # ---- the phase graph's nodes ------------------------------------------------------
     def _n_prepare(self, s) -> dict:
@@ -154,20 +170,28 @@ class Engine:
         rows = self._rows(case, idx)
         if only_item:
             rows = [r for r in rows if r["_id"] == only_item]
+        if not only_item:                      # visible at once: planning each property can take a while
+            st.set_phase(cid, pid, status="running", started=time.time(), total=len(rows), approved=False,
+                         preparing=True, error="")
+            st.add_event(cid, "phase_start", {"phase": pid, "items": len(rows), "properties": len(cols)})
         tools = self.tools_factory()
         fields = [f["name"] for f in (spec.get("input") or {}).get("item_fields") or []]
         docs = tools.doc_ids()
-        plans = {c["name"]: pmod.build_plan(c, fields, docs, tools.llm_json, self._plans) for c in cols}
+        with ThreadPoolExecutor(max_workers=self.workers) as px:
+            plans = dict(zip([c["name"] for c in cols], px.map(
+                lambda c: pmod.build_plan(c, fields, docs, tools.llm_json, self._plans), cols)))
         if not only_item:
-            st.set_phase(cid, pid, status="running", started=time.time(), total=len(rows), approved=False)
-            st.add_event(cid, "phase_start", {"phase": pid, "items": len(rows), "properties": len(cols)})
+            st.set_phase(cid, pid, preparing=False)
+        done = {(c["item_id"], c["column"]) for c in st.cells(cid, pid)
+                if (c["source"] == "user" or c["status"] == "user")
+                or (s.get("resume") and c["status"] in ("answered", "not_assessed", "needs_source"))}
         skip = {gate_column(spec)} if idx == 0 else set()
         summary = set(summary_columns(stage))
         main = [c for c in cols if c["name"] not in skip | summary and c.get("type") != "citations"]
         if only_cols is not None:
             main = [c for c in main if c["name"] in only_cols]
         run.update(spec=spec, stage=stage, idx=idx, cols=cols, rows=rows, passing=rows, tools=tools, plans=plans,
-                   link_cache={}, rounds=levels(main),
+                   link_cache={}, done=done, rounds=levels(main),
                    last=[c for c in cols if c["name"] in summary and (only_cols is None or c["name"] in only_cols)])
         return {"li": 0}
 
@@ -175,7 +199,11 @@ class Engine:
         run, cid, pid = s["run"], s["cid"], s["pid"]
         spec, idx, rows = run["spec"], run["idx"], run["rows"]
         if idx == 0 and (spec.get("validation") or {}).get("enabled") is not False and not s["only_item"]:
-            run["passing"] = self._gate(cid, pid, spec, run["stage"], rows, run["tools"], run["pool"])
+            have = {c["item_id"]: c for c in self.store.cells(cid, pid) if c["column"] == gate_column(spec)}
+            if s.get("resume") and all(r["_id"] in have for r in rows):
+                run["passing"] = [r for r in rows if have[r["_id"]]["value"] == "Yes"]
+            else:
+                run["passing"] = self._gate(cid, pid, spec, run["stage"], rows, run["tools"], run["pool"])
         if s["only_item"] and idx == 0:
             gc = {c["column"]: c for c in self.store.cells(cid, pid) if c["item_id"] == s["only_item"]}.get(gate_column(spec))
             run["passing"] = rows if (gc and gc["value"] == "Yes") or not gc else []
@@ -264,8 +292,8 @@ class Engine:
 
         def one(t):
             it, col = t
-            if cid in self._cancel:
-                return
+            if cid in self._cancel or (it["_id"], col["name"]) in run["done"]:
+                return                                   # stopped, or already decided (the architect's own answer, or a resume)
             self.cell_graph.invoke({"cid": cid, "pid": pid, "spec": run["spec"], "item": it, "col": col,
                                     "others": [o for o in run["rows"] if o["_id"] != it["_id"]],
                                     "plan": run["plans"][col["name"]], "tools": run["tools"],

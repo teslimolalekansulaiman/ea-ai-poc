@@ -65,7 +65,7 @@ export default function App() {
             {cases.length === 0 && <div className="chat-empty">No cases yet.</div>}
             {cases.map(c => {
               const ph = Object.values((c.state || {}).phases || {})
-              const status = ph.some(p => p.status === 'running') ? 'running' : ph.some(p => ['review', 'approved'].includes(p.status)) ? 'finished' : 'new'
+              const status = ph.some(p => p.status === 'error') ? 'stopped' : ph.some(p => p.status === 'running') ? 'running' : ph.some(p => ['review', 'approved'].includes(p.status)) ? 'finished' : 'new'
               return (
                 <button key={c.id} className={'side-case' + (c.id === activeCase ? ' active' : '')} onClick={() => nav('/cases/' + c.id)}>
                   <b>{c.name}</b><span>{c.n_items} demand{c.n_items === 1 ? '' : 's'} · {status}</span>

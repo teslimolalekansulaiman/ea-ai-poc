@@ -161,6 +161,11 @@ class CaseStore(history._Store):
                 time.sleep(0.02)
         raise RuntimeError("could not record the event")
 
+    def last_event_ts(self, cid: str) -> float:
+        with self._conn() as c:
+            r = c.execute(self._sql("SELECT MAX(ts) AS t FROM case_events WHERE case_id=?"), (cid,)).fetchone()
+        return float(r["t"] or 0) if r else 0.0
+
     def events_after(self, cid: str, after: int = 0, limit: int = 500) -> list[dict]:
         with self._conn() as c:
             rows = c.execute(self._sql(

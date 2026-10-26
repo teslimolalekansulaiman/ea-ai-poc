@@ -3,7 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Markdown, useCite } from '../cite'
 import '../cases.css'
-import { AnsweredCard, AskCard, FinCard, FullTable, LiveCard, PhaseTrack, ResultCard, Workspace, count } from '../components/CasesParts'
+import { AnsweredCard, AskCard, ErrorCard, FinCard, FullTable, LiveCard, PhaseTrack, ResultCard, Workspace, count } from '../components/CasesParts'
 
 // A sheet or a typed demand becomes a case: read it, create it, and the run starts at once.
 async function beginCase(ucId, file, text) {
@@ -115,7 +115,8 @@ function Case({ id }) {
 
   const running = !!data && data.phases.some(p => p.state.status === 'running')
   useEffect(() => {
-    const t = setInterval(() => { if (running || Date.now() < burst.current) load() }, 2000)
+    let tick = 0
+    const t = setInterval(() => { tick += 1; if (running || Date.now() < burst.current || tick % 3 === 0) load() }, 2000)   // never stops: a run can start late
     return () => clearInterval(t)
   }, [running, load])
   const poke = () => { burst.current = Date.now() + 20000; load() }
@@ -190,6 +191,7 @@ function Case({ id }) {
   if (!data || !phase) return <div className="cs-scroll"><div className="cs-col cs-muted">Loading…</div></div>
 
   const runningHere = status === 'running'
+  const stalled = runningHere && data.last_event_ts > 0 && data.now - data.last_event_ts > 180
   const exportXlsx = () => download(api.caseExportUrl(id, phase.id))
 
   return (
@@ -215,8 +217,11 @@ function Case({ id }) {
             {unmatched.length > 0 && <p className="cs-muted" style={{ margin: '8px 0 0', fontSize: 13 }}>Columns not recognised and ignored: {unmatched.join(', ')}.</p>}
           </div></div></div>
 
-          {!started && <div className="cs-card cs-muted">{phase.name} has not started. {idx > 0 ? `It begins when you approve ${data.phases[idx - 1].name}.` : ''}</div>}
-          {runningHere && <LiveCard phase={phase} events={events} data={data} needs={openQs.length} onJump={jumpToQuestion} onActivity={openActivity} onCancel={() => act(() => api.caseCancel(id))} />}
+          {!started && idx === 0 && status !== 'error' && <div className="cs-card cs-live"><div className="lv"><span className="cs-spin" />
+            <div style={{ flex: 1 }}><b>Starting the run</b><small>Setting up {data.case.use_case_name}</small></div></div></div>}
+          {!started && idx > 0 && <div className="cs-card cs-muted">{phase.name} has not started. It begins when you approve {data.phases[idx - 1].name}.</div>}
+          {status === 'error' && <ErrorCard phase={phase} onResume={() => act(() => api.caseResume(id, phase.id))} />}
+          {runningHere && <LiveCard phase={phase} events={events} data={data} needs={openQs.length} stalled={stalled} onResume={() => act(() => api.caseResume(id, phase.id))} onJump={jumpToQuestion} onActivity={openActivity} onCancel={() => act(() => api.caseCancel(id))} />}
           {finished && <FinCard phase={phase} n={phase.summary.rows.length} L={L} onActivity={openActivity} />}
 
           {closedQs.map(x => <AnsweredCard key={x.id} q={x} title={titleOf(x.item_id)} />)}

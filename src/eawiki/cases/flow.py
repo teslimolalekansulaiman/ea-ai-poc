@@ -24,6 +24,7 @@ class PhaseState(TypedDict, total=False):
     pid: str
     only_item: Optional[str]
     only_cols: Optional[set]
+    resume: bool         # keep what is already decided
     run: dict            # the objects of this run: case, tools, plans, rows, the pool
     li: int              # the next round of properties to run
 

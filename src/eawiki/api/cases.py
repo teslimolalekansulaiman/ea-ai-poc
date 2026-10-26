@@ -129,7 +129,8 @@ def get_case(cid: str, after: int = 0):
             "input_fields": (spec.get("input") or {}).get("item_fields") or [],
             "item_label": (spec.get("input") or {}).get("item_label") or {"singular": "item", "plural": "items"},
             "gate_column": gate_column(spec), "items": case["items"], "phases": phases, "cells": tree,
-            "questions": questions, "events": events,
+            "questions": questions, "events": events, "now": __import__("time").time(),
+            "last_event_ts": st.last_event_ts(cid),
             "last_seq": events[-1]["seq"] if events else after}
 
 
@@ -164,6 +165,15 @@ def approve(cid: str, pid: str):
     if case["state"].get("phases", {}).get(pid, {}).get("status") != "review":
         raise HTTPException(409, "This phase is not waiting for review.")
     return get_engine().approve(cid, pid)
+
+
+@router.post("/cases/{cid}/phases/{pid}/resume")
+def resume(cid: str, pid: str):
+    """Run a phase again after a failure or a restart, keeping everything already decided."""
+    try:
+        return get_engine().resume(cid, pid)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
 
 
 @router.post("/cases/{cid}/cancel")

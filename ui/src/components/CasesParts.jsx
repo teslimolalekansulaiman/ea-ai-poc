@@ -28,7 +28,7 @@ export function RowTag({ row }) {
 // ---- phase track: a finished phase, the current one, the next one ready to start, and locked ones ---
 export function phaseKind(phases, i) {
   const st = phases[i].state.status || 'waiting'
-  if (st !== 'waiting') return st === 'approved' ? 'done' : st === 'running' ? 'running' : 'review'
+  if (st !== 'waiting') return st === 'approved' ? 'done' : st === 'running' ? 'running' : st === 'error' ? 'error' : 'review'
   const prev = phases[i - 1]
   if (prev && prev.state.status === 'review') return 'ready'
   return 'locked'
@@ -66,16 +66,17 @@ export function stepStates(phase) {
   })
 }
 
-export function LiveCard({ phase, events, data, needs, onJump, onCancel, onActivity }) {
+export function LiveCard({ phase, events, data, needs, stalled, onResume, onJump, onCancel, onActivity }) {
   const [more, setMore] = useState(true)
   const L = data.item_label
   const steps = stepStates(phase)
   const total = phase.state.total || data.items.length
   const cur = steps.find(s => s.state === 'run')
   const done = steps.filter(s => s.state === 'done').length
-  const label = cur ? cur.label : 'Starting'
+  const prep = !!phase.state.preparing
+  const label = prep ? 'Preparing' : cur ? cur.label : 'Starting'
   const alongside = cur ? cur.columns.length - 1 : 0
-  const sub = cur ? `${cur.n} of ${count(total, L)}${alongside > 0 ? ` · ${alongside} more at the same time` : ''}` : ''
+  const sub = prep ? 'Working out how to resolve each property' : cur ? `${cur.n} of ${count(total, L)}${alongside > 0 ? ` · ${alongside} more at the same time` : ''}` : ''
   const elapsed = phase.state.started ? Math.max(0, Date.now() / 1000 - phase.state.started) : 0
   const cells = (data.cells[phase.id]) || {}
   const feed = events.filter(e => e.kind === 'cell' && e.data.phase === phase.id && e.data.status !== 'user').slice(-3).reverse()
@@ -88,6 +89,8 @@ export function LiveCard({ phase, events, data, needs, onJump, onCancel, onActiv
         <span className="t">{clock(elapsed)}</span>
         <button className="btn sm" onClick={onCancel}>Stop</button>
       </div>
+      {stalled && <div className="cs-need" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span>No progress for a few minutes. The service may have restarted.</span><button className="btn sm" onClick={onResume}>Resume</button></div>}
       {steps.length > 0 && <div className="cs-seg" title={`${done} of ${steps.length} steps done`}>{steps.map((s, i) => <i key={i} className={s.state} />)}</div>}
       {feed.length > 0 && more && <ul className="cs-feed">{feed.map((e, i) => { const c = (cells[e.data.item] || {})[e.data.column]
         return <li key={i}><span className="id">{e.data.item.slice(-3)}</span><span>{e.data.column}{c && show(c.value) ? ': ' + String(show(c.value)).slice(0, 70) : ''}</span></li> })}</ul>}
@@ -95,6 +98,22 @@ export function LiveCard({ phase, events, data, needs, onJump, onCancel, onActiv
         <button className="cs-link" style={{ fontSize: 12.5 }} onClick={onActivity}>See what the agents are doing</button>
         {feed.length > 0 && <button className="cs-link" style={{ fontSize: 12.5, color: 'var(--fg-muted)' }} onClick={() => setMore(m => !m)}>{more ? 'Hide recent' : 'Show recent'}</button>}
       </div>
+    </div>
+  )
+}
+
+export function ErrorCard({ phase, onResume }) {
+  return (
+    <div className="cs-msg"><div className="cs-av">AA</div>
+      <div className="cs-body"><div className="cs-card cs-ask">
+        <div className="eyebrow" style={{ color: 'var(--crit)' }}>The run stopped</div>
+        <h4>{phase.name} did not finish</h4>
+        <div className="cs-muted" style={{ fontSize: 13, overflowWrap: 'anywhere' }}>{phase.state.error || 'Something went wrong while running it.'}</div>
+        <div className="cs-actions" style={{ marginTop: 8 }}>
+          <button className="btn primary sm" onClick={onResume}>Resume</button>
+          <span className="cs-cap">Everything already decided, and your answers, are kept.</span>
+        </div>
+      </div></div>
     </div>
   )
 }
@@ -242,7 +261,7 @@ export function CellDetail({ col, cell }) {
 }
 
 // ---- workspace --------------------------------------------------------------------------
-const stateLabel = (s) => s === 'running' ? ['user', 'working'] : (s === 'review' || s === 'approved') ? ['ok', 'finished'] : ['', 'waiting']
+const stateLabel = (s) => s === 'error' ? ['crit', 'stopped'] : s === 'running' ? ['user', 'working'] : (s === 'review' || s === 'approved') ? ['ok', 'finished'] : ['', 'waiting']
 
 export function Workspace({ data, phase, docs, L, tab, setTab, openItem, setOpenItem, openCol, setOpenCol, readiness, onReadiness, onTable, onClose }) {
   const items = data.items

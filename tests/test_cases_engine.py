@@ -184,6 +184,71 @@ def test_the_use_case_names_its_items_and_what_each_property_is_doing():
     assert st[0] == "Checking each demand is a true demand" and "Deciding the demand type" in st
 
 
+def test_the_phase_shows_as_running_before_the_plans_are_built_and_a_failure_is_recorded():
+    seen = []
+    e = _engine()
+    cid = e.create(SPEC, ITEMS[:1], "early")
+    base = fake_tools
+
+    def tools():
+        t = base()
+        inner = t.llm_json
+
+        def llm(prompt):
+            if "decide WHERE an assistant should look" in prompt:           # a plan is being built
+                seen.append(e.store.get_case(cid)["state"]["phases"].get("screening", {}).get("status"))
+            return inner(prompt)
+        t.llm_json = llm
+        return t
+    e.tools_factory = tools
+    e.run_phase(cid, "screening")
+    assert seen and set(seen) == {"running"}                                   # the screen already shows the run
+
+    def broken():
+        raise RuntimeError("the model service is down")
+    e2 = _engine()
+    cid2 = e2.create(SPEC, ITEMS[:1], "broken")
+    e2.tools_factory = broken
+    try:
+        e2.run_phase(cid2, "screening")
+        assert False, "should raise"
+    except RuntimeError:
+        pass
+    ph = e2.store.get_case(cid2)["state"]["phases"]["screening"]
+    assert ph["status"] == "error" and "model service is down" in ph["error"]
+    assert any(ev["kind"] == "error" for ev in e2.store.events_after(cid2, 0))
+
+
+def test_resume_keeps_what_was_decided_and_the_architects_answers():
+    calls = []
+    e = _engine()
+    cid = e.create(SPEC, ITEMS[:1], "resume")
+    base = fake_tools
+
+    def tools():
+        t = base()
+        inner = t.llm_json
+
+        def llm(prompt):
+            if "PROPERTY:" in prompt:
+                calls.append(re.search(r"PROPERTY: (.+?)  \[", prompt).group(1))
+            return inner(prompt)
+        t.llm_json = llm
+        return t
+    e.tools_factory = tools
+    e.run_phase(cid, "screening")
+    q = next(q for q in e.store.questions(cid) if q["column"] == "Linked initiative or project")
+    e.answer(q["id"], "P-103 HR cloud move", background=False)
+    first = len(calls)
+    calls.clear()
+    e.resume(cid, "screening", background=False)
+    assert "Domain" not in calls and "Priority" not in calls                  # decided: not asked again
+    assert "Linked initiative or project" not in calls                       # the architect's answer is kept
+    c = next(c for c in e.store.cells(cid, "screening") if c["column"] == "Linked initiative or project")
+    assert c["status"] == "user" and c["value"] == "P-103 HR cloud move"
+    assert len(calls) < first
+
+
 def test_readiness_names_the_missing_document_and_the_empty_source():
     spec = json.loads(json.dumps(SPEC))
     spec["stages"][0]["output"]["columns"][5]["look_in"] = ["Roadmap_Not_Ingested"]

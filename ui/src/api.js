@@ -53,6 +53,7 @@ export const api = {
   caseAnswer: (cid, qid, body) => post('/api/cases/' + encodeURIComponent(cid) + '/questions/' + encodeURIComponent(qid) + '/answer', body),
   caseDocuments: () => J('/api/cases/documents'),
   caseApprove: (cid, pid) => post('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/approve', {}),
+  caseResume: (cid, pid) => post('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/resume', {}),
   caseCancel: (cid) => post('/api/cases/' + encodeURIComponent(cid) + '/cancel', {}),
   caseAsk: (cid, question, history, focus) => post('/api/cases/' + encodeURIComponent(cid) + '/ask', { question, history, focus }),
   caseExportUrl: (cid, phase) => '/api/cases/' + encodeURIComponent(cid) + '/export?phase=' + encodeURIComponent(phase || ''),
