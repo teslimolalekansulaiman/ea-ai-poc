@@ -58,6 +58,7 @@ MEANING: {col.get('description') or '(not given)'}
 HOW TO DECIDE IT: {col.get('how_to_resolve') or '(not given)'}
 {extra}{req}
 Never invent. Use the exact words of the pick list when there is one. Use "None" or "No link found" or "Not identified" only when you looked and found nothing.
+The value holds the answer and nothing else, in the form the property asks for. What you ruled out, caveats and your reasoning go in "note", never in the value: when nothing qualifies, the value is only the word the property uses for that.
 
 ALREADY DECIDED FOR THIS DEMAND:
 {done}
@@ -67,7 +68,7 @@ EVIDENCE:
 
 If you cannot decide it: status needs_input or needs_source, "needs" says what is missing, "question" is ONE specific question to the architect about THIS demand (not about the property in general), and "suggestions" lists up to 3 candidate answers the evidence supports but does not settle, each with the evidence ids it rests on. Never suggest anything no evidence id supports.
 
-JSON: {{"value": <{'a list of strings' if col.get('type') == 'list' else 'a string'}>, "status": "answered|needs_source|needs_input", "evidence": ["<id from the evidence>"], "needs": "<what is missing, or empty>", "question": "<the specific question, or empty>", "suggestions": [{{"value": <the candidate answer>, "why": "<one short sentence>", "evidence": ["<id>"]}}], "note": "<one short sentence on how you decided>"}}"""
+JSON, in this order (write "note" first, so the value follows from your reasoning): {{"note": "<one or two sentences: what the evidence shows and how you decided, including what you ruled out>", "value": <{'a list of strings' if col.get('type') == 'list' else 'a string'}>, "status": "answered|needs_source|needs_input", "evidence": ["<id from the evidence>"], "needs": "<what is missing, or empty>", "question": "<the specific question, or empty>", "suggestions": [{{"value": <the candidate answer>, "why": "<one short sentence>", "evidence": ["<id>"]}}]}}"""
 
 
 def _coerce(col: dict, value):

@@ -225,6 +225,60 @@ def test_digest_page_reads_type_summary_and_related():
     assert nl.digest_page("")["summary"] == ""
 
 
+def test_graph_nodes_become_lookup_nodes_with_ids_and_page_slugs():
+    from eawiki.cases.tools import _graph_nodes
+    from eawiki.query import graphquery as gq
+    g = gq._Graph([{"node_id": "n1", "name": "Peoplex HR System", "type": "physical_application_component", "aliases": ["HR system", "C-204"]},
+                   {"node_id": "n2", "name": "Oracle Database Platform", "type": "logical_technology_component", "aliases": ["Oracle DB"]},
+                   {"node_id": "n3", "name": "HR", "type": "data_entity"}], [], {})
+    nodes = _graph_nodes(g)
+    by = {n["node_id"]: n for n in nodes}
+    assert by["n1"]["ids"] == ["C-204"] and "C-204" not in by["n1"]["aliases"] and by["n1"]["slug"] == "peoplex-hr-system"
+    top = nl.resolve_entities("HR system", nodes, kinds=["app"])
+    assert top[0]["id"] == "n1" and top[0]["strong"]
+    assert nl.resolve_entities("C-204", nodes)[0]["id"] == "n1"
+    assert nl.resolve_entities("Oracle DB", nodes, kinds=["tech"])[0]["id"] == "n2"
+    assert [c["id"] for c in nl.resolve_entities("HR", nodes)][0] == "n3"
+
+
+def test_a_mention_the_knowledge_base_does_not_know_does_not_crowd_out_the_ones_it_does():
+    d = kb.DEMANDS[0]
+    prof = profile_of(d)
+    junk = [{"text": w, "field": "x"} for w in ("spreadsheets", "paper form", "approvals", "errors", "audit finding", "managers", "leave season", "email")]
+    prof["systems"] = junk + prof["systems"]            # eight unknown names ahead of the three real ones
+    ev = gmod.gather(TOOLS, plan_of("Impacted application"), SPEC, item_of(d), [], {}, None, prof, {})
+    shown = [it["mention"] for it in ev["lookups"][0]["items"]]
+    assert {"HR system", "payroll", "attendance devices"} <= set(shown[:5]), shown
+    assert "wiki:peoplex-hr-system" in ev["allowed"]
+
+
+def test_the_answer_may_cite_a_wiki_page_it_was_shown_and_nothing_else():
+    from eawiki.cases import solve as smod
+    d = kb.DEMANDS[0]
+    ev, _t = evidence(d, "Impacted application")
+    col = COLS["Impacted application"]
+    res = {"value": ["Peoplex HR System (C-204)"], "status": "answered",
+           "evidence": ["wiki:peoplex-hr-system", "wiki:a-page-never-shown", "Application_Catalog:4", "Made_Up:9"]}
+    cell = smod.verify(col, res, ev)
+    assert cell["status"] == "answered" and cell["evidence"] == ["wiki:peoplex-hr-system", "Application_Catalog:4"]
+
+
+def test_a_passage_naming_a_longer_entity_is_not_an_entry_for_a_part_of_its_name():
+    assert nl.names_head("C-207 HR & Payroll Portal", "payroll") is False
+    assert nl.names_head("C-214 Procurement Portal", "procurement system") is True      # kind words aside, the same name
+    assert nl.names_head("Training Portal | HR Training Lead | pages", "training portal") is True
+
+
+def test_one_typo_is_read_as_the_word_the_knowledge_base_has_and_says_so():
+    c = kb.entities("Peoplx HR", ["app"])["candidates"][0]
+    assert c["id"] == "C-204" and "spelling corrected" in c["how"] and c["strong"]
+    assert kb.entities("Finvra Finance", ["app"])["candidates"][0]["id"] == "C-201"
+    # short words and ambiguous neighbours are left alone
+    assert nl.correct_spelling("HR", kb.NODES) == ("hr", False)
+    assert not nl.correct_spelling("zeppelin", kb.NODES)[1]
+    assert nl._within_one("peoplx", "peoplex") and nl._within_one("finvera", "finvrea") and not nl._within_one("oracle", "orange")
+
+
 def test_the_evidence_never_names_an_entity_the_knowledge_base_lacks():
     """Everything cited is a block, a wiki page or a demand field that was shown."""
     for d in kb.DEMANDS:

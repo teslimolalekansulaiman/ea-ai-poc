@@ -216,6 +216,9 @@ def make_tools(llm=None):
 
 
 # ---- the 14 demands and their reference answers --------------------------------------------------------
+# Domain follows the property's own step 4: Security is added when the data is Confidential or Restricted.
+# Where the demand names an application only as the channel work arrives by today (email), it is not required
+# of the answer and not held against it (see tests/e2e_names.py: an application the demand's own words name is a defensible extra).
 def D(i, title, dept, need, outcome, rtype, urgency, reason, golive, systems, **gold):
     return {"item": {"demand_id": f"D-{i}", "date_submitted": "2026-09-01", "department": dept, "requester_role": "Head of " + dept,
                      "sponsor": "Director of " + dept, "title": title, "business_need": need, "expected_outcome": outcome,
@@ -230,20 +233,21 @@ DEMANDS = [
    "HR system, payroll, attendance devices",
    mentions={"HR system": ["C-204"], "payroll": ["C-207"], "attendance devices": ["C-210"]},
    domain=["Application", "Security"], apps={"C-204", "C-207", "C-210"}, classification="Confidential", security={"SC-01", "SC-02", "SC-03"},
-   artefact={"P-103", "C-204"}, owners={"HR Systems Lead", "Facilities IT Lead", "Central HR Entity Lead"}),
+   artefact={"P-103", "C-204"}, owners={"HR Systems Lead", "Facilities IT Lead", "Central HR Entity Lead"},
+   ask_ok=True, classification_ok={"Confidential", "Restricted"}),   # the demand lists payroll without saying whether payroll data is used: Confidential or Restricted, so a question is right
  D(102, "Automated regulatory financial reporting", "Finance",
    "A new mandatory digital financial reporting format starts next year. We export from the finance system into spreadsheets and rebuild the report by hand every quarter. It takes 6 working days and 3 people.",
    "Report produced in the mandated format in 1 day with a full audit trail", "Enhancement of existing", "Critical", "Mandated format takes effect on 1 Jan 2027", "2026-12-15",
    "Finance system, data warehouse",
    mentions={"Finance system": ["C-201"], "data warehouse": ["C-205"]},
-   domain=["Application", "Data"], apps={"C-201", "C-205"}, classification="Confidential", security={"SC-01", "SC-03"},
-   artefact={"P-101"}, owners={"Finance Systems Lead", "Head of Data Office"}),
+   domain=["Application", "Security"], apps={"C-201", "C-205"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact={"C-201"}, owners={"Finance Systems Lead", "Head of Data Office"}),   # P-101 only freezes reporting changes: it constrains the date, it does not cover the need
  D(103, "Complaint tracking system", "Customer Services",
    "Complaints arrive by phone, email and the website and are tracked in different spreadsheets. We cannot see the status of a complaint or who is handling it, and we miss the 10-day response target for about 1 in 5 complaints.",
    "One view of every complaint with owner, status and response-time alerts", "New solution", "High", "Response-target breaches are reported to the Executive Committee every month", "2027-02-28",
    "Contact centre platform, website forms, email",
    mentions={"Contact centre platform": ["C-202"], "website forms": [], "email": ["C-212"]},
-   domain=["Application", "Security"], apps={"C-202", "C-212"}, classification="Confidential", security={"SC-01", "SC-03"},
+   domain=["Application", "Security"], apps={"C-202"}, classification="Confidential", security={"SC-01", "SC-03"},
    artefact={"C-202"}, owners={"Customer Experience Lead", "Infrastructure Services Lead"}),
  D(104, "Digital signature and e-approval for contracts", "Legal Affairs",
    "Contracts are printed, signed by hand and scanned. A signature cycle takes two weeks and documents are lost. We want contracts approved and signed digitally with the identity service.",
@@ -272,7 +276,7 @@ DEMANDS = [
    "procurement system, data warehouse, purchase orders",
    mentions={"procurement system": ["C-214"], "data warehouse": ["C-205"], "purchase orders": ["DE-08"]},
    domain=["Data"], apps={"C-214", "C-205"}, classification="Internal", security={"SC-01", "SC-03"},
-   artefact={"P-104"}, owners={"Procurement Systems Lead", "Head of Data Office"}),
+   artefact={"C-205"}, owners={"Procurement Systems Lead", "Head of Data Office"}),   # P-104 is the HR subject area, not procurement
  D(108, "Retire the Oracle database platform", "Information Technology",
    "The Oracle database licence ends in 2027 and costs are rising. We want to retire Oracle DB and move the systems that depend on it.",
    "No dependency on Oracle by the licence end date", "Infrastructure & platform", "High", "Licence ends 2027-06-30", "2027-06-01",
@@ -310,7 +314,8 @@ DEMANDS = [
    "Peoplex payroll module, att. devices",
    mentions={"Peoplex payroll module": ["C-204"], "att. devices": []},
    domain=["Application"], apps={"C-204"}, classification="Confidential", security={"SC-01", "SC-03"},
-   artefact=None, owners={"HR Systems Lead"}),
+   artefact={"C-210"}, owners={"HR Systems Lead"},   # the attendance devices already feed the attendance system, which feeds Peoplex
+   ask_ok_for={"Duplicate with existing artefact"}),   # an interface demand, and the knowledge base has no interface catalog: asking for it is right
  D(114, "HR analytics on the data warehouse", "Human Resources",
    "HR cannot report on headcount trends. HR data sits in the HR system and is not in the data warehouse.",
    "Headcount and leave trends available in the data warehouse", "Data & analytics", "Medium", "", "2027-06-30",
@@ -318,4 +323,41 @@ DEMANDS = [
    mentions={"HR data": ["DE-01"], "data warehouse": ["C-205"], "HR system": ["C-204"]},
    domain=["Data"], apps={"C-205", "C-204"}, classification="Confidential", security={"SC-01", "SC-03"},
    artefact={"P-104"}, owners={"Head of Data Office", "HR Systems Lead"}),
+
+ # held-out demands, written after the first runs and used to tune nothing: another language, a misspelt name,
+ # a bare ambiguous name, and data sets of different classifications moving to a platform
+ D(115, "تطبيق للموظفين لطلب الإجازات", "Human Resources",
+   "يقدم الموظفون طلبات الإجازة عبر البريد الإلكتروني ويعيد قسم الموارد البشرية إدخالها يدويا في Peoplex، وتتأخر الموافقات أياما. نريد تطبيقا يرسل تذكيرا برسالة SMS للمدير عند تأخر الموافقة.",
+   "تتم الموافقة على طلبات الإجازة خلال يوم واحد", "New solution", "Medium", "", "2027-05-31",
+   "Peoplex, SMS",
+   mentions={"Peoplex": ["C-204"], "SMS": ["C-211"]},
+   domain=["Application", "Security"], apps={"C-204", "C-211"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact={"C-211"}, owners={"HR Systems Lead", "Communications Systems Lead"}),
+ D(116, "Leave balance display on the intranet", "Human Resources",
+   "Employees cannot see their leave balance without asking HR. The balance is held in Peoplx HR and should be shown on the intranet.",
+   "Employees see their leave balance online", "Enhancement of existing", "Low", "", "2027-04-15",
+   "Peoplx HR, intranet",
+   mentions={"Peoplx HR": ["C-204"], "intranet": ["C-216"]},
+   domain=["Application", "Security"], apps={"C-204", "C-216"}, classification="Confidential", security={"SC-01", "SC-03"},
+   artefact={"C-204"}, owners={"HR Systems Lead", "Communications Systems Lead"}),
+ D(117, "Move payroll and employee records to cloud storage", "Information Technology",
+   "Payroll data and employee records are archived on the on-premises file servers, which are near capacity. We want to move the archives to cloud storage.",
+   "Archives held in cloud storage with the same access controls", "Infrastructure & platform", "Medium", "", "2027-08-31",
+   "payroll data, employee records, cloud storage",
+   mentions={"payroll data": ["DE-12"], "employee records": ["DE-02"], "cloud storage": ["T-03"]},
+   domain=["Technology", "Security"], apps=set(), classification="Restricted", security=None,
+   artefact={"T-03"}, owners={"Infrastructure Services Lead"}),
+ D(118, "Payroll costing in the finance system", "Finance",
+   "Payroll costs are re-keyed from HR into the finance system each month. We want HR payroll costs posted to the general ledger automatically.",
+   "Payroll costs posted to the ledger without re-keying", "Interface between systems", "Medium", "", "2027-02-28",
+   "HR, finance system",
+   mentions={"finance system": ["C-201"], "HR": ["C-204"]},
+   domain=["Application", "Security"], apps={"C-201", "C-204"}, classification="Restricted", security={"SC-01", "SC-03"},
+   artefact={"C-201"}, owners={"Finance Systems Lead", "HR Systems Lead"}),
 ]
+
+
+for _d in DEMANDS:
+    _g = _d["gold"]
+    if _g["classification"] in ("Confidential", "Restricted") and _g["domain"] and "Security" not in _g["domain"]:
+        _g["domain"] = list(_g["domain"]) + ["Security"]

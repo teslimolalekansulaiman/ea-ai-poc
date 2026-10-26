@@ -176,7 +176,47 @@
             "type": "list",
             "description": "Architecture domains, main one first: Business, Data, Application, Integration, Technology, Security. A technical demand is Application, Data, Technology or Security. A people demand has no domain: write Not applicable.",
             "evidence_required": false,
-            "activity": "Classifying domains"
+            "activity": "Classifying domains",
+            "lookups": [
+              {
+                "find": "what each system or platform the demand names is, and which domain it belongs to",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Technology Catalog"
+                ],
+                "extract": "its type and domain",
+                "types": [
+                  "application",
+                  "technology"
+                ]
+              },
+              {
+                "find": "what each data set the demand names is",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog"
+                ],
+                "extract": "its type",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "whether the demand touches sign-in, encryption, monitoring or protection of confidential data",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "extract": ""
+              }
+            ],
+            "uses": [
+              "Data classification"
+            ]
           },
           {
             "name": "Urgency",
@@ -240,7 +280,34 @@
             "type": "list",
             "description": "Names with IDs from the application inventory or the contract register.",
             "info_needed": "The application (with its ID) this demand affects.",
-            "activity": "Mapping applications"
+            "activity": "Mapping applications",
+            "lookups": [
+              {
+                "find": "which application each name is",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Glossary and Aliases"
+                ],
+                "extract": "the application, its ID and owner role",
+                "types": [
+                  "application"
+                ]
+              },
+              {
+                "find": "which applications run on, or depend on, each platform the demand names",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Technology Catalog"
+                ],
+                "extract": "the applications connected to it",
+                "types": [
+                  "technology"
+                ]
+              }
+            ]
           },
           {
             "name": "Is duplicate",
@@ -268,7 +335,30 @@
             "type": "text",
             "description": "ID and name of the existing application, service, initiative or contract, or None.",
             "info_needed": "Whether an existing application, service, initiative or contract already covers this need.",
-            "activity": "Comparing with existing artefacts"
+            "activity": "Comparing with existing artefacts",
+            "lookups": [
+              {
+                "find": "whether each system or data set the demand names already has a contract feature or a project",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Contract Register",
+                  "Initiative Portfolio",
+                  "Application Catalog"
+                ],
+                "extract": "the artefact, its ID, what it covers"
+              },
+              {
+                "find": "whether a project or contract already covers the need",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Initiative Portfolio",
+                  "Contract Register"
+                ],
+                "extract": ""
+              }
+            ]
           },
           {
             "name": "Architecture principles and standards alignment",
@@ -295,14 +385,73 @@
               "Not assessed"
             ],
             "info_needed": "The classification level of the data involved.",
-            "activity": "Classifying the data"
+            "activity": "Classifying the data",
+            "lookups": [
+              {
+                "find": "what each data set the demand names is and how it is classified",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog",
+                  "Data Classification Standard"
+                ],
+                "extract": "its classification",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "what each level of the standard means",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Data Classification Standard"
+                ],
+                "extract": "",
+                "read_all": true
+              }
+            ]
           },
           {
             "name": "Linked security capability",
             "type": "list",
             "description": "Digital or technical demand: the security capabilities it touches, at a general level (based on the NORA framework). People demand: Not applicable. The detailed assessment is with the security and infrastructure teams.",
             "info_needed": "The security capabilities this demand touches.",
-            "activity": "Linking security capabilities"
+            "activity": "Linking security capabilities",
+            "lookups": [
+              {
+                "find": "the security controls linked to each impacted application",
+                "from": "result:Impacted application",
+                "match": "name",
+                "in": [
+                  "Application to Security Control Matrix"
+                ],
+                "extract": "the controls named"
+              },
+              {
+                "find": "what the demand touches that needs a security capability",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "extract": ""
+              },
+              {
+                "find": "what the data classification requires",
+                "from": "result:Data classification",
+                "match": "meaning",
+                "in": [
+                  "Data Classification Standard"
+                ],
+                "extract": "",
+                "read_all": true
+              }
+            ],
+            "uses": [
+              "Impacted application",
+              "Data classification"
+            ]
           },
           {
             "name": "Security review needed",

@@ -31,7 +31,7 @@ BLOCK_CHARS = 1100          # a table row or paragraph is read whole, not cut to
 MAX_BLOCKS = 14
 MAX_WIKI = 8                # wiki pages shown to the answer step
 MAX_WHOLE = 8               # passages read from a short document that is read whole
-MAX_MENTIONS = 6            # mentions searched per lookup
+MAX_MENTIONS = 8            # mentions searched per lookup
 PER_MENTION = 3             # passages kept per mention
 GLOBAL_EXTRA = 2            # passages of ANY document added after the named kinds
 MAX_OTHERS = 6
@@ -120,11 +120,18 @@ def names_from_result(value) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-def _name_lookup(tools: Tools, m: str, lk: dict, prefer: list, strict: bool) -> dict:
+def _kinds_of(lk: dict) -> Optional[list]:
+    return [KIND_FAMILY[t] for t in lk.get("types") or [] if t in KIND_FAMILY] or None
+
+
+def _resolve(tools: Tools, m: str, lk: dict) -> dict:
+    return tools.entities(m, _kinds_of(lk)) if tools.entities else {"candidates": [], "other_kinds": []}
+
+
+def _name_lookup(tools: Tools, m: str, lk: dict, prefer: list, strict: bool, ent: Optional[dict] = None) -> dict:
     """One name, looked up everywhere a name can be found: entities (with their wiki page), the graph and the
     catalog passages. It reports candidates; it never picks the one the demand means."""
-    kinds = [KIND_FAMILY[t] for t in lk.get("types") or [] if t in KIND_FAMILY]
-    ent = tools.entities(m, kinds or None) if tools.entities else {"candidates": [], "other_kinds": []}
+    ent = ent if ent is not None else _resolve(tools, m, lk)
     cands = ent.get("candidates") or []
     for i, c in enumerate(cands):
         c["digest"] = None
@@ -138,7 +145,10 @@ def _name_lookup(tools: Tools, m: str, lk: dict, prefer: list, strict: bool) -> 
         except Exception:
             facts = ""
     hits = _search(tools, m, PER_MENTION, prefer, strict)
-    named = [b for b in hits if nl.names_head(_head(b.get("text", "")), m)]
+    # With an entity index the entity says what has a name of its own, so a passage counts as naming the
+    # mention only when its first words ARE the name; without one, the mention inside the first sentence is the best signal there is.
+    named = [b for b in hits if (nl.names_head(_head(b.get("text", "")), m) if tools.entities
+                                 else nl.core(m) and nl.core(m) <= nl.core(_head(b.get("text", ""))))]
     said = [b for b in hits if b not in named and _toks(m) <= _toks(b.get("text", ""))]
     entry = any(c["strong"] for c in cands) or bool(named)
     return {"mention": m, "candidates": cands, "other_kinds": ent.get("other_kinds") or [], "facts": facts,
@@ -222,14 +232,22 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                 if not ms:
                     rec["note"] = f"{frm[len(RESULT_PREFIX):]} found nothing to start from"
             elif frm in PROFILE_GROUPS and usable is not None:
-                ms = [m["text"] for m in (usable.get(frm) or [])[:MAX_MENTIONS]]
+                ms = [m["text"] for m in (usable.get(frm) or [])[:2 * MAX_MENTIONS]]   # the cap applies after the known names are put first
                 if not ms:
                     rec["note"] = f"the demand mentions no {frm}"
             else:
                 ms = [None]                          # one search on the demand as a whole
+            pre = {}
+            if lk["match"] == "name" and tools.entities:
+                # Names the knowledge base knows are read first: a mention it has never heard of ("spreadsheets") must
+                # not use up the evidence budget before the ones that are real.
+                for m in ms:
+                    if m:
+                        pre[m] = _resolve(tools, m, lk)
+                ms = sorted(ms, key=lambda m: -max([c["score"] for c in (pre.get(m) or {}).get("candidates", [])] or [0]))
             for m in ms[:MAX_MENTIONS]:
                 if m and lk["match"] == "name":
-                    it = _name_lookup(tools, m, lk, prefer, strict)
+                    it = _name_lookup(tools, m, lk, prefer, strict, pre.get(m))
                     for b in it.pop("hits"):
                         keep(b)
                     for c in it["candidates"][:3]:

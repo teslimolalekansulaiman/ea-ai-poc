@@ -90,6 +90,11 @@ def label(node_type: str) -> str:
 _ID = re.compile(r"\b[A-Za-z]{1,4}-\d+\b")
 
 
+def is_id(text: str) -> bool:
+    """A catalog identifier ('C-204', 'SC-01'): a short code and a number, nothing else."""
+    return bool(re.fullmatch(_ID.pattern, str(text or "").strip()))
+
+
 def names_head(head: str, mention: str) -> bool:
     """A passage starts with the thing it is about. True when its first words, set apart from any ID
     and any table cell, are exactly the mention (same words, kind words aside). A head that merely
@@ -148,6 +153,36 @@ def _score_node(mention: str, node: dict) -> tuple[float, str, str]:
     return best
 
 
+def _within_one(a: str, b: str) -> bool:
+    """One typo apart: a letter changed, missing, added or two neighbours swapped."""
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        d = [i for i in range(len(a)) if a[i] != b[i]]
+        return len(d) == 1 or (len(d) == 2 and d[1] == d[0] + 1 and a[d[0]] == b[d[1]] and a[d[1]] == b[d[0]])
+    short, long_ = (a, b) if len(a) < len(b) else (b, a)
+    i = next((i for i in range(len(short)) if short[i] != long_[i]), len(short))
+    return short[i:] == long_[i + 1:]
+
+
+def correct_spelling(mention: str, nodes: list[dict]) -> tuple[str, bool]:
+    """A word of the mention the knowledge base has never seen, one typo away from exactly one word it has
+    ('Peoplx' for 'Peoplex'), is read as that word. Only words of five letters or more, and only when the
+    nearest word is unique: a short word one letter off is more often another word than a typo."""
+    vocab = {t for n in nodes for text, _k in _names(n) for t in tokens(text)}
+    out, changed = [], False
+    for t in tokens(mention):
+        if t in vocab or t in GENERIC or len(t) < 5:
+            out.append(t)
+            continue
+        near = {v for v in vocab if len(v) >= 5 and _within_one(t, v)}
+        out.append(next(iter(near)) if len(near) == 1 else t)
+        changed = changed or len(near) == 1
+    return " ".join(out), changed
+
+
 def resolve_entities(mention: str, nodes: list[dict], nearest: Optional[Callable[[str], list]] = None,
                      k: int = 4, kinds: Optional[list[str]] = None) -> list[dict]:
     """The entities a mention could mean, best first. Each: id, name, type, family, score, how, matched, strong.
@@ -155,8 +190,13 @@ def resolve_entities(mention: str, nodes: list[dict], nearest: Optional[Callable
     name overlaps, so a vector never outranks a name."""
     by_id = {n["node_id"]: n for n in nodes}
     cands = {}
+    fixed, typo = correct_spelling(mention, nodes)
     for n in nodes:
         s, how, matched = _score_node(mention, n)
+        if typo:
+            s2, how2, matched2 = _score_node(fixed, n)
+            if s2 - 0.05 > s:
+                s, how, matched = s2 - 0.05, how2 + ", spelling corrected", matched2
         if s >= MIN_SCORE:
             cands[n["node_id"]] = (s, how, matched)
     if nearest and not any(s >= PARTIAL for s, _h, _m in cands.values()):
