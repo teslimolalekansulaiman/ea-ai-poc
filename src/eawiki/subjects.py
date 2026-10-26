@@ -371,7 +371,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Step 2 — subject discovery")
     ap.add_argument("--in", dest="in_dir", default="data/blocks")
     ap.add_argument("--facts", dest="facts", default="data/graph/facts_1b.json")
-    ap.add_argument("--menu", dest="menu", default="menu.json")
+    ap.add_argument("--menu", dest="menu", default="data/togaf92_metamodel.json")
     ap.add_argument("--out", dest="out", default="data/graph/subjects.json")
     ap.add_argument("--coverage", dest="coverage", default="data/graph/coverage.json")
     ap.add_argument("--backend", default="cli", choices=["cli", "sdk", "openai", "openrouter", "pulse"])

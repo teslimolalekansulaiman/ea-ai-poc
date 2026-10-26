@@ -425,7 +425,7 @@ def main() -> None:
     ap.add_argument("--in", dest="in_dir", default="data/blocks")
     ap.add_argument("--out", dest="out", default="data/graph/facts_1b.json")
     ap.add_argument("--plans", dest="plans", default="data/graph/table_plans.json")
-    ap.add_argument("--menu", dest="menu", default="menu.json")
+    ap.add_argument("--menu", dest="menu", default="data/togaf92_metamodel.json")
     ap.add_argument("--cache", dest="cache", default="data/graph/plan_cache")
     ap.add_argument("--backend", dest="backend", choices=["cli", "sdk", "openai", "openrouter", "pulse"], default=DEFAULT_BACKEND,
                     help="LLM backend: cli = `claude -p` (default, no SDK/key needed); sdk = Anthropic SDK")

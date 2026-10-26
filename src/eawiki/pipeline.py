@@ -37,8 +37,13 @@ def _clean_derived() -> None:
 
 STEPS = [
     ("parse",     [sys.executable, "-m", "eawiki.parse"]),
-    ("tables",    [sys.executable, "-m", "eawiki.tables", "--backend", "openrouter"]),
-    ("subjects",  [sys.executable, "-m", "eawiki.subjects", "--backend", "openrouter"]),
+    # One vocabulary for every step: tables and subjects used to default to the old menu.json
+    # (18 types), so their types were not in the TOGAF schema that pages and reconcile use and
+    # were snapped to the generic `element` at the end.
+    ("tables",    [sys.executable, "-m", "eawiki.tables", "--backend", "openrouter",
+                   "--menu", "data/togaf92_metamodel.json"]),
+    ("subjects",  [sys.executable, "-m", "eawiki.subjects", "--backend", "openrouter",
+                   "--menu", "data/togaf92_metamodel.json"]),
     ("pages",     [sys.executable, "-m", "eawiki.pages", "--backend", "openrouter", "--workers", "8"]),
     # Entity de-duplication: string rules, then names embedded by meaning, then the model decides
     # the close pairs. "report" (default) only records what it WOULD merge; set
