@@ -25,6 +25,7 @@ from typing import Callable, Optional
 
 from eawiki.cases import gather as gmod
 from eawiki.cases import plan as pmod
+from eawiki.cases import profile as profmod
 from eawiki.cases import solve as smod
 from eawiki.cases.store import CaseStore
 
@@ -95,6 +96,7 @@ class Engine:
         self.workers = workers or int(os.environ.get("EAWIKI_UC_WORKERS", "6"))
         self._cancel: set = set()
         self._plans: dict = {}
+        self._profiles: dict = {}                # (case, item) -> what the demand mentions
         from eawiki.cases import flow
         self.phase_graph = flow.build_phase_graph(self)
         self.cell_graph = flow.build_cell_graph(self)
@@ -209,6 +211,22 @@ class Engine:
             run["passing"] = rows if (gc and gc["value"] == "Yes") or not gc else []
         return {}
 
+    def _profile_of(self, cid: str, it: dict, run: dict) -> dict:
+        key = (cid, it["_id"])
+        if key not in self._profiles:
+            self._profiles[key] = profmod.build_profile(gmod.labelled_fields(run["spec"], it), run["tools"].llm_json)
+        return self._profiles[key]
+
+    def _n_profile(self, s) -> dict:
+        """Read what each passing demand mentions, once, so lookups can search its mentions one by one."""
+        run, cid, pid = s["run"], s["cid"], s["pid"]
+        if run["passing"] and not s["only_item"]:
+            self.store.set_phase(cid, pid, preparing=True, prep="Reading what each demand mentions")
+        run["profiles"] = dict(run["pool"].map(lambda it: (it["_id"], self._profile_of(cid, it, run)), run["passing"]))
+        if not s["only_item"]:
+            self.store.set_phase(cid, pid, preparing=False, prep="")
+        return {}
+
     def _n_round(self, s) -> dict:
         run = s["run"]
         self._run_level(s["cid"], s["pid"], run["rounds"][s["li"]], run)
@@ -225,6 +243,43 @@ class Engine:
         for c in run["cols"]:                                              # citations: a union, in code
             if c.get("type") == "citations":
                 self._citations(s["cid"], s["pid"], c, run["rows"])
+        return {}
+
+    def _n_consistency(self, s) -> dict:
+        """Checks that need more than one item, done in code. Duplicates: if one demand names another as
+        its duplicate, the other names it back. Where the other says it is not a duplicate at all, the
+        two disagree and the architect is asked, because code cannot say which is right."""
+        run, cid, pid = s["run"], s["cid"], s["pid"]
+        cfg = (run["stage"].get("consistency") or {}).get("duplicates")
+        if not cfg or s["only_item"]:
+            return {}
+        ids = {it["_id"] for it in run["rows"]}
+        cells = {(c["item_id"], c["column"]): c for c in self.store.cells(cid, pid)}
+        pat = re.compile("|".join(re.escape(i) for i in sorted(ids, key=len, reverse=True))) if ids else None
+        if pat is None:
+            return {}
+        for it in run["rows"]:
+            a = it["_id"]
+            flag = cells.get((a, cfg["flag"]))
+            ref = cells.get((a, cfg["ref"]))
+            if not flag or not ref or _show(flag["value"]) not in cfg["yes"]:
+                continue
+            for b in dict.fromkeys(x for x in pat.findall(_show(ref["value"])) if x != a):
+                bflag, bref = cells.get((b, cfg["flag"])), cells.get((b, cfg["ref"]))
+                if not bref or a in _show(bref["value"]):
+                    continue
+                if bflag and _show(bflag["value"]) in cfg["yes"]:
+                    now = (_show(bref["value"]).strip() or "").strip()
+                    now = "" if now.lower() in ("none", "") else now
+                    self.store.save_cell(cid, b, pid, cfg["ref"], value=(now + "; " if now else "") + a, status="answered",
+                                         source="rule", evidence=bref["evidence"],
+                                         how=bref["how"] + [f"{a} names {b} as a duplicate, so {b} names {a} too (duplicates are mirrored in code)."])
+                    self.store.add_event(cid, "cell", {"phase": pid, "item": b, "column": cfg["ref"], "status": "answered"})
+                elif bflag:
+                    self.store.add_question(cid, b, pid, cfg["flag"],
+                                            f"{a} says it duplicates {b}, but {b} is marked '{_show(bflag['value'])}'. Which is right?",
+                                            {"needs": "The two demands disagree about whether they are duplicates.", "looked": "the answers of both demands", "suggestions": []})
+                    self.store.add_event(cid, "question", {"phase": pid, "item": b, "column": cfg["flag"]})
         return {}
 
     def _n_finish(self, s) -> dict:
@@ -297,14 +352,16 @@ class Engine:
             self.cell_graph.invoke({"cid": cid, "pid": pid, "spec": run["spec"], "item": it, "col": col,
                                     "others": [o for o in run["rows"] if o["_id"] != it["_id"]],
                                     "plan": run["plans"][col["name"]], "tools": run["tools"],
-                                    "link_cache": run["link_cache"], "hint": None, "question": None})
+                                    "link_cache": run["link_cache"], "hint": None, "question": None,
+                                    "profile": run["profiles"].get(it["_id"])})
 
         list(run["pool"].map(one, tasks))
 
     # ---- the cell graph's nodes -------------------------------------------------------
     def _c_gather(self, s) -> dict:
         try:
-            ev = gmod.gather(s["tools"], s["plan"], s["spec"], s["item"], s["others"], s["link_cache"], s.get("hint"))
+            ev = gmod.gather(s["tools"], s["plan"], s["spec"], s["item"], s["others"], s["link_cache"], s.get("hint"),
+                             s.get("profile"))
             return {"ev": ev, "failed": False}
         except Exception as e:                                   # one property failing never stops the sheet
             return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}
@@ -423,7 +480,9 @@ class Engine:
         it = next(i for i in case["items"] if i["_id"] == q["item_id"])
         fields = [f["name"] for f in (spec.get("input") or {}).get("item_fields") or []]
         plan = pmod.build_plan(col, fields, tools.doc_ids(), tools.llm_json, self._plans)
-        out = self.cell_graph.invoke({"cid": cid, "pid": pid, "spec": spec, "item": it, "col": col, "plan": plan,
+        prof = self._profiles.get((cid, it["_id"])) or profmod.build_profile(gmod.labelled_fields(spec, it), tools.llm_json)
+        self._profiles[(cid, it["_id"])] = prof
+        out = self.cell_graph.invoke({"cid": cid, "pid": pid, "spec": spec, "item": it, "col": col, "plan": plan, "profile": prof,
                                       "others": [o for o in case["items"] if o["_id"] != it["_id"]], "tools": tools,
                                       "link_cache": {}, "hint": {"document": document, "where": where}, "question": q})
         if out["cell"]["status"] == "answered":

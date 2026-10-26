@@ -41,8 +41,13 @@ CANNED = {
 
 
 def fake_llm(prompt: str):
-    if "decide WHERE an assistant should look" in prompt:
-        return {"sources": ["demand", "documents"], "queries": ["{__text__}"], "documents": [], "bogus": 1}
+    if "plan WHAT TO LOOK FOR" in prompt:
+        return {"sources": ["demand", "documents"], "documents": [], "bogus": 1,
+                "lookups": [{"find": "what each system named is", "from": "systems", "match": "name", "in": ["Strategy"], "extract": "its owner"},
+                            {"find": "invalid", "from": "bogus", "match": "name"}]}
+    if "list what it MENTIONS" in prompt:
+        m = re.search(r"Systems or data mentioned: (.+)", prompt)
+        return {"systems": [x.strip() for x in m.group(1).split(",")] if m else [], "data": ["a thing nobody wrote"]}
     if "INTAKE QUESTIONS" in prompt:
         return {"outcome": "No: incident", "reason": "The VPN worked before."} if "VPN" in prompt else {"outcome": "Yes", "reason": ""}
     m = re.search(r"PROPERTY: (.+?)  \[", prompt)
@@ -65,7 +70,7 @@ def fake_llm(prompt: str):
 def fake_tools():
     block = {"block_id": "Strategy:1", "doc_id": "Strategy", "text": "O-02 employee requests handled digitally."}
     road = {"block_id": "Roadmap:7", "doc_id": "Roadmap", "text": "P-12 HR cloud move, owner HR."}
-    return gmod.Tools(search=lambda q, k, docs: [road] if docs == ["Roadmap"] else ([] if docs else [block]), blocks_by_ids=lambda ids: [block],
+    return gmod.Tools(search=lambda q, k, docs: [road] if docs == ["Roadmap"] else ([] if docs == ["Gap_Analysis_Sample"] else [block]), blocks_by_ids=lambda ids: [block],
                       link=lambda t: {"entities": [{"mention": "HR system", "ids": ["hr"], "names": ["HR system"]}]},
                       graph_facts=lambda ids: {"facts": "HR system --is_deployed_on--> Oracle DB", "block_ids": ["Strategy:1"]},
                       llm_json=fake_llm, doc_ids=lambda: ["Strategy", "Gap_Analysis_Sample", "Roadmap"])
@@ -85,9 +90,47 @@ def test_levels_put_a_property_after_what_it_builds_on():
 
 def test_a_plan_cannot_point_at_something_that_does_not_exist():
     col = {"name": "X", "look_in": ["Strategy"]}
-    p = pmod.validate({"sources": ["demand", "nonsense", "documents"], "queries": ["{business_need}", "{nope}"],
-                       "documents": ["strategy", "Ghost"]}, col, ["business_need"], ["Strategy"])
-    assert p["sources"] == ["demand", "documents"] and p["queries"] == ["{business_need}"] and p["documents"] == ["Strategy"]
+    p = pmod.validate({"sources": ["demand", "nonsense", "documents"], "documents": ["strategy", "Ghost"],
+                       "lookups": [{"find": "a system", "from": "systems", "match": "name", "in": ["Application Catalog", "Ghost"]},
+                                   {"find": "bad", "from": "nonsense", "match": "name"},
+                                   {"find": "", "from": "systems", "match": "name"}]},
+                      col, ["business_need"], ["Strategy", "Application_Catalog_v2", "Roadmap"])
+    assert p["sources"] == ["demand", "documents"] and p["documents"] == ["Strategy", "Application_Catalog_v2"]
+    assert len(p["lookups"]) == 1 and p["lookups"][0]["docs"] == ["Application_Catalog_v2"] and p["lookups"][0]["in"] == ["Application Catalog", "Ghost"]
+    # a kind of source finds a document added later, because it is matched by its words, not listed by name
+    assert pmod.resolve_docs("Business Capability Map", ["Business_Capability_Map_2027", "Strategy"]) == ["Business_Capability_Map_2027"]
+    # lookups written by the owner are used as they are: no model call
+    col2 = {"name": "Y", "lookups": [{"find": "f", "from": "need", "match": "meaning", "in": ["Roadmap"]}]}
+    q = pmod.build_plan(col2, ["business_need"], ["Roadmap"], llm=lambda _p: (_ for _ in ()).throw(AssertionError("no call")))
+    assert q["origin"] == "config" and q["lookups"][0]["docs"] == ["Roadmap"]
+
+
+def test_the_profile_keeps_only_what_the_requester_wrote():
+    from eawiki.cases import profile
+    f = {"systems_mentioned": ("Systems or data mentioned", "HR system, payroll, attendance devices"),
+         "business_need": ("Business need", "Employees request leave by email.")}
+    p = profile.validate({"systems": ["HR system", "payroll", "the SAP finance suite"], "data": ["a thing nobody wrote"],
+                          "processes": ["leave"]}, f)
+    assert [m["text"] for m in p["systems"]] == ["HR system", "payroll"] and p["data"] == []
+    assert p["systems"][0]["field"] == "systems_mentioned" and p["processes"][0]["field"] == "business_need"
+    assert profile.build_profile(f, None)["origin"] == "none"
+
+
+def test_lookups_search_each_mention_and_say_when_nothing_names_it():
+    tools = fake_tools()
+    plan = {"sources": ["demand", "documents"], "queries": ["{__text__}"], "documents": ["Strategy"], "origin": "t",
+            "lookups": [{"find": "what each system is", "from": "systems", "match": "name", "in": ["Strategy"], "docs": ["Strategy"], "extract": ""}]}
+    prof = {"systems": [{"text": "digitally", "field": "x"}, {"text": "zeppelin", "field": "x"}], "origin": "model"}
+    item = dict(ITEMS[0], _id="D-2026-001")
+    ev = gmod.gather(tools, plan, SPEC, item, [], {}, None, prof)
+    rec = ev["lookups"][0]
+    assert [i["mention"] for i in rec["items"]] == ["digitally", "zeppelin"]
+    assert rec["items"][0]["none"] is False and rec["items"][1]["none"] is True       # one named in a passage, one not
+    txt = gmod.render(ev)
+    assert 'NO passage names it' in txt and "LOOKUPS" in txt and any("no match" in x for x in ev["searched"])
+    # a profile that could not be built falls back to the whole text, and never claims "mentions no systems"
+    ev2 = gmod.gather(tools, plan, SPEC, item, [], {}, None, {"origin": "none"})
+    assert ev2["lookups"][0]["items"][0]["mention"] == "the demand as a whole"
 
 
 def test_a_sheet_runs_asks_for_what_is_missing_and_moves_to_the_next_phase():
@@ -171,6 +214,75 @@ def test_the_flows_are_langgraph_graphs_that_can_be_drawn():
         assert node in d["cell"]
 
 
+def test_duplicates_name_each_other_and_a_disagreement_is_asked():
+    e = _engine()
+    items = [dict(ITEMS[0], _id="D-2026-001"), dict(ITEMS[1], _id="D-2026-003"), dict(ITEMS[2], _id="D-2026-004")]
+    cid = e.create(SPEC, items, "dups")
+    st = e.store
+    F, R = "Is duplicate", "Duplicate demand number (in the sheet)"
+    for iid, flag, ref in (("D-2026-001", "Yes", "D-2026-003; D-2026-004"), ("D-2026-003", "Yes", "None"), ("D-2026-004", "No", "None")):
+        st.save_cell(cid, iid, "screening", F, value=flag, status="answered")
+        st.save_cell(cid, iid, "screening", R, value=ref, status="answered", how=["from the model"])
+    stage = SPEC["stages"][0]
+    e._n_consistency({"cid": cid, "pid": "screening", "only_item": None, "run": {"stage": stage, "rows": items}})
+    cells = {(c["item_id"], c["column"]): c for c in st.cells(cid, "screening")}
+    assert cells[("D-2026-003", R)]["value"] == "D-2026-001" and cells[("D-2026-003", R)]["source"] == "rule"
+    assert "mirrored in code" in cells[("D-2026-003", R)]["how"][-1]
+    q = [x for x in st.questions(cid) if x["status"] == "open"]
+    assert len(q) == 1 and q[0]["item_id"] == "D-2026-004" and q[0]["column"] == F        # one says Yes, the other No: a person decides
+
+
+def test_a_case_is_scored_against_the_expected_answers():
+    from eawiki.cases import score as sc
+    gold = json.loads((ROOT / "use_cases" / "samples" / "demand-management-gold.json").read_text(encoding="utf-8"))
+    assert len(gold["items"]) == 9 and "Domain" in gold["items"]["D-2026-001"]["expected"]
+    assert sc.compare("O-04 / I-08; O-03", "O-04 and O-03, I-08 (the mandate)") == "match"
+    assert sc.compare("Application; Security", "security; application") == "match"
+    assert sc.compare("Application; Security", "Application") == "partial"
+    assert sc.compare("Standard", "Fast-track") == "wrong"
+    cells = [{"phase_id": "screening", "item_id": "D-2026-001", "column": "Domain", "value": ["Application", "Security"], "status": "answered"},
+             {"phase_id": "screening", "item_id": "D-2026-001", "column": "Priority", "value": "Fast-track", "status": "answered"},
+             {"phase_id": "screening", "item_id": "D-2026-001", "column": "Data classification", "value": "", "status": "needs_input"}]
+    rep = sc.score(cells, gold)
+    assert rep["properties"]["Priority"]["wrong"] == 1 and rep["properties"]["Data classification"]["asked"] == 1
+    assert "ALL" in sc.render(rep) and any(m["property"] == "Priority" for m in rep["misses"])
+
+
+def test_the_verified_sheet_is_loaded_into_the_use_case_by_property_name():
+    from openpyxl import Workbook
+    from eawiki import usecases
+    from eawiki.cases import import_sheet as imp
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Properties corrected"
+    ws.append(["#", "Field", "Type", "Values (exact words)", "Builds on (decided first)", "Source required?", "Min sources",
+               "Description: what this field means", "How to resolve it (steps)", "Where to look (x)", "Rules / decision criteria",
+               "Examples (one correct, one wrong)", "Info needed: when INPUT is missing (ask)", "Info needed: when a SOURCE is missing (ask)"])
+    ws.append(["D1", "Stage instructions: Screening", "Text", "", "", "n/a", "", "d", "h", "w", "Never approve or reject.", "e", "i", "s"])
+    ws.append(["D2", "Domain", "List", "Business; Data; Application; Technology; Security", "Data classification", "No (the demand can decide)", "1 when a catalog is used",
+               "The architecture domains.", "1. Read.", "Application Catalog", "Five domains only.", "Correct: Application\n[PROPOSED by Claude: replace]",
+               "Ask which systems.", "[PROPOSED by Claude] Say so."])
+    ws.append(["D4", "Priority", "Choice", "Fast-track; Standard; Backlog", "Mandate / objective; Is duplicate", "Yes", "2 (a judgment)",
+               "d", "h", "w", "r", "e", "i", "s"])
+    ws.append(["D3", "Category", "List", "", "", "No", "", "d", "h", "w", "r", "e", "i", "s"])
+    ws.append(["D5", "Mandate / objective", "Text", "", "", "Yes", "", "[EA to write]", "", "", "", "", "", ""])
+    p = ROOT / "tests" / "_sheet_tmp.xlsx"
+    wb.save(p)
+    try:
+        new, rep = imp.apply(SPEC, str(p))
+    finally:
+        p.unlink()
+    dom = next(c for c in new["stages"][0]["output"]["columns"] if c["name"] == "Domain")
+    assert dom["values"] == ["Business", "Data", "Application", "Technology", "Security"] and dom["uses"] == ["Data classification"]
+    assert dom["evidence_required"] is False and dom["examples"] == "Correct: Application" and dom["info_needed_source"] == "Say so."
+    pri = next(c for c in new["stages"][0]["output"]["columns"] if c["name"] == "Priority")
+    assert pri["min_sources"] == 2 and pri["uses"] == ["Mandate / business or DT objective", "Is duplicate"]
+    assert new["playbook"] == "Never approve or reject." and rep["unmatched"] == ["Category"]
+    assert "Mandate / business or DT objective" in rep["skipped"]                  # only a note to the reader: left alone
+    assert usecases.validate(new) == []
+    assert "examples" not in next(c for c in SPEC["stages"][0]["output"]["columns"] if c["name"] == "Domain")      # the original is untouched
+
+
 def test_the_use_case_names_its_items_and_what_each_property_is_doing():
     from eawiki import usecases
     assert SPEC["input"]["item_label"] == {"singular": "demand", "plural": "demands"}
@@ -195,7 +307,7 @@ def test_the_phase_shows_as_running_before_the_plans_are_built_and_a_failure_is_
         inner = t.llm_json
 
         def llm(prompt):
-            if "decide WHERE an assistant should look" in prompt:           # a plan is being built
+            if "plan WHAT TO LOOK FOR" in prompt:           # a plan is being built
                 seen.append(e.store.get_case(cid)["state"]["phases"].get("screening", {}).get("status"))
             return inner(prompt)
         t.llm_json = llm

@@ -1,0 +1,196 @@
+{
+ "use_case": "demand-management",
+ "stage": "screening",
+ "about": "Expected answers from the EA team's dummy example (9 demands). Dummy data for scoring the system, not real demands. Free-text columns (the screening observation) are not scored. Missing or empty values are left out.",
+ "items": {
+  "D-2026-001": {
+   "title": "Employee self-service mobile app for leave and attendance",
+   "expected": {
+    "Is it a true demand?": "Yes",
+    "Demand type": "Digital",
+    "Domain": "Application; Integration; Security",
+    "Urgency": "High",
+    "Priority": "Standard",
+    "Mandate / business or DT objective": "O-02 / I-04 (employee requests handled digitally); internal audit finding stated in the demand",
+    "Linked initiative or project": "P-103 HR system cloud migration (employee web portal only)",
+    "Impacted business capability": "Employee Self-Service; Leave and Attendance Management",
+    "Impacted application": "HR system (Peoplex, C-204); payroll; attendance devices",
+    "Is duplicate": "Yes",
+    "Duplicate demand number (in the sheet)": "D-2026-017",
+    "Duplicate with existing artefact / artefact name": "P-103 HR system cloud migration (web portal in scope, mobile out of scope); C-204 HR system (mobile add-on not purchased)",
+    "Architecture principles and standards alignment": "Conforms",
+    "Data classification": "Confidential",
+    "Linked security capability": "Identity and access management; Data protection",
+    "Security review needed": "Yes"
+   }
+  },
+  "D-2026-002": {
+   "title": "Executive performance dashboard",
+   "expected": {
+    "Is it a true demand?": "Not yet: return for information",
+    "Demand type": "Not assessed",
+    "Domain": "Not assessed",
+    "Urgency": "Not assessed",
+    "Priority": "No score",
+    "Mandate / business or DT objective": "No link found",
+    "Linked initiative or project": "No link found",
+    "Impacted business capability": "Not identified",
+    "Impacted application": "Not identified",
+    "Is duplicate": "Not assessed",
+    "Duplicate demand number (in the sheet)": "",
+    "Duplicate with existing artefact / artefact name": "",
+    "Architecture principles and standards alignment": "Not checked",
+    "Data classification": "Not assessed",
+    "Linked security capability": "Not assessed",
+    "Security review needed": "Not assessed"
+   }
+  },
+  "D-2026-003": {
+   "title": "Automated regulatory financial reporting",
+   "expected": {
+    "Is it a true demand?": "Yes",
+    "Demand type": "Technical",
+    "Domain": "Application; Data",
+    "Urgency": "Critical",
+    "Priority": "Fast-track",
+    "Mandate / business or DT objective": "Mandated digital financial reporting format from 2027-01-01 (O-04 / I-08); O-03 / I-06",
+    "Linked initiative or project": "P-101 Finance system upgrade (go-live 2027-01-10)",
+    "Impacted business capability": "Financial Reporting; Regulatory Compliance",
+    "Impacted application": "Finance system (Finvera, C-201); data warehouse and BI platform (Datavia, C-205)",
+    "Is duplicate": "No",
+    "Duplicate demand number (in the sheet)": "",
+    "Duplicate with existing artefact / artefact name": "None",
+    "Architecture principles and standards alignment": "Conforms",
+    "Data classification": "Confidential",
+    "Linked security capability": "Data protection; Application security",
+    "Security review needed": "Yes"
+   }
+  },
+  "D-2026-004": {
+   "title": "Complaint tracking system",
+   "expected": {
+    "Is it a true demand?": "Yes",
+    "Demand type": "Digital",
+    "Domain": "Application; Integration; Security",
+    "Urgency": "High",
+    "Priority": "Standard",
+    "Mandate / business or DT objective": "O-01 / I-01 (complaints answered within the 10-day target); no external mandate found",
+    "Linked initiative or project": "I-01 (roadmap); P-106 website and mobile app redesign (web forms)",
+    "Impacted business capability": "Complaint Management; Customer Service Delivery",
+    "Impacted application": "Contact centre platform (Callwave, C-202); website forms; email",
+    "Is duplicate": "Possible",
+    "Duplicate demand number (in the sheet)": "",
+    "Duplicate with existing artefact / artefact name": "C-202 contact centre platform (case management not confirmed)",
+    "Architecture principles and standards alignment": "Conforms",
+    "Data classification": "Confidential",
+    "Linked security capability": "Data protection; Application security; Cloud security",
+    "Security review needed": "Yes"
+   }
+  },
+  "D-2026-006": {
+   "title": "VPN not working for remote staff",
+   "expected": {
+    "Is it a true demand?": "No: incident",
+    "Demand type": "Not assessed",
+    "Domain": "Not assessed",
+    "Urgency": "Not assessed",
+    "Priority": "No score",
+    "Mandate / business or DT objective": "Not assessed",
+    "Linked initiative or project": "Not assessed",
+    "Impacted business capability": "Not assessed",
+    "Impacted application": "Not assessed",
+    "Is duplicate": "Not assessed",
+    "Duplicate demand number (in the sheet)": "",
+    "Duplicate with existing artefact / artefact name": "",
+    "Architecture principles and standards alignment": "Not checked",
+    "Data classification": "Not assessed",
+    "Linked security capability": "Not assessed",
+    "Security review needed": "Not assessed"
+   }
+  },
+  "D-2026-009": {
+   "title": "HR analytics on the data warehouse",
+   "expected": {
+    "Is it a true demand?": "Yes",
+    "Demand type": "Technical",
+    "Domain": "Data",
+    "Urgency": "Medium",
+    "Priority": "Backlog",
+    "Mandate / business or DT objective": "O-03 / I-05 (subject areas in the data warehouse); no mandate found",
+    "Linked initiative or project": "P-104 Data warehouse phase 2 (HR subject area in phase 3)",
+    "Impacted business capability": "Workforce Analytics; HR Reporting",
+    "Impacted application": "HR system (Peoplex, C-204); data warehouse and BI platform (Datavia, C-205); payroll",
+    "Is duplicate": "Yes",
+    "Duplicate demand number (in the sheet)": "",
+    "Duplicate with existing artefact / artefact name": "P-104 Data warehouse phase 2 (HR subject area planned for phase 3, not funded)",
+    "Architecture principles and standards alignment": "Conforms",
+    "Data classification": "Confidential",
+    "Linked security capability": "Identity and access management; Data protection",
+    "Security review needed": "Yes"
+   }
+  },
+  "D-2026-013": {
+   "title": "Meeting room booking app",
+   "expected": {
+    "Is it a true demand?": "No: standard service",
+    "Demand type": "Not assessed",
+    "Domain": "Not assessed",
+    "Urgency": "Not assessed",
+    "Priority": "No score",
+    "Mandate / business or DT objective": "Not assessed",
+    "Linked initiative or project": "Not assessed",
+    "Impacted business capability": "Not assessed",
+    "Impacted application": "Not assessed",
+    "Is duplicate": "Yes",
+    "Duplicate demand number (in the sheet)": "",
+    "Duplicate with existing artefact / artefact name": "S-001 Meeting room booking (standard service)",
+    "Architecture principles and standards alignment": "Not checked",
+    "Data classification": "Not assessed",
+    "Linked security capability": "Not assessed",
+    "Security review needed": "Not assessed"
+   }
+  },
+  "D-2026-016": {
+   "title": "Digital signature and e-approval for contracts",
+   "expected": {
+    "Is it a true demand?": "Yes",
+    "Demand type": "Digital",
+    "Domain": "Application; Integration; Security",
+    "Urgency": "High",
+    "Priority": "Fast-track",
+    "Mandate / business or DT objective": "Government mandate on digital transformation of transactions (O-04 / I-08); O-02 / I-03 (contract signing cycle)",
+    "Linked initiative or project": "I-03 (digital contracts); P-105 Document management system rollout (modules not activated); P-108 identity modernization (planned 2027)",
+    "Impacted business capability": "Contract Management; Document and Records Management",
+    "Impacted application": "Document management system (Docuvia, C-203); identity service",
+    "Is duplicate": "Yes",
+    "Duplicate demand number (in the sheet)": "",
+    "Duplicate with existing artefact / artefact name": "C-203 Docuvia workflow engine and e-signature module (licensed, not activated)",
+    "Architecture principles and standards alignment": "Conforms",
+    "Data classification": "Confidential",
+    "Linked security capability": "Identity and access management; Application security",
+    "Security review needed": "Yes"
+   }
+  },
+  "D-2026-017": {
+   "title": "Mobile app for leave requests and attendance",
+   "expected": {
+    "Is it a true demand?": "Yes",
+    "Demand type": "Digital",
+    "Domain": "Application; Integration; Security",
+    "Urgency": "Medium",
+    "Priority": "Standard",
+    "Mandate / business or DT objective": "O-02 / I-04 (employee requests handled digitally)",
+    "Linked initiative or project": "P-103 HR system cloud migration (employee web portal only)",
+    "Impacted business capability": "Employee Self-Service; Leave and Attendance Management",
+    "Impacted application": "HR system (Peoplex, C-204)",
+    "Is duplicate": "Yes",
+    "Duplicate demand number (in the sheet)": "D-2026-001",
+    "Duplicate with existing artefact / artefact name": "P-103 HR system cloud migration (web portal in scope, mobile out of scope); C-204 HR system (mobile add-on not purchased)",
+    "Architecture principles and standards alignment": "Conforms",
+    "Data classification": "Confidential",
+    "Linked security capability": "Identity and access management; Data protection",
+    "Security review needed": "Yes"
+   }
+  }
+ }
+}

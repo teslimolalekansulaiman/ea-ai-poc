@@ -76,7 +76,7 @@ export function LiveCard({ phase, events, data, needs, stalled, onResume, onJump
   const prep = !!phase.state.preparing
   const label = prep ? 'Preparing' : cur ? cur.label : 'Starting'
   const alongside = cur ? cur.columns.length - 1 : 0
-  const sub = prep ? 'Working out how to resolve each property' : cur ? `${cur.n} of ${count(total, L)}${alongside > 0 ? ` · ${alongside} more at the same time` : ''}` : ''
+  const sub = prep ? (phase.state.prep || 'Working out how to resolve each property') : cur ? `${cur.n} of ${count(total, L)}${alongside > 0 ? ` · ${alongside} more at the same time` : ''}` : ''
   const elapsed = phase.state.started ? Math.max(0, Date.now() / 1000 - phase.state.started) : 0
   const cells = (data.cells[phase.id]) || {}
   const feed = events.filter(e => e.kind === 'cell' && e.data.phase === phase.id && e.data.status !== 'user').slice(-3).reverse()

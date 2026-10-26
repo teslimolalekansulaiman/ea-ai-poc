@@ -19,9 +19,16 @@ DIR = Path("use_cases")
 COLUMN_TYPES = {"text", "textarea", "list", "enum", "citations", "bool", "number"}
 # A column or input field may carry a free-text description: what the property means and how
 # to resolve it. It is written by the EA team and read by the model, so it is bounded.
-MAX_DESCRIPTION = 1500
+MAX_DESCRIPTION = 2500
 MAX_INFO_NEEDED = 300
 MAX_LOOK_IN = 10
+MAX_GUIDANCE = 2500        # rules, examples and where-to-look text of one property
+MAX_PLAYBOOK = 4000        # the rules that apply to every property of the use case
+MAX_LOOKUPS = 6
+# What a demand can mention (the profile groups) and how a lookup may use them.
+PROFILE_GROUPS = ("systems", "data", "processes", "users", "mandates", "projects", "dates")
+LOOKUP_FROM = PROFILE_GROUPS + ("need", "all_text", "other_demands")
+LOOKUP_MATCH = ("name", "meaning", "compare")
 MAX_ACTIVITY = 80          # the short sentence the live card shows while a property is worked
 
 
@@ -51,6 +58,9 @@ def validate(spec: dict) -> list[str]:
                 errs.append(f"Stage {i}: enum column '{c.get('name','?')}' needs at least one value.")
     for f in (spec.get("input") or {}).get("item_fields") or []:
         errs += _description_errors(f"Input field '{f.get('name', '?')}'", f)
+    pb = spec.get("playbook")
+    if pb is not None and (not isinstance(pb, str) or len(pb.strip()) > MAX_PLAYBOOK):
+        errs.append(f"The use case rules must be text of at most {MAX_PLAYBOOK} characters.")
     il = (spec.get("input") or {}).get("item_label")
     blank = isinstance(il, dict) and not any(isinstance(il.get(k), str) and il[k].strip() for k in ("singular", "plural"))
     if il is not None and not blank and (not isinstance(il, dict) or any(not isinstance(il.get(k), str) or not il[k].strip() or len(il[k]) > 40
@@ -97,6 +107,17 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
     a = c.get("activity")
     if a is not None and (not isinstance(a, str) or len(a.strip()) > MAX_ACTIVITY):
         errs.append(f"{where}: activity must be text of at most {MAX_ACTIVITY} characters.")
+    for key in ("where_to_look", "rules", "examples"):
+        v = c.get(key)
+        if v is not None and (not isinstance(v, str) or len(v.strip()) > MAX_GUIDANCE):
+            errs.append(f"{where}: {key.replace('_', ' ')} must be text of at most {MAX_GUIDANCE} characters.")
+    n2 = c.get("info_needed_source")
+    if n2 is not None and (not isinstance(n2, str) or len(n2.strip()) > MAX_INFO_NEEDED):
+        errs.append(f"{where}: info needed (source) must be text of at most {MAX_INFO_NEEDED} characters.")
+    ms = c.get("min_sources")
+    if ms is not None and (isinstance(ms, bool) or not isinstance(ms, int) or not 1 <= ms <= 5):
+        errs.append(f"{where}: minimum sources must be a whole number from 1 to 5.")
+    errs += _lookup_errors(where, c.get("lookups"))
     uses = c.get("uses")
     if uses is not None:
         if not isinstance(uses, list):
@@ -108,8 +129,34 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
     return errs
 
 
+def _lookup_errors(where: str, lookups) -> list[str]:
+    """A property's lookups: what to find, from which mention, in which kinds of source, how to match."""
+    if lookups is None:
+        return []
+    if not isinstance(lookups, list) or len(lookups) > MAX_LOOKUPS:
+        return [f"{where}: lookups must be a list of at most {MAX_LOOKUPS}."]
+    errs = []
+    for i, lk in enumerate(lookups, 1):
+        if not isinstance(lk, dict) or not isinstance(lk.get("find"), str) or not lk["find"].strip():
+            errs.append(f"{where}: lookup {i} needs a 'find' sentence.")
+            continue
+        if lk.get("from") not in LOOKUP_FROM:
+            errs.append(f"{where}: lookup {i}: 'from' must be one of {', '.join(LOOKUP_FROM)}.")
+        if lk.get("match") not in LOOKUP_MATCH:
+            errs.append(f"{where}: lookup {i}: 'match' must be one of {', '.join(LOOKUP_MATCH)}.")
+        li = lk.get("in", [])
+        if not isinstance(li, list) or len(li) > 8 or any(not isinstance(x, str) or len(x) > 120 for x in li):
+            errs.append(f"{where}: lookup {i}: 'in' must be a list of at most 8 kinds of source.")
+    return errs
+
+
 def _tidy_descriptions(spec: dict) -> None:
     """Trim descriptions and drop empty ones, so a blank box in the form leaves no key behind."""
+    if isinstance(spec.get("playbook"), str):
+        if spec["playbook"].strip():
+            spec["playbook"] = spec["playbook"].strip()
+        else:
+            spec.pop("playbook")
     il = (spec.get("input") or {}).get("item_label")
     if isinstance(il, dict):
         if any(isinstance(il.get(k), str) and il[k].strip() for k in ("singular", "plural")):
@@ -120,7 +167,7 @@ def _tidy_descriptions(spec: dict) -> None:
     for s in spec.get("stages") or []:
         items += list((s.get("output") or {}).get("columns") or [])
     for it in items:
-        for key in ("description", "how_to_resolve", "info_needed", "activity"):
+        for key in ("description", "how_to_resolve", "info_needed", "info_needed_source", "activity", "where_to_look", "rules", "examples"):
             d = (it.get(key) or "").strip() if isinstance(it.get(key), str) else ""
             if d:
                 it[key] = d
@@ -135,6 +182,10 @@ def _tidy_descriptions(spec: dict) -> None:
             it.pop("evidence_required", None)          # on by default: only an explicit "no" is stored
         if not it.get("uses"):
             it.pop("uses", None)
+        if not it.get("lookups"):
+            it.pop("lookups", None)
+        if not it.get("min_sources"):
+            it.pop("min_sources", None)
 
 
 def list_specs() -> list[dict]:

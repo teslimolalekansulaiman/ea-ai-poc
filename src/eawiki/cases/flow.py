@@ -39,6 +39,7 @@ class CellState(TypedDict, total=False):
     plan: dict
     tools: Any
     link_cache: dict
+    profile: Optional[dict]   # what the demand mentions, by group
     hint: Optional[dict]      # set when the architect pointed to a document
     question: Optional[dict]  # the open question that hint answers
     ev: dict
@@ -50,9 +51,11 @@ def build_phase_graph(e):
     g = StateGraph(PhaseState)
     g.add_node("prepare", e._n_prepare)
     g.add_node("gate", e._n_gate)
+    g.add_node("profile", e._n_profile)
     g.add_node("run_round", e._n_round)
     g.add_node("summaries", e._n_summaries)
     g.add_node("citations", e._n_citations)
+    g.add_node("consistency", e._n_consistency)
     g.add_node("finish", e._n_finish)
     g.add_edge(START, "prepare")
     g.add_edge("prepare", "gate")
@@ -60,10 +63,12 @@ def build_phase_graph(e):
     def more(s: PhaseState) -> str:
         return "run_round" if s["li"] < len(s["run"]["rounds"]) else "summaries"
 
-    g.add_conditional_edges("gate", more, {"run_round": "run_round", "summaries": "summaries"})
+    g.add_edge("gate", "profile")
+    g.add_conditional_edges("profile", more, {"run_round": "run_round", "summaries": "summaries"})
     g.add_conditional_edges("run_round", more, {"run_round": "run_round", "summaries": "summaries"})
     g.add_edge("summaries", "citations")
-    g.add_edge("citations", "finish")
+    g.add_edge("citations", "consistency")
+    g.add_edge("consistency", "finish")
     g.add_edge("finish", END)
     return g.compile()
 

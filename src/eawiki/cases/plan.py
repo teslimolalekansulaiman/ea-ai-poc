@@ -20,7 +20,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from typing import Callable, Optional
+
+from eawiki.usecases import LOOKUP_FROM, LOOKUP_MATCH, MAX_LOOKUPS, PROFILE_GROUPS
 
 SOURCES = ("demand", "documents", "graph", "other_demands")
 MAX_QUERIES = 3
@@ -28,55 +31,94 @@ MAX_QUERIES = 3
 
 def guidance_key(col: dict) -> str:
     """Changes exactly when something the plan depends on changes."""
-    keep = {k: col.get(k) for k in ("name", "type", "values", "description", "how_to_resolve",
-                                    "look_in", "uses", "evidence_required")}
+    keep = {k: col.get(k) for k in ("name", "type", "values", "description", "how_to_resolve", "where_to_look",
+                                    "look_in", "uses", "evidence_required", "lookups")}
     return hashlib.sha1(json.dumps(keep, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
 
 
-def default_plan(col: dict) -> dict:
-    return {"sources": ["demand", "documents", "graph"], "queries": ["{__text__}"],
-            "documents": list(col.get("look_in") or []), "origin": "default"}
+def _words(s: str) -> set:
+    return set(re.findall(r"[^\W_]{2,}", str(s or "").casefold()))
+
+
+def resolve_docs(kind: str, docs: list[str]) -> list[str]:
+    """The ingested documents a kind of source ("Application Catalog") stands for: a document whose
+    name holds all the words of the kind. A document added later is matched the same way, so naming
+    kinds, not files, never leaves a new document out."""
+    kw = _words(kind)
+    if not kw:
+        return []
+    return [d for d in docs if kw <= _words(d)]
+
+
+def _lookup(raw: dict, docs: list[str]) -> Optional[dict]:
+    if not isinstance(raw, dict) or not isinstance(raw.get("find"), str) or not raw["find"].strip():
+        return None
+    if raw.get("from") not in LOOKUP_FROM or raw.get("match") not in LOOKUP_MATCH:
+        return None
+    kinds = [k.strip() for k in (raw.get("in") or []) if isinstance(k, str) and k.strip()][:8]
+    resolved = []
+    for k in kinds:
+        resolved += resolve_docs(k, docs)
+    return {"find": raw["find"].strip()[:200], "from": raw["from"], "match": raw["match"], "in": kinds,
+            "docs": list(dict.fromkeys(resolved)), "extract": str(raw.get("extract") or "")[:200]}
+
+
+def default_lookups(col: dict) -> list[dict]:
+    return [{"find": (col.get("description") or col["name"]).split(". ")[0][:200], "from": "all_text",
+             "match": "meaning", "in": [], "docs": [], "extract": ""}]
+
+
+def default_plan(col: dict, docs: Optional[list[str]] = None) -> dict:
+    docs = docs or []
+    lks = [x for x in (_lookup(l, docs) for l in col.get("lookups") or []) if x] or default_lookups(col)
+    pref = list(dict.fromkeys(list(col.get("look_in") or []) + [d for l in lks for d in l["docs"]]))
+    return {"sources": ["demand", "documents", "graph"], "queries": ["{__text__}"], "lookups": lks,
+            "documents": pref, "origin": "default"}
 
 
 def _prompt(col: dict, fields: list[str], docs: list[str]) -> str:
-    return f"""You decide WHERE an assistant should look to fill one property of an enterprise-architecture assessment for a demand. Output ONE JSON object, nothing else.
+    uses = ", ".join(col.get("uses") or []) or "(none)"
+    return f"""You plan WHAT TO LOOK FOR to fill one property of an enterprise-architecture assessment for a demand. Output ONE JSON object, nothing else.
 
 Property: {col['name']}  [{col.get('type', 'text')}{' of ' + ', '.join(col['values']) if col.get('values') else ''}]
 Meaning: {col.get('description', '')}
 How to decide it: {col.get('how_to_resolve', '') or '(not given)'}
+Where the owner says to look (kinds of source): {col.get('where_to_look', '') or '(not given)'}
 Documents the owner says to look in first: {', '.join(col.get('look_in') or []) or '(none named)'}
+Already decided before this property (no search needed for these): {uses}
 
-Sources you may choose (use only these names):
-- demand: the demand's own fields ({', '.join(fields)})
-- documents: passages of the ingested documents
-- graph: the architecture entities the demand is about and what they are linked to
-- other_demands: the other demands in the same sheet
+Before you plan: a first step lists what the demand MENTIONS, in groups: {', '.join(PROFILE_GROUPS)}. A lookup searches those mentions one at a time.
+
+A LOOKUP says what to find, starting from which group of mentions, in which kinds of source, and how to match:
+- "find": one sentence, what to find out
+- "from": one of {', '.join(LOOKUP_FROM)}  (need = the demand's need and outcome; all_text = everything; other_demands = compare with the other demands)
+- "match": name (the mention is a name to find, for example a system), meaning (find what the need or process corresponds to), or compare
+- "in": kinds of source, as the owner names them (for example "Application Catalog"); leave empty if the steps do not say
+- "extract": what to read from what is found
 
 Ingested documents: {', '.join(docs) or '(none)'}
+Sources you may use: demand (the demand's own fields: {', '.join(fields)}), documents, graph (entities the demand is about), other_demands.
 
-Choose the sources this property really needs (not all of them), up to {MAX_QUERIES} short search queries (use {{field_name}} for the demand's fields, {{__text__}} for all of them), and the documents to search first (only from the ingested list).
+Turn the steps into at most {MAX_LOOKUPS} lookups. One lookup per thing the steps say to check. Do not invent places the steps do not mention.
 
-JSON: {{"sources": ["demand", "documents", ...], "queries": ["..."], "documents": ["..."]}}"""
+JSON: {{"sources": ["demand", "documents", ...], "lookups": [{{"find": "...", "from": "systems", "match": "name", "in": ["Application Catalog"], "extract": "which domain it belongs to"}}], "documents": ["<ingested document ids to search first>"]}}"""
 
 
 def validate(raw, col: dict, fields: list[str], docs: list[str]) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
-    sources = [s for s in (raw.get("sources") or []) if s in SOURCES]
+    sources = [x for x in (raw.get("sources") or []) if x in SOURCES]
+    lks = [x for x in (_lookup(l, docs) for l in (col.get("lookups") or raw.get("lookups") or [])) if x][:MAX_LOOKUPS]
+    if not sources:
+        sources = ["demand", "documents", "graph"] if lks else []
     if not sources:
         return None
-    fset = set(fields) | {"__text__"}
-    queries = []
-    for q in raw.get("queries") or []:
-        if isinstance(q, str) and q.strip():
-            import re
-            names = set(re.findall(r"{(\w+)}", q))
-            if names <= fset:
-                queries.append(q.strip()[:300])
     docset = {d.lower(): d for d in docs}
     named = [docset[d.lower()] for d in (raw.get("documents") or []) if isinstance(d, str) and d.lower() in docset]
-    named = list(dict.fromkeys(list(col.get("look_in") or []) + named))
-    return {"sources": list(dict.fromkeys(sources)), "queries": queries[:MAX_QUERIES] or ["{__text__}"],
+    named = list(dict.fromkeys(list(col.get("look_in") or []) + [d for l in lks for d in l["docs"]] + named))
+    if lks and "documents" not in sources and any(l["from"] != "other_demands" for l in lks):
+        sources.append("documents")
+    return {"sources": list(dict.fromkeys(sources)), "queries": ["{__text__}"], "lookups": lks or default_lookups(col),
             "documents": named, "origin": "model"}
 
 
@@ -86,12 +128,15 @@ def build_plan(col: dict, fields: list[str], docs: list[str], llm: Optional[Call
     if cache is not None and key in cache:
         return cache[key]
     plan = None
-    if llm is not None:
+    if col.get("lookups"):                                   # the owner wrote the lookups: no model call
+        plan = default_plan(col, docs)
+        plan["origin"] = "config"
+    elif llm is not None:
         try:
             plan = validate(llm(_prompt(col, fields, docs)), col, fields, docs)
         except Exception:
             plan = None
-    plan = plan or default_plan(col)
+    plan = plan or default_plan(col, docs)
     plan["key"] = key
     if cache is not None:
         cache[key] = plan

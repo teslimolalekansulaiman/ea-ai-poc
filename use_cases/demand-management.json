@@ -3,7 +3,7 @@
   "name": "Demand Management",
   "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
   "enabled": true,
-  "version": 8,
+  "version": 9,
   "trigger": "user_selects",
   "input": {
     "mode": "list",
@@ -399,6 +399,17 @@
             "if": "always"
           }
         ]
+      },
+      "consistency": {
+        "duplicates": {
+          "flag": "Is duplicate",
+          "ref": "Duplicate demand number (in the sheet)",
+          "yes": [
+            "Yes",
+            "Possible"
+          ],
+          "no": "No"
+        }
       }
     },
     {

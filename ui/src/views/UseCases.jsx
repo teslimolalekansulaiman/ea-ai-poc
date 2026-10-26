@@ -3,7 +3,7 @@ import { api } from '../api'
 
 const COLUMN_TYPES = ['text', 'textarea', 'list', 'enum', 'citations', 'bool', 'number']
 const FIELD_TYPES = ['text', 'textarea', 'enum', 'number']
-const DESC_MAX = 1500   // matches the limit the server enforces
+const DESC_MAX = 2500   // matches the limit the server enforces
 
 const BLANK = () => ({
   name: '', description: '', enabled: true,
@@ -11,6 +11,20 @@ const BLANK = () => ({
   validation: { enabled: true, on_fail: 'stop', fail_message: '', questions: [''] },
   stages: [{ name: '', instructions: '', output: { mode: 'table', columns: [{ name: '', type: 'text', values: [] }] } }],
 })
+
+// The lookups of a property as JSON. It only changes the use case when the text is valid.
+function LookupsBox({ value, onValid }) {
+  const [text, setText] = useState(JSON.stringify(value || [], null, 1))
+  const [bad, setBad] = useState('')
+  useEffect(() => { setText(JSON.stringify(value || [], null, 1)) }, [value])
+  return (
+    <div>
+      <textarea style={{ width: '100%', minHeight: 90, fontFamily: 'var(--mono)', fontSize: 12, border: bad ? '1px solid var(--crit)' : undefined }} value={text}
+        onChange={e => { setText(e.target.value); try { const v = JSON.parse(e.target.value || '[]'); if (!Array.isArray(v)) throw new Error('a list'); setBad(''); onValid(v) } catch (x) { setBad(String(x.message || x)) } }} />
+      <div className="meta">{bad ? 'Not saved: ' + bad : 'Each lookup: find, from (systems, data, processes, users, mandates, projects, dates, need, all_text, other_demands), match (name, meaning, compare), in (kinds of source), extract.'}</div>
+    </div>
+  )
+}
 
 export default function UseCases() {
   const [list, setList] = useState([])
@@ -95,6 +109,8 @@ export default function UseCases() {
         <input style={inp} value={uc.name} onChange={e => patch(d => d.name = e.target.value)} />
         <label className="meta" style={{ marginTop: 10, display: 'block' }}>Description</label>
         <textarea style={{ ...inp, minHeight: 50 }} value={uc.description} onChange={e => patch(d => d.description = e.target.value)} />
+        <label className="meta" style={{ marginTop: 10, display: 'block' }}>Rules for every property (read by the agent for each one, for example: never approve or reject; roles, never names)</label>
+        <textarea style={{ ...inp, minHeight: 60 }} maxLength={4000} value={uc.playbook || ''} onChange={e => patch(d => d.playbook = e.target.value)} />
         <label style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, fontSize: 13 }}>
           <input type="checkbox" checked={uc.enabled} onChange={e => patch(d => d.enabled = e.target.checked)} /> Enabled
         </label>
@@ -212,9 +228,31 @@ export default function UseCases() {
                 <input style={inp} maxLength={80} placeholder="Activity: the short sentence shown while it is worked, e.g. Classifying domains"
                   value={c.activity || ''}
                   onChange={e => patch(d => d.stages[si].output.columns[ci].activity = e.target.value)} />
-                <input style={inp} maxLength={300} placeholder="Info needed: what to ask for when the source is missing"
+                <textarea style={{ ...inp, minHeight: 38 }} maxLength={2500} placeholder="Where to look: the kinds of source, as the steps name them (for example Application Catalog, Business Capability Map). Not file names: a new document of the right kind is found without editing this."
+                  value={c.where_to_look || ''}
+                  onChange={e => patch(d => d.stages[si].output.columns[ci].where_to_look = e.target.value)} />
+                <textarea style={{ ...inp, minHeight: 38 }} maxLength={2500} placeholder="Rules / decision criteria for this property"
+                  value={c.rules || ''}
+                  onChange={e => patch(d => d.stages[si].output.columns[ci].rules = e.target.value)} />
+                <textarea style={{ ...inp, minHeight: 38 }} maxLength={2500} placeholder="Examples: one correct, one wrong (the agent uses them to see the format and the reasoning, never to copy)"
+                  value={c.examples || ''}
+                  onChange={e => patch(d => d.stages[si].output.columns[ci].examples = e.target.value)} />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span className="meta">Minimum cited sources</span>
+                  <input type="number" min={1} max={5} style={{ ...inp, width: 70 }} value={c.min_sources || ''}
+                    onChange={e => patch(d => { const v = parseInt(e.target.value, 10); const col = d.stages[si].output.columns[ci]; if (v) col.min_sources = v; else delete col.min_sources })} />
+                  <span className="meta">(1 for a fact copied from a register, 2 for a judgment)</span>
+                </div>
+                <input style={inp} maxLength={300} placeholder="Info needed when INPUT is missing: what to ask the requester"
                   value={c.info_needed || ''}
                   onChange={e => patch(d => d.stages[si].output.columns[ci].info_needed = e.target.value)} />
+                <input style={inp} maxLength={300} placeholder="Info needed when a SOURCE is missing: what to say and whom to ask"
+                  value={c.info_needed_source || ''}
+                  onChange={e => patch(d => d.stages[si].output.columns[ci].info_needed_source = e.target.value)} />
+                <details>
+                  <summary className="meta" style={{ cursor: 'pointer' }}>Lookups (what the agent looks for; drafted from the steps when left empty)</summary>
+                  <LookupsBox value={c.lookups} onValid={v => patch(d => { const col = d.stages[si].output.columns[ci]; if (v && v.length) col.lookups = v; else delete col.lookups })} />
+                </details>
                 {s.output.columns.length > 1 && (<>
                   <div className="meta">Builds on (decided first):</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

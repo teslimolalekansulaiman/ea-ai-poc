@@ -191,6 +191,21 @@ def resume(cid: str, pid: str):
         raise HTTPException(404, str(e))
 
 
+@router.get("/cases/{cid}/score")
+def score_case(cid: str):
+    """How the case's answers compare with the expected answers of the use case's example, per property."""
+    import json
+    from pathlib import Path
+    from eawiki.cases import score as sc
+    case = store().get_case(cid)
+    if not case:
+        raise HTTPException(404, "no such case")
+    gp = Path("use_cases/samples") / f"{case['use_case_id']}-gold.json"
+    if not gp.exists():
+        raise HTTPException(404, "this use case has no expected answers to score against")
+    return sc.score(store().cells(cid), json.loads(gp.read_text(encoding="utf-8")))
+
+
 @router.post("/cases/{cid}/cancel")
 def cancel(cid: str):
     get_engine().cancel(cid)
