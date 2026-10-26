@@ -21,6 +21,7 @@ import argparse
 import glob
 import json
 import os
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Optional
@@ -29,7 +30,22 @@ from eawiki import dedupe
 from eawiki.dedupe import normalize
 from eawiki.blocks import content_hash
 from eawiki.subjects import effective_model, llm_text, _extract_json, llm_json
-from eawiki.tables import _validate_llm_facts
+from eawiki.tables import _allowed_triple, _validate_llm_facts
+
+
+_DEMOTED = re.compile(r"^demoted from '([^']+)'")
+
+
+def restore_relation(menu: dict, e: dict, source_type: str, target_type: str) -> str:
+    """The relation to use for an edge once its endpoints are resolved. An edge the extractor
+    typed (say `is_deployed_on`) was demoted to `associated_with` only because an endpoint was
+    still the generic `element`. If the resolved endpoint types now make the extractor's own
+    relation lawful, give it back. Nothing is inferred: it is what the extractor said."""
+    rel = e.get("relation")
+    m = _DEMOTED.match(e.get("note") or "")
+    if rel == "associated_with" and m and _allowed_triple(menu, source_type, m.group(1), target_type):
+        return m.group(1)
+    return rel
 
 
 # ---------------------------------------------------------------------------
@@ -208,12 +224,15 @@ def main() -> None:
 
     # --- rewrite edges onto resolved node ids, then dedupe ----------------
     merged: dict[tuple, dict] = {}
+    restored = 0
     for e in edges_in:
         sid = nid_of(e.get("source"), e.get("source_type"))
         tid = nid_of(e.get("target"), e.get("target_type"))
         if not sid or not tid or sid == tid:
             continue  # drop unresolved endpoints and self-loops
-        rel = e.get("relation")
+        rel = restore_relation(menu, e, by_id[sid]["type"], by_id[tid]["type"])
+        if rel != e.get("relation"):
+            restored += 1
         acc = e.get("access_type") or ""
         k = (sid, rel, tid, acc)
         rec = merged.get(k)
@@ -288,7 +307,7 @@ def main() -> None:
         tally = Counter(f["decision"].split(":")[0] for f in flagged_clean)
         print(f"        model decisions ({args.merge_mode}): {dict(tally)}")
     print(f"edges : {len(edges)} unique  (from {len(edges_in)})   "
-          f"multi-source: {multi}   demoted->associated_with: {demoted}")
+          f"multi-source: {multi}   demoted->associated_with: {demoted}   restored: {restored}")
     print(f"-> {gpath}")
     print(f"-> {gdir/'isolated_nodes.json'}   -> {gdir/'merge_report.json'}")
 
