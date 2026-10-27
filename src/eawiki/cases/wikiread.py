@@ -23,11 +23,18 @@ from typing import Callable, Optional
 
 MAX_PER_MENTION = 3        # candidates per mention whose page is read, best first
 MAX_PAGES = 8              # pages kept for one property
+# Headings the page generator's own prompt asks for ("a summary, what it is, ..."): prose under one of these leads the digest.
+PREFERRED = ("what it is", "overview", "description", "about")
 LEAD_CHARS = 700
-FACT_CHARS = 700
+FACT_CHARS = 1000
+FACT_EACH = 300           # one bullet is cut here: the neighbours' names come first in a relationship bullet
 MAX_FACTS = 12
 
-_CITE = re.compile(r"\s*\[(?:[^\[\]\s:,]+:\d+)(?:\s*[,;]\s*[^\[\]\s:,]+:\d+)*\]")
+# A citation is a block id, "<document>:<number>", in brackets or bare, possibly several run together. The document part
+# contains an underscore or a hyphen, so "10:30" and "3:1" are not citations.
+_BLOCK = r"[\w][\w.\-]*[_\-][\w.\-]*:\d+"
+_LOOSE = r"[\w][\w.\-]*:\d+"                 # inside brackets any document name is taken as a citation
+_CITE = re.compile(rf"\s*\[{_LOOSE}(?:\s*[,;]\s*{_LOOSE})*\]|\s*(?<![A-Za-z_\-]){_BLOCK}")
 _ITALIC_TYPE = re.compile(r"^\*([^*]+)\*\s*(?:[-—–\[]|$)")
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+\.)\s+(.*\S)")
 
@@ -53,14 +60,20 @@ def digest_page(md: str, lead_chars: int = LEAD_CHARS, fact_chars: int = FACT_CH
         if ln.strip().lower().startswith("type:"):
             typ = ln.split(":", 1)[1].strip()
             break
-    lead, size = [], 0
+    first, rest, heading = [], [], ""
     for ln in lines:
         t = ln.strip()
-        if not t or t.startswith("#") or _BULLET.match(t) or _ITALIC_TYPE.match(t) or t.lower().startswith("type:"):
+        if t.startswith("#"):
+            heading = t.lstrip("#").strip().lower()
+            continue
+        if not t or _BULLET.match(t) or _ITALIC_TYPE.match(t) or t.lower().startswith("type:"):
             continue
         t = strip_citations(t)
-        if not t:
+        if not t or t == title:                      # the page's own name repeated under its title is not prose
             continue
+        (first if heading in PREFERRED else rest).append(t)
+    lead, size = [], 0
+    for t in first + rest:                           # what the page says it is first; nothing is left out, only ordered
         lead.append(t)
         size += len(t) + 1
         if size >= lead_chars:
@@ -69,7 +82,7 @@ def digest_page(md: str, lead_chars: int = LEAD_CHARS, fact_chars: int = FACT_CH
     for ln in lines:
         m = _BULLET.match(ln)
         if m:
-            facts.append(strip_citations(m.group(1)))
+            facts.append(strip_citations(m.group(1))[:FACT_EACH])
         if len(facts) == MAX_FACTS:
             break
     facts_text = "; ".join(f for f in facts if f)

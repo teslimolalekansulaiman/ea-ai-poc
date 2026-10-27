@@ -36,6 +36,23 @@ def test_an_item_listed_only_on_a_catalogue_page_is_read_from_its_own_section():
     assert kb.page("no-such-page") is None
 
 
+def test_a_real_page_from_the_wiki_gives_what_it_is_first_and_its_relationships_in_full():
+    """tests/fixtures/real_page_hr_portal.md: a page shown by the owner; its markup is reconstructed from the rendered text."""
+    d = wr.digest_page((ROOT / "tests" / "fixtures" / "real_page_hr_portal.md").read_text(encoding="utf-8"))
+    assert d["title"] == "HR & Payroll Portal" and d["type"] == ""
+    assert d["lead"].startswith("The portal handles HR and payroll. It took over from the older HR Legacy System")       # "What it is" leads
+    assert "Applications_As-Is" not in d["lead"] + d["facts"] and "[" not in d["lead"] + d["facts"]
+    assert d["lead"].count("HR & Payroll Portal") >= 1 and len(d["lead"]) <= wr.LEAD_CHARS
+    for neighbour in ("Evaluate:", "Attendance:", "HR Legacy System:"):
+        assert neighbour in d["facts"]
+    assert "through API or Excel files" in d["facts"]
+    assert wr.digest_page("# T\n\n## T\n\nbody")["lead"] == "body"                                                   # the repeated name is not prose
+
+
+def test_a_bare_block_id_is_a_citation_and_a_time_is_not():
+    assert wr.strip_citations("It hosts it [Doc_A-B:39][Doc_A-B:84]. Also Doc_A-B:81Doc_A-B:84 here at 10:30, ratio 3:1.") == "It hosts it. Also here at 10:30, ratio 3:1."
+
+
 def test_the_digest_does_not_depend_on_any_heading_and_survives_odd_pages():
     assert wr.digest_page("")["empty"] and wr.digest_page("# Only a title")["empty"]
     d = wr.digest_page("# X\n\nType: application\n\nOne line of prose.\n\n## Whatever the model called it\n\n1. first\n2. second")
