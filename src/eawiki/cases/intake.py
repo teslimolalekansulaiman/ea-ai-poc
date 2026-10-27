@@ -64,12 +64,48 @@ def parse_file(spec: dict, name: str, data: bytes) -> dict:
     return rows_to_items(spec, rows)
 
 
+_LABELLED = re.compile(r"^\s*(?:[-*\u2022]\s*)?([^:\uff1a\n]{2,60}?)\s*[:\uff1a]\s*(.*)$")
+MIN_LABELLED = 3           # three recognised "Label: value" lines make a pasted demand a structured one
+
+
+def _labelled(spec: dict, text: str) -> dict:
+    """The "Label: value" lines of a pasted demand whose label is an input field of the use case (by its name or its label).
+    A line that is not labelled continues the value above it; text before the first label is kept apart ('')."""
+    idx = field_index(spec)
+    out: dict = {}
+    cur = ""
+    for ln in text.splitlines():
+        m = _LABELLED.match(ln)
+        field = idx.get(_norm(m.group(1))) if m else None
+        if field:
+            cur = field
+            out[cur] = (out[cur] + "\n" if cur in out else "") + m.group(2).strip()
+        elif ln.strip():
+            out[cur] = (out.get(cur, "") + ("\n" if out.get(cur) else "") + ln.strip())
+    return out
+
+
 def from_text(spec: dict, text: str) -> dict:
-    """One typed demand: the text is the business need, the title its first words."""
+    """One typed or pasted demand. If it lists the input fields ("Department: Finance", "Business need: ..."), each line goes
+    to its field and the demand is read as a sheet row would be, except that no required field is demanded: the person listed
+    what they have. Otherwise the whole text is the business need and the title its first words."""
     inp = spec.get("input") or {}
     need = inp.get("batch_text_field") or "business_need"
+    title_field = inp.get("title_field") or "title"
+    parsed = _labelled(spec, text)
+    fields = {k: v for k, v in parsed.items() if k}
+    if len(fields) >= MIN_LABELLED:
+        loose = parsed.get("", "").strip()
+        if loose and not fields.get(need):
+            fields[need] = loose                           # text outside any label is the need when none was labelled
+        elif loose:
+            fields[need] = (loose + "\n" + fields[need]).strip()
+        if not fields.get(title_field) and (fields.get(need) or "").strip():
+            fields[title_field] = " ".join(fields[need].split()[:12])
+        fields["_pasted"] = True
+        return {"items": [fields], "unmatched": [], "error": ""}
     title = " ".join(text.split()[:12])
     item = {need: text.strip()}
-    if (inp.get("title_field") or "title") != need:
-        item[inp.get("title_field") or "title"] = title
+    if title_field != need:
+        item[title_field] = title
     return {"items": [item], "unmatched": [], "error": ""}

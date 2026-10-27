@@ -220,6 +220,8 @@ def _missing_required(spec: dict, it: dict) -> list[str]:
     """Required input fields that are empty, for an item that came from a structured sheet.
     A free-text item (only one or two configured fields present) is not held to the sheet's
     rules, so the plain 'describe the demand' box keeps working."""
+    if it.get("_pasted"):                 # typed or pasted: the person listed what they have, so nothing is demanded of them
+        return []
     fields = (spec.get("input") or {}).get("item_fields") or []
     names = {f["name"] for f in fields if f.get("name")}
     if sum(1 for k in it if k in names and str(it[k]).strip()) < 3:
