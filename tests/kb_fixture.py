@@ -363,3 +363,38 @@ for _d in DEMANDS:
     _g = _d["gold"]
     if _g["classification"] in ("Confidential", "Restricted") and _g["domain"] and "Security" not in _g["domain"]:
         _g["domain"] = list(_g["domain"]) + ["Security"]
+
+
+# ---- mentions step 1 cannot settle by words, for the page finder (written before the finder was run) -----------
+# (mention, group it was listed in, entity ids it means; [] = the knowledge base has nothing for it)
+FINDER_CASES = [
+    ("staff clock-in machines", "systems", ["C-210"]),
+    ("نظام الموارد البشرية", "systems", ["C-204"]),
+    ("the reporting warehouse", "systems", ["C-205"]),
+    ("DWH", "systems", ["C-205"]),
+    ("the corporate mail system", "systems", ["C-212"]),
+    ("telephony platform", "systems", ["C-202"]),
+    ("company intranet site", "systems", ["C-216"]),
+    ("SMS sender", "systems", ["C-211"]),
+    ("قاعدة بيانات Oracle", "systems", ["T-01"]),
+    ("cloud object storage", "systems", ["T-03"]),
+    ("payroll", "systems", ["C-207"]),
+    ("complaints log", "data", ["DE-05"]),
+    ("vendor and tender data", "data", ["DE-08"]),
+    ("signed agreements", "data", ["DE-06"]),
+    ("SAP Ariba", "systems", []),
+    ("fax machine", "systems", []),
+    ("inspection tablets", "systems", []),
+    ("website forms", "systems", []),
+    ("Salesforce", "systems", []),
+    ("blockchain ledger", "systems", []),
+    ("customer satisfaction survey results", "data", []),
+    ("drone imagery", "data", []),
+]
+
+
+def page_entries():
+    """The wiki pages as the finder's list reads them: [{'slug', 'title', 'type', 'summary'}]."""
+    sys.path.insert(0, str(ROOT / "src"))
+    from eawiki.cases import pagefinder as pf
+    return [pf.page_item(slug, md) for slug, md in PAGES.items()]
