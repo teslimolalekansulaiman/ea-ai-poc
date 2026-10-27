@@ -439,3 +439,10 @@ def page_entries():
     out = [pf.page_item(slug, md) for slug, md in PAGES.items() if not slug.startswith("catalogue-")]
     out += [pf.page_item(slug, page(slug)) for slug in PAGE_REDIRECTS]
     return out
+
+
+def graph_parts():
+    """The fixture's graph as graph.json holds it: (nodes, edges), node ids = the catalog ids, edges with the block they came from."""
+    nodes = [{"node_id": n["node_id"], "name": n["name"], "type": n["type"], "aliases": list(n["aliases"])} for n in NODES]
+    edges = [{"source": a, "target": b, "relation": r, "block_ids": [FIRST_BLOCK[a]]} for a, r, b in EDGES]
+    return nodes, edges

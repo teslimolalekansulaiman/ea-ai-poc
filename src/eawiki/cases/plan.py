@@ -23,7 +23,7 @@ import json
 import re
 from typing import Callable, Optional
 
-from eawiki.usecases import LOOKUP_FROM, LOOKUP_MATCH, MAX_LOOKUPS, PROFILE_GROUPS
+from eawiki.usecases import LOOKUP_FROM, LOOKUP_KINDS, LOOKUP_MATCH, MAX_LOOKUPS, PROFILE_GROUPS, RELATION_DIRECTIONS
 
 SOURCES = ("demand", "documents", "graph", "other_demands")
 MAX_QUERIES = 3
@@ -59,13 +59,17 @@ def _lookup(raw: dict, docs: list[str]) -> Optional[dict]:
     resolved = []
     for k in kinds:
         resolved += resolve_docs(k, docs)
+    types = [t for t in (raw.get("types") or []) if t in LOOKUP_KINDS]
+    relations = [{"relation": r["relation"].strip(), "direction": r["direction"]} for r in (raw.get("relations") or [])
+                 if isinstance(r, dict) and isinstance(r.get("relation"), str) and r["relation"].strip() and r.get("direction") in RELATION_DIRECTIONS]
     return {"find": raw["find"].strip()[:200], "from": raw["from"], "match": raw["match"], "in": kinds,
-            "docs": list(dict.fromkeys(resolved)), "extract": str(raw.get("extract") or "")[:200]}
+            "docs": list(dict.fromkeys(resolved)), "extract": str(raw.get("extract") or "")[:200],
+            "types": types, "relations": relations}
 
 
 def default_lookups(col: dict) -> list[dict]:
     return [{"find": (col.get("description") or col["name"]).split(". ")[0][:200], "from": "all_text",
-             "match": "meaning", "in": [], "docs": [], "extract": ""}]
+             "match": "meaning", "in": [], "docs": [], "extract": "", "types": [], "relations": []}]
 
 
 def default_plan(col: dict, docs: Optional[list[str]] = None) -> dict:

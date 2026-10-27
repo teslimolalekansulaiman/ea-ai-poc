@@ -29,6 +29,9 @@ MAX_LOOKUPS = 6
 PROFILE_GROUPS = ("systems", "data", "processes", "users", "mandates", "projects", "dates", "tools_today", "requested")
 LOOKUP_FROM = PROFILE_GROUPS + ("need", "all_text", "other_demands")
 LOOKUP_MATCH = ("name", "meaning", "compare")
+LOOKUP_KINDS = ("application", "data", "technology", "security", "role")   # the kinds of entity a name lookup accepts
+RELATION_DIRECTIONS = ("out", "in", "both")                                # from the matched entity: its outgoing, incoming or both
+MAX_RELATIONS = 12
 MAX_ACTIVITY = 80          # the short sentence the live card shows while a property is worked
 
 
@@ -37,7 +40,7 @@ def _slug(name: str) -> str:
     return s or "use-case"
 
 
-def validate(spec: dict) -> list[str]:
+def validate(spec: dict, relation_names=None) -> list[str]:
     """Return a list of human-readable errors (empty = valid)."""
     errs: list[str] = []
     if not (spec.get("name") or "").strip():
@@ -70,7 +73,7 @@ def validate(spec: dict) -> list[str]:
         cols = ((s.get("output") or {}).get("columns")) or []
         names = [c.get("name") for c in cols]
         for c in cols:
-            errs += _column_errors(f"Stage {i}: column '{c.get('name', '?')}'", c, names)
+            errs += _column_errors(f"Stage {i}: column '{c.get('name', '?')}'", c, names, relation_names)
     v = spec.get("validation") or {}
     if v.get("enabled") and not (v.get("questions") or []):
         errs.append("Validation is enabled but has no intake questions.")
@@ -88,7 +91,7 @@ def _description_errors(where: str, item: dict) -> list[str]:
     return []
 
 
-def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
+def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -> list[str]:
     """The guidance fields of an output column: how to resolve it, where to look, whether a
     cited source is needed, what to ask for when it is missing, and what it builds on."""
     errs = _description_errors(where, c)
@@ -117,7 +120,7 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
     ms = c.get("min_sources")
     if ms is not None and (isinstance(ms, bool) or not isinstance(ms, int) or not 1 <= ms <= 5):
         errs.append(f"{where}: minimum sources must be a whole number from 1 to 5.")
-    errs += _lookup_errors(where, c.get("lookups"))
+    errs += _lookup_errors(where, c.get("lookups"), relation_names)
     uses = c.get("uses")
     if uses is not None:
         if not isinstance(uses, list):
@@ -129,7 +132,7 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
     return errs
 
 
-def _lookup_errors(where: str, lookups) -> list[str]:
+def _lookup_errors(where: str, lookups, relation_names=None) -> list[str]:
     """A property's lookups: what to find, from which mention, in which kinds of source, how to match."""
     if lookups is None:
         return []
@@ -147,6 +150,32 @@ def _lookup_errors(where: str, lookups) -> list[str]:
         li = lk.get("in", [])
         if not isinstance(li, list) or len(li) > 8 or any(not isinstance(x, str) or len(x) > 120 for x in li):
             errs.append(f"{where}: lookup {i}: 'in' must be a list of at most 8 kinds of source.")
+        ty = lk.get("types")
+        if ty is not None and (not isinstance(ty, list) or any(t not in LOOKUP_KINDS for t in ty)):
+            errs.append(f"{where}: lookup {i}: 'types' must be a list of: {', '.join(LOOKUP_KINDS)}.")
+        errs += _relation_errors(f"{where}: lookup {i}", lk.get("relations"), relation_names)
+    return errs
+
+
+def _relation_errors(where: str, relations, relation_names=None) -> list[str]:
+    """The graph relationships a lookup reads from each entity it matched: [{relation, direction}].
+    `relation_names` (the metamodel's edge types) is passed when known; a name outside it is refused."""
+    if relations is None:
+        return []
+    if not isinstance(relations, list) or len(relations) > MAX_RELATIONS:
+        return [f"{where}: relations must be a list of at most {MAX_RELATIONS}."]
+    errs, seen = [], set()
+    for r in relations:
+        if not isinstance(r, dict) or not isinstance(r.get("relation"), str) or not r["relation"].strip():
+            errs.append(f"{where}: each relation needs a 'relation' name.")
+            continue
+        if r.get("direction") not in RELATION_DIRECTIONS:
+            errs.append(f"{where}: relation '{r['relation']}': 'direction' must be one of {', '.join(RELATION_DIRECTIONS)}.")
+        if relation_names is not None and r["relation"] not in relation_names:
+            errs.append(f"{where}: '{r['relation']}' is not a relationship type of the metamodel.")
+        if (r["relation"], r.get("direction")) in seen:
+            errs.append(f"{where}: relation '{r['relation']}' ({r.get('direction')}) is listed twice.")
+        seen.add((r["relation"], r.get("direction")))
     return errs
 
 
@@ -184,6 +213,10 @@ def _tidy_descriptions(spec: dict) -> None:
             it.pop("uses", None)
         if not it.get("lookups"):
             it.pop("lookups", None)
+        for lk in it.get("lookups") or []:
+            for k in ("types", "relations"):
+                if isinstance(lk, dict) and not lk.get(k):
+                    lk.pop(k, None)
         if not it.get("min_sources"):
             it.pop("min_sources", None)
 
