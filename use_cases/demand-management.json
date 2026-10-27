@@ -5,6 +5,7 @@
   "enabled": true,
   "version": 9,
   "trigger": "user_selects",
+  "wiki_pages": true,
   "input": {
     "mode": "list",
     "accepts_file": true,

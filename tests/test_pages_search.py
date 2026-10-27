@@ -124,7 +124,7 @@ def test_a_lookup_that_names_nothing_still_asks_for_pages():
     assert res["items"] == [] and res["page_search"]["state"] == "none"
 
 
-def gather_with(lk, llm):
+def gather_with(lk, llm, spec_flag=None):
     d = kb.DEMANDS[0]
     item = dict(d["item"], _id=d["item"]["demand_id"])
     prof = {g: [] for g in gmod.PROFILE_GROUPS}
@@ -133,7 +133,10 @@ def gather_with(lk, llm):
     plan["lookups"] = [{**lk, "docs": []}]
     tools = kb_tools.make_tools(llm_text=llm)
     tools.kb = ThemeKB()
-    return gmod.gather(tools, plan, SPEC, item, [], {}, None, prof, {}, {})
+    spec = {k: v for k, v in SPEC.items() if k != "wiki_pages"}          # the file turns it on; these tests set it themselves
+    if spec_flag is not None:
+        spec["wiki_pages"] = spec_flag
+    return gmod.gather(tools, plan, spec, item, [], {}, None, prof, {}, {})
 
 
 def test_the_evidence_names_the_pages_and_makes_them_citable():
@@ -156,4 +159,32 @@ def test_the_setting_is_validated_and_kept():
     assert usecases._lookup_errors("P", [{**lookup(), "pages": "yes"}], None) == ["P: lookup 1: 'pages' must be true or false."]
     assert usecases._lookup_errors("P", [lookup()], None) == []
     assert pmod._lookup(lookup(), [])["pages"] is True and pmod._lookup(lookup(pages=False), [])["pages"] is False
-    assert pmod._lookup({k: v for k, v in lookup().items() if k != "pages"}, [])["pages"] is False
+    assert pmod._lookup({k: v for k, v in lookup().items() if k != "pages"}, [])["pages"] is None      # absent: the use case decides
+
+
+def _without_pages(**kw):
+    return {k: v for k, v in lookup(**kw).items() if k != "pages"}
+
+
+def test_the_use_case_can_turn_the_wiki_search_on_for_every_lookup_and_a_lookup_can_say_off():
+    asked = []
+    llm = lambda p: asked.append(p) or "PAGES: none"      # noqa: E731
+    gather_with(_without_pages(), llm)                                        # nothing says: off
+    assert asked == []
+    ev = gather_with(_without_pages(), llm, spec_flag=True)                   # the use case says: on
+    assert len(asked) == 1 and ev["lookups"][0]["page_search"]["state"] == "none"
+    asked.clear()
+    ev = gather_with(lookup(pages=False), llm, spec_flag=True)                # the lookup says: off, whatever the use case says
+    assert asked == [] and "page_search" not in ev["lookups"][0]
+
+
+def test_the_use_case_flag_is_validated_and_an_explicit_false_survives_saving():
+    spec = json.loads(json.dumps(SPEC))
+    spec["wiki_pages"] = "yes"
+    assert "wiki_pages must be true or false." in usecases.validate(spec)
+    spec["wiki_pages"] = True
+    assert "wiki_pages must be true or false." not in usecases.validate(spec)
+    col = spec["stages"][0]["output"]["columns"][0]
+    col["lookups"] = [lookup(pages=False), _without_pages()]
+    usecases._tidy_descriptions(spec)
+    assert col["lookups"][0]["pages"] is False and "pages" not in col["lookups"][1]

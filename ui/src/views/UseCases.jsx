@@ -32,10 +32,10 @@ const DIRECTIONS = [['out', 'outgoing (from the matched entity)'], ['in', 'incom
 // Per lookup: which kinds of entity a name may be, and which graph relationships to read around the entity it matches.
 // `edges` are the metamodel's relationship types (the graph holds no others); `counts` says how many edges of each the
 // graph really holds, so the owner sees which carry anything; "Suggest" drafts a list for the owner to accept or change.
-function LookupRelations({ lookups, edges, counts, col, onChange }) {
+function LookupRelations({ lookups, edges, counts, col, pagesDefault, onChange }) {
   const [sugg, setSugg] = useState({})            // lookup index -> { loading, status, items, error }
   if (!lookups || !lookups.length) return <div className="meta">No lookups yet. Lookups are drafted from the steps when left empty; add them below as JSON to define their graph relationships.</div>
-  const set = (li, fn) => { const next = structuredClone(lookups); fn(next[li]); if (!next[li].types?.length) delete next[li].types; if (!next[li].relations?.length) delete next[li].relations; if (!next[li].pages) delete next[li].pages; onChange(next) }
+  const set = (li, fn) => { const next = structuredClone(lookups); fn(next[li]); if (!next[li].types?.length) delete next[li].types; if (!next[li].relations?.length) delete next[li].relations; onChange(next) }
   const edge = (k) => edges.find(e => e.key === k)
   const short = (ts) => [...new Set((ts || []).map(t => t.replace(/^(logical|physical)_/, '')))]
   const ends = (e) => e ? `${short(e.source_types).slice(0, 3).join(', ')}${short(e.source_types).length > 3 ? ', …' : ''}  →  ${short(e.target_types).slice(0, 3).join(', ')}${short(e.target_types).length > 3 ? ', …' : ''}` : ''
@@ -83,8 +83,8 @@ function LookupRelations({ lookups, edges, counts, col, onChange }) {
             <span className="meta">{(lk.types || []).length ? '' : '(any kind)'}</span>
           </div>
           <label className="meta lookup-pages" style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
-            <input type="checkbox" checked={!!lk.pages} onChange={e => set(li, l => { l.pages = e.target.checked })} />
-            <span>Also search the wiki pages. A model reads the title and first sentence of every wiki page and picks up to 3 that could answer the question above (for a mandate, a strategy or a roadmap, for example); those pages are read and cited. It works from the demand's words, so it also suits a lookup that starts from no name. Off: the wiki is read only for the names this lookup matches.</span>
+            <input type="checkbox" checked={lk.pages ?? pagesDefault} onChange={e => set(li, l => { l.pages = e.target.checked })} />
+            <span>Also search the wiki pages. A model reads the title and first sentence of every wiki page and picks up to 3 that could answer the question above (for a mandate, a strategy or a roadmap, for example); those pages are read and cited. It works from the demand's words, so it also suits a lookup that starts from no name. Off: the wiki is read only for the names this lookup matches.{pagesDefault && lk.pages === undefined ? ' (On because the use case turns it on for every lookup.)' : ''}</span>
           </label>
           <div className="meta" style={{ marginTop: 2 }}>Graph relationships to read around each entity the name matches (one step){lk.match !== 'name' ? ' — only lookups that match by name read the graph' : ''}:</div>
           {(lk.relations || []).map((r, ri) => {
@@ -366,7 +366,7 @@ export default function UseCases() {
                   onChange={e => patch(d => d.stages[si].output.columns[ci].info_needed_source = e.target.value)} />
                 <details>
                   <summary className="meta" style={{ cursor: 'pointer' }}>Lookups (what the agent looks for; drafted from the steps when left empty)</summary>
-                  <LookupRelations lookups={c.lookups} edges={edges} counts={counts} col={c} onChange={v => patch(d => { d.stages[si].output.columns[ci].lookups = v })} />
+                  <LookupRelations lookups={c.lookups} edges={edges} counts={counts} col={c} pagesDefault={!!uc.wiki_pages} onChange={v => patch(d => { d.stages[si].output.columns[ci].lookups = v })} />
                   <div className="meta">The lookups as JSON (to add or change a lookup):</div>
                   <LookupsBox value={c.lookups} onValid={v => patch(d => { const col = d.stages[si].output.columns[ci]; if (v && v.length) col.lookups = v; else delete col.lookups })} />
                 </details>

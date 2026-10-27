@@ -183,6 +183,7 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             else:
                 ms = [None]                          # one search on the demand as a whole
             if tools.kb is not None:
+                lk = {**lk, "pages": lk["pages"] if lk.get("pages") is not None else bool(spec.get("wiki_pages"))}
                 res = lkmod.run(lk, ms, text, tools.kb, tools.search, tools.llm_text, link_cache if link_cache is not None else {},
                                 lk["from"] if lk["from"] in PROFILE_GROUPS else "systems", strict)
                 for b in res["blocks"]:

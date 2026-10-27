@@ -46,6 +46,8 @@ def validate(spec: dict, relation_names=None) -> list[str]:
     errs: list[str] = []
     if not (spec.get("name") or "").strip():
         errs.append("Name is required.")
+    if spec.get("wiki_pages") is not None and not isinstance(spec["wiki_pages"], bool):
+        errs.append("wiki_pages must be true or false.")
     stages = spec.get("stages") or []
     if not stages:
         errs.append("At least one stage is required.")
@@ -224,9 +226,11 @@ def _tidy_descriptions(spec: dict) -> None:
         if not it.get("lookups"):
             it.pop("lookups", None)
         for lk in it.get("lookups") or []:
-            for k in ("types", "relations", "pages"):
+            for k in ("types", "relations"):
                 if isinstance(lk, dict) and not lk.get(k):
                     lk.pop(k, None)
+            if isinstance(lk, dict) and lk.get("pages") is None:
+                lk.pop("pages", None)                    # absent follows the use case's `wiki_pages`; an explicit false stays
         if not it.get("min_sources"):
             it.pop("min_sources", None)
 

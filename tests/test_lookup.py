@@ -13,7 +13,7 @@ import kb_tools  # noqa: E402
 from eawiki.cases import gather as gmod  # noqa: E402
 from eawiki.cases import plan as pmod  # noqa: E402
 
-SPEC = json.loads((ROOT / "use_cases" / "demand-management.json").read_text(encoding="utf-8"))
+SPEC = {**json.loads((ROOT / "use_cases" / "demand-management.json").read_text(encoding="utf-8")), "wiki_pages": False}      # the name steps on their own
 COLS = {c["name"]: c for st in SPEC["stages"] for c in st["output"]["columns"]}
 
 
