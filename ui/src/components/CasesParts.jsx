@@ -156,7 +156,7 @@ export function AskCard({ q, title, docs, onAnswer }) {
               <div className="cand" key={i}>
                 <button className="pick" disabled={busy} onClick={() => send({ answer: Array.isArray(c.value) ? c.value.join('; ') : String(c.value), via: 'suggestion' })}>
                   <b>{c.label}</b>{c.why && <small>{c.why}</small>}</button>
-                <span className="srcs">{c.evidence.filter(e => !e.startsWith('demand:')).map(e => <button key={e} className="cs-cite" onClick={() => cite.open(e)}>{e}</button>)}</span>
+                <span className="srcs">{c.evidence.filter(e => !e.startsWith('demand:') && !e.startsWith('decided:')).map(e => <button key={e} className="cs-cite" onClick={() => cite.open(e)}>{e}</button>)}</span>
               </div>))}
           </div>)}
         <div className="cs-typebox">
@@ -243,15 +243,17 @@ export function ResultCard({ phase, next, L, onApprove, onOpenTable, onExport, o
 export function CellDetail({ col, cell }) {
   const cite = useCite()
   if (!cell) return null
-  const blocks = (cell.evidence || []).filter(e => !e.startsWith('demand:'))
+  const blocks = (cell.evidence || []).filter(e => !e.startsWith('demand:') && !e.startsWith('decided:'))
+  const earlier = (cell.evidence || []).filter(e => e.startsWith('decided:')).map(e => e.slice(8))
   const fields = (cell.evidence || []).filter(e => e.startsWith('demand:')).map(e => e.slice(7))
   return (
     <div className="cs-detail">
       {cell.need && <div className="cs-need"><h5>{cell.display === 'needs_source' ? 'What the knowledge base is missing' : 'What is needed'}</h5>{cell.need}</div>}
       <div><h5>How it was resolved</h5><ol>{(cell.how || []).map((h, i) => <li key={i}>{h}</li>)}</ol></div>
-      {(blocks.length > 0 || fields.length > 0) && <div><h5>Sources</h5>
+      {(blocks.length > 0 || fields.length > 0 || earlier.length > 0) && <div><h5>Sources</h5>
         {blocks.map(b => <button key={b} className="cs-cite" onClick={() => cite.open(b)}>{b}</button>)}
-        {fields.length > 0 && <div className="cs-muted">From the demand: {fields.join(', ')}</div>}</div>}
+        {fields.length > 0 && <div className="cs-muted">From the demand: {fields.join(', ')}</div>}
+        {earlier.length > 0 && <div className="cs-muted">From earlier answers: {earlier.join(', ')}</div>}</div>}
       <div className="cs-faint" style={{ fontSize: 12 }}>
         {cell.source === 'user' ? 'Supplied by you' : cell.source === 'rule' ? 'Set by a rule' : 'Decided by the model, checked in code'}
         {col?.evidence_required === false ? ' · a cited source is not required' : ''}

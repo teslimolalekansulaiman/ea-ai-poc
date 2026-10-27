@@ -17,9 +17,12 @@ EV = {"demand": {}, "blocks": [], "graph": None, "others": [], "allowed": set(),
 
 def test_the_production_use_case_carries_the_owners_points_for_the_properties_that_have_a_column():
     assert usecases.validate(SPEC) == []
-    assert COLS["Domain"]["collate"].startswith("Add Securit statement when the data is Confidential or Restricted")
+    assert COLS["Domain"]["collate"].startswith("4. Add Security when the data is Confidential or Restricted") and COLS["Domain"]["uses"] == ["Data classification"]
     assert "Never link by department alone" in COLS["Impacted application"]["collate"] and COLS["Impacted application"]["collate"].count("\n1. Read") == 1
-    assert "NORA framework" in COLS["Linked security capability"]["collate"] and COLS["Data classification"]["collate"].startswith("Pick list:")
+    assert "observation column" not in COLS["Impacted application"]["collate"] and "In your note" in COLS["Impacted application"]["collate"]
+    assert "NORA framework" in COLS["Linked security capability"]["collate"] and COLS["Linked security capability"]["uses"] == ["Demand type"]
+    assert "People demand: the answer is Not applicable" in COLS["Linked security capability"]["collate"]
+    assert "Pick list" not in COLS["Data classification"]["collate"]                           # the column's own values enforce the pick list
     assert "collate" not in COLS["Duplicate with existing artefact / artefact name"]            # held back: the text given is about duplicate demands
 
 
@@ -30,6 +33,19 @@ def test_the_points_reach_the_model_after_the_steps_and_before_the_evidence():
     assert p.index("HOW TO DECIDE IT") < p.index("HOW TO COMBINE WHAT WAS RETRIEVED") < p.index("EVIDENCE:")
     bare = smod._prompt({k: v for k, v in col.items() if k != "collate"}, {}, SPEC, EV, {})
     assert "HOW TO COMBINE" not in bare
+
+
+def test_an_answer_may_cite_an_earlier_decision_so_not_applicable_needs_no_document():
+    col = COLS["Linked security capability"]
+    res = {"value": ["Not applicable"], "status": "answered", "evidence": ["decided:Demand type", "decided:Urgency", "demand:title"]}
+    ev = dict(EV, allowed={"demand:title"})
+    cell = smod.verify(col, res, ev, {"Demand type": "People", "Urgency": ""})
+    assert cell["status"] == "answered" and cell["evidence"] == ["decided:Demand type", "demand:title"]       # an empty decision is not citable
+    assert smod.verify(col, res, ev, {})["evidence"] == ["demand:title"]                                      # nothing decided: nothing to cite
+    only = smod.verify(col, dict(res, evidence=["decided:Demand type"]), EV, {"Demand type": "People"})
+    assert only["status"] == "answered" and not only["need"]
+    p = smod._prompt(col, {}, SPEC, EV, {"Demand type": "People", "Domain": ["Application", "Security"]})
+    assert "[decided:Demand type] Demand type: People" in p and "[decided:Domain] Domain: Application; Security" in p
 
 
 def test_a_property_without_points_is_unchanged_and_the_plan_notices_a_change():

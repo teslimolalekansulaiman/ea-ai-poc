@@ -20,6 +20,7 @@ from eawiki.cases import gather as gmod
 NONE_WORDS = re.compile(r"^(None|No link found|Not identified)$", re.I)
 NA_WORDS = ("Not assessed", "Not checked", "Not applicable", "No score")
 STATUSES = ("answered", "needs_source", "needs_input")
+DECIDED = "decided:"          # the id of an earlier decision of the same demand, which an answer may cite
 
 
 def needs_evidence(col: dict) -> bool:
@@ -38,7 +39,7 @@ def not_assessed_value(col: dict):
 
 def _prompt(col: dict, item: dict, spec: dict, ev: dict, decided: dict) -> str:
     t = col.get("type", "text") + (f" (one of: {', '.join(col['values'])})" if col.get("values") else "")
-    done = "\n".join(f"  {k}: {v}" for k, v in decided.items()) or "  (nothing yet)"
+    done = "\n".join(f"  [{DECIDED}{k}] {k}: {'; '.join(v) if isinstance(v, list) else v}" for k, v in decided.items() if v not in ("", [], None)) or "  (nothing yet)"
     req = ("A cited source is REQUIRED: answer only if the evidence supports it, citing the ids; if it does not, "
            "return status needs_input and say what is needed.") if needs_evidence(col) else \
           ("A cited source is NOT required: you may decide from the demand's fields, a definition or a rule, "
@@ -62,7 +63,7 @@ HOW TO DECIDE IT: {col.get('how_to_resolve') or '(not given)'}
 {extra}{req}
 Never invent. Use the exact words of the pick list when there is one. Use "None" or "No link found" or "Not identified" only when you looked and found nothing.
 
-ALREADY DECIDED FOR THIS DEMAND:
+ALREADY DECIDED FOR THIS DEMAND (you may cite one by its id in brackets, for example when the answer follows from it):
 {done}
 
 EVIDENCE:
@@ -111,8 +112,10 @@ def _coerce(col: dict, value):
     return value, ""
 
 
-def verify(col: dict, res, ev: dict) -> dict:
-    """Turn the model's answer into a stored cell. Never raises."""
+def verify(col: dict, res, ev: dict, decided: Optional[dict] = None) -> dict:
+    """Turn the model's answer into a stored cell. Never raises. An answer may cite an earlier decision of this
+    demand (`decided:<property>`) as well as the evidence it was shown."""
+    ev = dict(ev, allowed=set(ev.get("allowed", set())) | {f"{DECIDED}{k}" for k, v in (decided or {}).items() if v not in ("", [], None)})
     how = ["Looked at: " + "; ".join(ev.get("used") or ["nothing"])]
     how += ["Searched " + x for x in (ev.get("searched") or [])[:8]]
     if not isinstance(res, dict):
@@ -129,7 +132,7 @@ def verify(col: dict, res, ev: dict) -> dict:
     empty = value == "" or value == []
     if status == "answered" and empty:
         status = "needs_input"
-    cited_blocks = [e for e in evidence if not e.startswith("demand:")]
+    cited_blocks = [e for e in evidence if not e.startswith(("demand:", DECIDED))]
     ms = col.get("min_sources")
     if status == "answered" and needs_evidence(col) and evidence and ms and len(set(evidence)) < ms:
         status = "needs_input"
@@ -185,14 +188,14 @@ def solve(col: dict, item: dict, spec: dict, ev: dict, decided: dict, llm: Calla
         res = llm(prompt)
     except Exception:
         res = None
-    cell = verify(col, res, ev)
+    cell = verify(col, res, ev, decided)
     if cell.get("problem"):
         try:
             res2 = llm(prompt + f"\n\nYOUR PREVIOUS ANSWER WAS REJECTED: {cell['problem']}. "
                                 "Answer again, using only the allowed words.")
         except Exception:
             res2 = None
-        cell2 = verify(col, res2, ev)
+        cell2 = verify(col, res2, ev, decided)
         if not cell2.get("problem"):
             cell2["how"].append(f"The first answer was rejected ({cell['problem']}); the second was accepted.")
             return cell2
