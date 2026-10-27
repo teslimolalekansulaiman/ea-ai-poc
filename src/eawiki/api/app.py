@@ -471,6 +471,42 @@ def usecase_delete(uc_id: str):
     return {"deleted": uc.delete(uc_id)}
 
 
+@app.get("/api/usecases/{uc_id}/versions")
+def usecase_versions(uc_id: str):
+    """Every saved copy of a use case's settings, newest first (kept in the database; none without one)."""
+    from eawiki import usecases as uc
+    import os
+    return {"versions": uc.versions(uc_id), "stored_in_database": uc.use_db(),
+            "store": os.environ.get("HISTORY_BACKEND", "sqlite").lower() if uc.use_db() else "files"}
+
+
+@app.post("/api/usecases/{uc_id}/restore")
+def usecase_restore(uc_id: str, body: dict):
+    _require_writable()
+    from eawiki import usecases as uc
+    try:
+        return uc.restore(uc_id, str(body.get("vid") or ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.get("/api/usecases/{uc_id}/file-diff")
+def usecase_file_diff(uc_id: str):
+    """How the saved settings differ from the file that came with the code, by property."""
+    from eawiki import usecases as uc
+    return uc.file_diff(uc_id)
+
+
+@app.post("/api/usecases/{uc_id}/load-from-file")
+def usecase_load_from_file(uc_id: str):
+    _require_writable()
+    from eawiki import usecases as uc
+    try:
+        return uc.load_from_file(uc_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 class RunBody(BaseModel):
     items: list[dict]
     safety: bool = False

@@ -1,15 +1,22 @@
-"""Use-case registry — load/validate/save use-case specs as files.
+"""Use-case registry — load/validate/save use-case specs.
 
 A use case is a DECLARATIVE spec (data, not code) authored from the UI: name,
 description, input fields, a validation gate (intake questions), and ordered stages,
 each with instructions + output columns (the table). It does NOT declare data sources —
-the executor picks those automatically at query time. One file per use case
-(use_cases/<id>.json) = system of record; CRUD is add/overwrite/remove a file.
+the executor picks those automatically at query time.
+
+Where the settings live: use_cases/<id>.json is what the code ships (git). Where the app runs
+on Postgres (Cloud Run: no durable disk, a deploy replaces the files) the settings live in the
+database instead: every save is a version, the file only seeds a use case the database has
+never seen, and the database wins from then on. `file_diff` says how the two differ and
+`load_from_file` takes the file's copy as a new version. Without a database (local runs, the
+tests) the files are the store, as before. USECASE_STORE=db|file overrides the choice.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -235,21 +242,51 @@ def _tidy_descriptions(spec: dict) -> None:
             it.pop("min_sources", None)
 
 
+def use_db() -> bool:
+    mode = os.environ.get("USECASE_STORE", "").lower()
+    return mode == "db" or (mode != "file" and os.environ.get("HISTORY_BACKEND", "sqlite").lower() == "postgres")
+
+
+def _file_spec(uc_id: str) -> Optional[dict]:
+    fp = DIR / f"{uc_id}.json"
+    try:
+        return json.loads(fp.read_text(encoding="utf-8")) if fp.exists() else None
+    except Exception:
+        return None
+
+
+def _file_ids() -> list[str]:
+    return [fp.stem for fp in sorted(DIR.glob("*.json"))] if DIR.exists() else []
+
+
+def _seed(uc_id: str) -> Optional[dict]:
+    """A use case the database has never seen, from its file: stored as its first version."""
+    spec = _file_spec(uc_id)
+    if spec is None:
+        return None
+    from eawiki import history
+    history.uc_put(uc_id, spec, "seeded from the file shipped with the code")
+    return spec
+
+
 def list_specs() -> list[dict]:
-    if not DIR.exists():
-        return []
-    out = []
-    for fp in sorted(DIR.glob("*.json")):
-        try:
-            out.append(json.loads(fp.read_text(encoding="utf-8")))
-        except Exception:
-            continue
-    return out
+    if not use_db():
+        return [x for x in (_file_spec(i) for i in _file_ids()) if x]
+    from eawiki import history
+    rows = {r["id"]: r for r in history.uc_rows()}
+    out = [r["spec"] for r in rows.values() if not r["deleted"] and r["spec"]]
+    out += [x for x in (_seed(i) for i in _file_ids() if i not in rows) if x]
+    return sorted(out, key=lambda x: x.get("id", ""))
 
 
 def get(uc_id: str) -> Optional[dict]:
-    fp = DIR / f"{uc_id}.json"
-    return json.loads(fp.read_text(encoding="utf-8")) if fp.exists() else None
+    if not use_db():
+        return _file_spec(uc_id)
+    from eawiki import history
+    row = history.uc_row(uc_id)
+    if row:
+        return None if row["deleted"] else row["spec"]
+    return _seed(uc_id)
 
 
 def relation_names() -> Optional[set]:
@@ -263,7 +300,7 @@ def relation_names() -> Optional[set]:
         return None
 
 
-def save(spec: dict, uc_id: Optional[str] = None) -> dict:
+def save(spec: dict, uc_id: Optional[str] = None, note: str = "") -> dict:
     """Validate and write. Returns the stored spec. Raises ValueError on invalid."""
     errs = validate(spec, relation_names())
     if errs:
@@ -272,17 +309,70 @@ def save(spec: dict, uc_id: Optional[str] = None) -> dict:
     _tidy_descriptions(spec)
     spec["id"] = uc_id or spec.get("id") or _slug(spec["name"])
     spec.setdefault("enabled", True)
-    spec["version"] = int(spec.get("version", 0)) + 1
+    current = get(spec["id"])
+    spec["version"] = max(int(spec.get("version", 0)), int((current or {}).get("version", 0))) + 1
     spec["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    DIR.mkdir(parents=True, exist_ok=True)
-    (DIR / f"{spec['id']}.json").write_text(json.dumps(spec, indent=2, ensure_ascii=False),
-                                            encoding="utf-8")
+    if use_db():
+        from eawiki import history
+        history.uc_put(spec["id"], spec, note or "saved in the screen")
+    else:
+        DIR.mkdir(parents=True, exist_ok=True)
+        (DIR / f"{spec['id']}.json").write_text(json.dumps(spec, indent=2, ensure_ascii=False), encoding="utf-8")
     return spec
 
 
 def delete(uc_id: str) -> bool:
+    if use_db():
+        from eawiki import history
+        row = history.uc_row(uc_id)
+        if row is None and _file_spec(uc_id) is None:
+            return False
+        return history.uc_delete(uc_id) or (row is None)
     fp = DIR / f"{uc_id}.json"
     if fp.exists():
         fp.unlink()
         return True
     return False
+
+
+# ---- versions, and the file shipped with the code (database mode) --------------------------------
+
+def versions(uc_id: str) -> list[dict]:
+    from eawiki import history
+    return history.uc_versions(uc_id) if use_db() else []
+
+
+def restore(uc_id: str, vid: str) -> dict:
+    """An earlier saved copy becomes the current one, as a new version."""
+    from eawiki import history
+    old = history.uc_version(uc_id, vid) if use_db() else None
+    if old is None:
+        raise ValueError("no such saved version")
+    return save(old, uc_id, f"restored from version {old.get('version')}")
+
+
+def _columns(spec: dict) -> dict:
+    return {f"{s.get('name')} / {c.get('name')}": c for s in spec.get("stages") or [] for c in (s.get("output") or {}).get("columns") or []}
+
+
+def file_diff(uc_id: str) -> dict:
+    """How the saved settings differ from the file shipped with the code: which properties (and which other parts) differ."""
+    mine, theirs = get(uc_id), _file_spec(uc_id)
+    if theirs is None:
+        return {"in_file": False, "same": False, "changed": [], "added": [], "removed": [], "other": []}
+    if mine is None:
+        return {"in_file": True, "same": False, "changed": [], "added": sorted(_columns(theirs)), "removed": [], "other": []}
+    a, b = _columns(mine), _columns(theirs)
+    skip = {"stages", "version", "updated_at"}
+    return {"in_file": True,
+            "changed": sorted(k for k in a if k in b and a[k] != b[k]),
+            "added": sorted(k for k in b if k not in a),            # in the file, not in the saved settings
+            "removed": sorted(k for k in a if k not in b),           # saved, not in the file
+            "other": sorted(k for k in set(mine) | set(theirs) if k not in skip and mine.get(k) != theirs.get(k))}
+
+
+def load_from_file(uc_id: str) -> dict:
+    spec = _file_spec(uc_id)
+    if spec is None:
+        raise ValueError("this use case has no file shipped with the code")
+    return save(spec, uc_id, "loaded from the file shipped with the code")

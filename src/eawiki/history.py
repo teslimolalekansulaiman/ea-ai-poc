@@ -89,6 +89,12 @@ class _Store:
                 id TEXT PRIMARY KEY, use_case_id TEXT, submitter TEXT,
                 input_json TEXT, result_json TEXT, status TEXT, created_at {self.real})"""))
             c.execute(self._sql("CREATE INDEX IF NOT EXISTS runs_uc ON runs(use_case_id, created_at)"))
+            # use-case settings: the current copy of each, and every copy ever saved (so a bad edit can be put back)
+            c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS usecase_specs(
+                id TEXT PRIMARY KEY, spec_json TEXT, version INTEGER, updated_at {self.real}, deleted INTEGER DEFAULT 0)"""))
+            c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS usecase_versions(
+                vid TEXT PRIMARY KEY, use_case_id TEXT, version INTEGER, spec_json TEXT, saved_at {self.real}, note TEXT)"""))
+            c.execute(self._sql("CREATE INDEX IF NOT EXISTS usecase_versions_uc ON usecase_versions(use_case_id, saved_at)"))
 
     # --- chats ----------------------------------------------------------
     def save_chat(self, messages: list, chat_id: Optional[str] = None,
@@ -177,6 +183,59 @@ class _Store:
                 "result": json.loads(r["result_json"] or "null"),
                 "status": r["status"], "created_at": r["created_at"]}
 
+    # --- use-case settings ----------------------------------------------
+    def uc_row(self, uc_id: str) -> Optional[dict]:
+        """The current row of a use case, a deleted one included (a deleted row stops the file seeding it again)."""
+        with self._conn() as c:
+            r = c.execute(self._sql("SELECT id,spec_json,version,updated_at,deleted FROM usecase_specs WHERE id=?"), (uc_id,)).fetchone()
+        return None if not r else {"id": r["id"], "spec": json.loads(r["spec_json"] or "{}"), "version": r["version"],
+                                   "updated_at": r["updated_at"], "deleted": bool(r["deleted"])}
+
+    def uc_rows(self) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(self._sql("SELECT id,spec_json,version,updated_at,deleted FROM usecase_specs ORDER BY id")).fetchall()
+        return [{"id": r["id"], "spec": json.loads(r["spec_json"] or "{}"), "version": r["version"],
+                 "updated_at": r["updated_at"], "deleted": bool(r["deleted"])} for r in rows]
+
+    def uc_put(self, uc_id: str, spec: dict, note: str = "") -> dict:
+        """Make `spec` the current copy and keep it as a version."""
+        now, payload = time.time(), json.dumps(spec, ensure_ascii=False)
+        version = int(spec.get("version") or 0)
+        with self._conn() as c:
+            cur = c.execute(self._sql("UPDATE usecase_specs SET spec_json=?, version=?, updated_at=?, deleted=0 WHERE id=?"),
+                            (payload, version, now, uc_id))
+            if cur.rowcount == 0:
+                c.execute(self._sql("INSERT INTO usecase_specs(id,spec_json,version,updated_at,deleted) VALUES(?,?,?,?,0)"),
+                          (uc_id, payload, version, now))
+            vid = uuid.uuid4().hex[:12]
+            c.execute(self._sql("INSERT INTO usecase_versions(vid,use_case_id,version,spec_json,saved_at,note) VALUES(?,?,?,?,?,?)"),
+                      (vid, uc_id, version, payload, now, note))
+        return {"vid": vid, "saved_at": now}
+
+    def uc_delete(self, uc_id: str) -> bool:
+        """Mark it deleted (its versions stay, and the file does not bring it back)."""
+        now = time.time()
+        with self._conn() as c:
+            cur = c.execute(self._sql("UPDATE usecase_specs SET deleted=1, updated_at=? WHERE id=? AND deleted=0"), (now, uc_id))
+            if cur.rowcount:
+                return True
+            exists = c.execute(self._sql("SELECT 1 AS x FROM usecase_specs WHERE id=?"), (uc_id,)).fetchone()
+            if not exists:
+                c.execute(self._sql("INSERT INTO usecase_specs(id,spec_json,version,updated_at,deleted) VALUES(?,?,?,?,1)"),
+                          (uc_id, "{}", 0, now))
+        return False
+
+    def uc_versions(self, uc_id: str, limit: int = 100) -> list[dict]:
+        with self._conn() as c:
+            rows = c.execute(self._sql("SELECT vid,version,saved_at,note FROM usecase_versions WHERE use_case_id=? "
+                                       "ORDER BY saved_at DESC LIMIT ?"), (uc_id, limit)).fetchall()
+        return [{"vid": r["vid"], "version": r["version"], "saved_at": r["saved_at"], "note": r["note"] or ""} for r in rows]
+
+    def uc_version(self, uc_id: str, vid: str) -> Optional[dict]:
+        with self._conn() as c:
+            r = c.execute(self._sql("SELECT spec_json FROM usecase_versions WHERE use_case_id=? AND vid=?"), (uc_id, vid)).fetchone()
+        return json.loads(r["spec_json"]) if r else None
+
 
 @lru_cache(maxsize=1)
 def _store() -> _Store:
@@ -215,3 +274,28 @@ def list_runs(use_case_id: Optional[str] = None, limit: int = 100) -> list[dict]
 
 def get_run(run_id: str) -> Optional[dict]:
     return _store().get_run(run_id)
+
+
+# --- use-case settings ---------------------------------------------------
+def uc_row(uc_id: str) -> Optional[dict]:
+    return _store().uc_row(uc_id)
+
+
+def uc_rows() -> list[dict]:
+    return _store().uc_rows()
+
+
+def uc_put(uc_id: str, spec: dict, note: str = "") -> dict:
+    return _store().uc_put(uc_id, spec, note)
+
+
+def uc_delete(uc_id: str) -> bool:
+    return _store().uc_delete(uc_id)
+
+
+def uc_versions(uc_id: str, limit: int = 100) -> list[dict]:
+    return _store().uc_versions(uc_id, limit)
+
+
+def uc_version(uc_id: str, vid: str) -> Optional[dict]:
+    return _store().uc_version(uc_id, vid)

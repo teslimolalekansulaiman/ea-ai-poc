@@ -32,6 +32,10 @@ export const api = {
   createUsecase: (spec) => post('/api/usecases', spec),
   updateUsecase: (id, spec) => J('/api/usecases/' + encodeURIComponent(id),
     { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(spec) }),
+  usecaseVersions: (id) => J('/api/usecases/' + encodeURIComponent(id) + '/versions'),
+  restoreUsecase: (id, vid) => post('/api/usecases/' + encodeURIComponent(id) + '/restore', { vid }),
+  usecaseFileDiff: (id) => J('/api/usecases/' + encodeURIComponent(id) + '/file-diff'),
+  loadUsecaseFromFile: (id) => post('/api/usecases/' + encodeURIComponent(id) + '/load-from-file', {}),
   deleteUsecase: (id) => J('/api/usecases/' + encodeURIComponent(id), { method: 'DELETE' }),
   runUsecase: (id, body) => post('/api/usecases/' + encodeURIComponent(id) + '/run', body),
 

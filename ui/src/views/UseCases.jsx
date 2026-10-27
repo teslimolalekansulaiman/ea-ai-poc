@@ -12,6 +12,10 @@ const BLANK = () => ({
   stages: [{ name: '', instructions: '', output: { mode: 'table', columns: [{ name: '', type: 'text', values: [] }] } }],
 })
 
+// The documents a kind of source stands for: those whose name holds every word of the kind (the same rule the server applies).
+const words = (t) => new Set((String(t || '').toLowerCase().match(/[\p{L}\p{N}]{2,}/gu)) || [])
+const resolveDocs = (kind, docs) => { const kw = [...words(kind)]; return kw.length ? docs.filter(d => { const dw = words(d); return kw.every(w => dw.has(w)) }) : [] }
+
 // The lookups of a property as JSON. It only changes the use case when the text is valid.
 function LookupsBox({ value, onValid }) {
   const [text, setText] = useState(JSON.stringify(value || [], null, 1))
@@ -32,7 +36,7 @@ const DIRECTIONS = [['out', 'outgoing (from the matched entity)'], ['in', 'incom
 // Per lookup: which kinds of entity a name may be, and which graph relationships to read around the entity it matches.
 // `edges` are the metamodel's relationship types (the graph holds no others); `counts` says how many edges of each the
 // graph really holds, so the owner sees which carry anything; "Suggest" drafts a list for the owner to accept or change.
-function LookupRelations({ lookups, edges, counts, col, pagesDefault, onChange }) {
+function LookupRelations({ lookups, edges, counts, col, pagesDefault, docs, onChange }) {
   const [sugg, setSugg] = useState({})            // lookup index -> { loading, status, items, error }
   if (!lookups || !lookups.length) return <div className="meta">No lookups yet. Lookups are drafted from the steps when left empty; add them below as JSON to define their graph relationships.</div>
   const set = (li, fn) => { const next = structuredClone(lookups); fn(next[li]); if (!next[li].types?.length) delete next[li].types; if (!next[li].relations?.length) delete next[li].relations; onChange(next) }
@@ -82,6 +86,11 @@ function LookupRelations({ lookups, edges, counts, col, pagesDefault, onChange }
             })}
             <span className="meta">{(lk.types || []).length ? '' : '(any kind)'}</span>
           </div>
+          {(lk.in || []).length > 0 && <div className="meta lookup-kinds" style={{ display: 'grid', gap: 2 }}>
+            {lk.in.map(k => { const hit = resolveDocs(k, docs || []); return (
+              <div key={k} style={{ color: hit.length ? undefined : 'var(--crit)' }}>
+                “{k}” → {hit.length ? hit.join(', ') : 'no ingested document has all these words in its name, so every document is searched'}</div>) })}
+          </div>}
           <label className="meta lookup-pages" style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
             <input type="checkbox" checked={lk.pages ?? pagesDefault} onChange={e => set(li, l => { l.pages = e.target.checked })} />
             <span>Also search the wiki pages. A model reads the title and first sentence of every wiki page and picks up to 3 that could answer the question above (for a mandate, a strategy or a roadmap, for example); those pages are read and cited. It works from the demand's words, so it also suits a lookup that starts from no name. Off: the wiki is read only for the names this lookup matches.{pagesDefault && lk.pages === undefined ? ' (On because the use case turns it on for every lookup.)' : ''}</span>
@@ -144,21 +153,36 @@ export default function UseCases() {
   const [docs, setDocs] = useState([])          // ingested documents a property can point to
   const [edges, setEdges] = useState([])        // the metamodel's relationship types, for the graph relationships of a lookup
   const [counts, setCounts] = useState(null)    // how many edges of each type the graph holds
+  const [page, setPage] = useState(null)        // the page of the builder being shown: { k: basics|input|gate|stage|prop, si, ci }
+  const [hist, setHist] = useState(null)        // the history panel: { versions, store, diff }
 
   const reload = () => api.usecases().then(d => setList(d.usecases)).catch(e => setError(String(e)))
   useEffect(() => { reload(); api.docs().then(d => setDocs((d.docs || []).map(x => x.doc_id))).catch(() => {}); api.metamodel().then(m => setEdges(m.edge_types || [])).catch(() => {}); api.relationCounts().then(setCounts).catch(() => {}) }, [])
 
   const patch = (fn) => setUc(prev => { const d = structuredClone(prev); fn(d); return d })
 
-  async function newUC() { setEditingId(null); setUc(BLANK()); setError('') }
-  async function edit(id) { setError(''); const s = await api.usecase(id); setEditingId(id); setUc(s) }
+  async function newUC() { setEditingId(null); setUc(BLANK()); setError(''); setPage({ k: 'basics' }); setHist(null) }
+  async function edit(id) { setError(''); const s = await api.usecase(id); setEditingId(id); setUc(s); setPage({ k: 'basics' }); setHist(null) }
+  async function openHistory() {
+    try { const [v, diff] = await Promise.all([api.usecaseVersions(editingId), api.usecaseFileDiff(editingId)]); setHist({ versions: v.versions, store: v.store, diff }) }
+    catch (e) { setError(String(e).replace('Error: ', '')) }
+  }
+  async function afterRestore(s) { setUc(s); await reload(); await openHistory() }
+  async function restoreVersion(v) {
+    if (!confirm('Put back the settings saved on ' + new Date(v.saved_at * 1000).toLocaleString() + '? The current ones stay in the history.')) return
+    try { await afterRestore(await api.restoreUsecase(editingId, v.vid)) } catch (e) { setError(String(e).replace('Error: ', '')) }
+  }
+  async function loadFromFile() {
+    if (!confirm('Replace the saved settings with the file that came with the code? The current ones stay in the history.')) return
+    try { await afterRestore(await api.loadUsecaseFromFile(editingId)) } catch (e) { setError(String(e).replace('Error: ', '')) }
+  }
   async function save() {
     setSaving(true); setError('')
     try {
       // normalize enum values (comma string -> array handled inline already)
       if (editingId) await api.updateUsecase(editingId, uc)
       else await api.createUsecase(uc)
-      setUc(null); setEditingId(null); await reload()
+      setUc(null); setEditingId(null); setPage(null); setHist(null); await reload()
     } catch (e) { setError(String(e).replace('Error: ', '')) }
     setSaving(false)
   }
@@ -196,40 +220,138 @@ export default function UseCases() {
     </div>
   )
 
-  // ---------- BUILDER MODE ----------
-  const sec = { marginBottom: 18 }
-  const h = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--fg-faint)', margin: '0 0 10px' }
+  // ---------- BUILDER MODE: one page at a time ----------
   const inp = { width: '100%', padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 7, background: 'var(--bg)', color: 'var(--fg)', fontSize: 13, fontFamily: 'inherit' }
+  const h = { fontSize: 12, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--fg-faint)', margin: '0 0 10px' }
+  const card = { padding: 16, marginBottom: 14 }
+  const lab = { display: 'block', marginTop: 10 }
+  const sel = page || { k: 'basics' }
+  const props = uc.stages.flatMap((s, si) => s.output.columns.map((c, ci) => ({ si, ci, c })))
+  const badKinds = (c) => (c.lookups || []).reduce((n, lk) => n + (lk.in || []).filter(k => !resolveDocs(k, docs).length).length, 0)
+  const patchCol = (si, ci, fn) => patch(d => fn(d.stages[si].output.columns[ci]))
+  const isSel = (k, si, ci) => sel.k === k && sel.si === si && sel.ci === ci
+  const pos = props.findIndex(x => sel.k === 'prop' && x.si === sel.si && x.ci === sel.ci)
+  const nav = (k, si, ci, text, note) => (
+    <button key={`${k}-${si}-${ci}`} type="button" className={'btn uc-nav' + (isSel(k, si, ci) ? ' primary' : '')} style={{ textAlign: 'left', justifyContent: 'flex-start', width: '100%' }}
+      onClick={() => setPage({ k, si, ci })}>{text}{note ? <span style={{ marginLeft: 'auto', paddingLeft: 8, opacity: .8 }}>{note}</span> : null}</button>)
+  const toggle = (arr, v) => arr.includes(v) ? arr.filter(x => x !== v) : [...arr, v]
 
-  return (
-    <div className="wrap" style={{ maxWidth: 900 }}>
-      <div className="view-head">
-        <div><div className="eyebrow">{editingId ? 'Edit' : 'New'} use case</div>
-          <h1>{uc.name || 'Untitled use case'}</h1></div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn" onClick={() => { setUc(null); setEditingId(null) }}>Cancel</button>
-          <button className="btn primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+  function PropertyPage({ si, ci, c }) {
+    const s = uc.stages[si]
+    const set = (fn) => patchCol(si, ci, fn)
+    const text = (key, rows, ph, max) => <textarea style={{ ...inp, minHeight: rows }} maxLength={max || 2500} placeholder={ph} value={c[key] || ''}
+      onChange={e => set(col => { if (e.target.value) col[key] = e.target.value; else delete col[key] })} />
+    return (
+      <div className="uc-property">
+        <div className="card" style={card}>
+          <div style={h}>What it is</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <input style={{ ...inp, flex: 2, minWidth: 160 }} placeholder="property name" value={c.name} onChange={e => set(col => { col.name = e.target.value })} />
+            <select style={{ ...inp, flex: 1, minWidth: 110 }} value={c.type} onChange={e => set(col => { col.type = e.target.value })}>
+              {COLUMN_TYPES.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          {c.type === 'enum' && <input style={{ ...inp, marginTop: 8 }} placeholder="values, comma-separated" value={(c.values || []).join(', ')}
+            onChange={e => set(col => { col.values = e.target.value.split(',').map(x => x.trim()).filter(Boolean) })} />}
+          <label className="meta" style={lab}>What it means (the agent reads this)</label>
+          <textarea style={{ ...inp, minHeight: 60 }} maxLength={DESC_MAX} value={c.description || ''} onChange={e => set(col => { col.description = e.target.value })} />
+          <label className="meta" style={lab}>The short sentence shown while it is worked</label>
+          <input style={inp} maxLength={80} placeholder="for example: Classifying domains" value={c.activity || ''} onChange={e => set(col => { col.activity = e.target.value })} />
+        </div>
+
+        <div className="card" style={card}>
+          <div style={h}>How to decide it</div>
+          <label className="meta">How to resolve: the steps, in order</label>
+          <textarea style={{ ...inp, minHeight: 90 }} maxLength={DESC_MAX} value={c.how_to_resolve || ''} onChange={e => set(col => { col.how_to_resolve = e.target.value })} />
+          <label className="meta" style={lab}>Rules and decision criteria</label>
+          {text('rules', 60, 'Rules / decision criteria for this property')}
+          <label className="meta" style={lab}>Examples: one right, one wrong (to show the format and the reasoning, never to copy)</label>
+          {text('examples', 50, 'Examples')}
+          <label className="meta" style={lab}>Combine the evidence: the last points, on how to read what was retrieved (which source wins, what is enough, when to ask)</label>
+          <textarea className="collate" style={{ ...inp, minHeight: 80 }} maxLength={2500} value={c.collate || ''}
+            onChange={e => set(col => { if (e.target.value) col.collate = e.target.value; else delete col.collate })} />
+        </div>
+
+        <div className="card" style={card}>
+          <div style={h}>Where to look</div>
+          <label className="meta">The kinds of source, as the steps name them (not file names: a new document of the right kind is found without editing this)</label>
+          {text('where_to_look', 50, 'for example: Application Catalog, Business Capability Map')}
+          <label className="meta" style={lab}>Look first in these documents</label>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {docs.length === 0 && <span className="meta">No documents ingested yet.</span>}
+            {docs.map(dn => { const on = (c.look_in || []).includes(dn)
+              return <button key={dn} type="button" className={'btn' + (on ? ' primary' : '')} onClick={() => set(col => { col.look_in = toggle(col.look_in || [], dn) })}>{dn}</button> })}
+          </div>
+        </div>
+
+        <div className="card" style={card}>
+          <div style={h}>Lookups: what is searched for, and where</div>
+          <div className="meta" style={{ marginBottom: 6 }}>Each lookup asks one question of the wiki, the graph and the documents. A kind of source under “in” is matched to the ingested documents by the words in their names.</div>
+          <LookupRelations lookups={c.lookups} edges={edges} counts={counts} col={c} pagesDefault={!!uc.wiki_pages} docs={docs}
+            onChange={v => set(col => { col.lookups = v })} />
+          <details>
+            <summary className="meta" style={{ cursor: 'pointer' }}>The lookups as JSON (to add or change a lookup)</summary>
+            <LookupsBox value={c.lookups} onValid={v => set(col => { if (v && v.length) col.lookups = v; else delete col.lookups })} />
+          </details>
+        </div>
+
+        <div className="card" style={card}>
+          <div style={h}>Evidence and questions</div>
+          <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13 }}>
+            <input type="checkbox" checked={c.evidence_required !== false} onChange={e => set(col => { col.evidence_required = e.target.checked })} />
+            A cited source is required (if none is found, the architect is asked)
+          </label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+            <span className="meta">Minimum cited sources</span>
+            <input type="number" min={1} max={5} style={{ ...inp, width: 70 }} value={c.min_sources || ''}
+              onChange={e => set(col => { const v = parseInt(e.target.value, 10); if (v) col.min_sources = v; else delete col.min_sources })} />
+            <span className="meta">(1 for a fact copied from a register, 2 for a judgment)</span>
+          </div>
+          <label className="meta" style={lab}>When the INPUT is missing: what to ask the requester</label>
+          <input style={inp} maxLength={300} value={c.info_needed || ''} onChange={e => set(col => { col.info_needed = e.target.value })} />
+          <label className="meta" style={lab}>When a SOURCE is missing: what to say and whom to ask</label>
+          <input style={inp} maxLength={300} value={c.info_needed_source || ''} onChange={e => set(col => { col.info_needed_source = e.target.value })} />
+        </div>
+
+        {s.output.columns.length > 1 && <div className="card" style={card}>
+          <div style={h}>Builds on (decided first)</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {s.output.columns.filter((o, oi) => oi !== ci && o.name).map(o => (
+              <button key={o.name} type="button" className={'btn' + ((c.uses || []).includes(o.name) ? ' primary' : '')}
+                onClick={() => set(col => { col.uses = toggle(col.uses || [], o.name) })}>{o.name}</button>))}
+          </div>
+        </div>}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginBottom: 30 }}>
+          <button className="btn" disabled={pos <= 0} onClick={() => setPage({ k: 'prop', si: props[pos - 1].si, ci: props[pos - 1].ci })}>← Previous property</button>
+          <button className="btn" style={{ color: 'var(--crit)' }} onClick={() => { if (confirm(`Remove the property "${c.name || 'new property'}"?`)) { patch(d => d.stages[si].output.columns.splice(ci, 1)); setPage({ k: 'stage', si }) } }}>Remove this property</button>
+          <button className="btn" disabled={pos < 0 || pos >= props.length - 1} onClick={() => setPage({ k: 'prop', si: props[pos + 1].si, ci: props[pos + 1].ci })}>Next property →</button>
         </div>
       </div>
-      {error && <div className="card" style={{ padding: 12, color: 'var(--crit)', marginBottom: 14 }}>{error}</div>}
+    )
+  }
 
-      {/* Basics */}
-      <div className="card" style={{ padding: 16, ...sec }}>
+  const body = (() => {
+    if (sel.k === 'basics') return (
+      <div className="card" style={card}>
         <div style={h}>Basics</div>
         <label className="meta">Name</label>
-        <input style={inp} value={uc.name} onChange={e => patch(d => d.name = e.target.value)} />
-        <label className="meta" style={{ marginTop: 10, display: 'block' }}>Description</label>
-        <textarea style={{ ...inp, minHeight: 50 }} value={uc.description} onChange={e => patch(d => d.description = e.target.value)} />
-        <label className="meta" style={{ marginTop: 10, display: 'block' }}>Rules for every property (read by the agent for each one, for example: never approve or reject; roles, never names)</label>
-        <textarea style={{ ...inp, minHeight: 60 }} maxLength={4000} value={uc.playbook || ''} onChange={e => patch(d => d.playbook = e.target.value)} />
+        <input style={inp} value={uc.name} onChange={e => patch(d => { d.name = e.target.value })} />
+        <label className="meta" style={lab}>Description</label>
+        <textarea style={{ ...inp, minHeight: 50 }} value={uc.description} onChange={e => patch(d => { d.description = e.target.value })} />
+        <label className="meta" style={lab}>Rules for every property (read by the agent for each one, for example: never approve or reject; roles, never names)</label>
+        <textarea style={{ ...inp, minHeight: 60 }} maxLength={4000} value={uc.playbook || ''} onChange={e => patch(d => { d.playbook = e.target.value })} />
         <label style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 10, fontSize: 13 }}>
-          <input type="checkbox" checked={uc.enabled} onChange={e => patch(d => d.enabled = e.target.checked)} /> Enabled
+          <input type="checkbox" checked={uc.enabled} onChange={e => patch(d => { d.enabled = e.target.checked })} /> Enabled
         </label>
-      </div>
-
-      {/* Input fields */}
-      <div className="card" style={{ padding: 16, ...sec }}>
-        <div style={h}>1 · Input (what the user / sheet provides)</div>
+        <label style={{ display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 10, fontSize: 13 }}>
+          <input type="checkbox" checked={!!uc.wiki_pages} onChange={e => patch(d => { if (e.target.checked) d.wiki_pages = true; else delete d.wiki_pages })} />
+          <span>Search the wiki pages for every lookup (a model picks pages from their titles and first sentences). A lookup can still turn it off for itself.</span>
+        </label>
+      </div>)
+    if (sel.k === 'input') return (
+      <div className="card" style={card}>
+        <div style={h}>Input (what the user or the sheet provides)</div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
           <span className="meta">What one input is called, singular and plural (shown on screen):</span>
           <input style={{ ...inp, width: 150 }} maxLength={40} placeholder="singular, e.g. demand" value={(uc.input.item_label || {}).singular || ''}
@@ -239,35 +361,34 @@ export default function UseCases() {
         </div>
         {uc.input.item_fields.map((f, i) => (
           <div key={i} style={{ marginBottom: 10 }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
-            <input style={{ ...inp, flex: 2 }} placeholder="field name" value={f.name} onChange={e => patch(d => d.input.item_fields[i].name = e.target.value)} />
-            <select style={{ ...inp, flex: 1 }} value={f.type} onChange={e => patch(d => d.input.item_fields[i].type = e.target.value)}>
-              {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
-            </select>
-            <label style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 12, whiteSpace: 'nowrap' }}>
-              <input type="checkbox" checked={!!f.required} onChange={e => patch(d => d.input.item_fields[i].required = e.target.checked)} /> required
-            </label>
-            <button className="btn" onClick={() => patch(d => d.input.item_fields.splice(i, 1))}>✕</button>
-          </div>
-          <textarea style={{ ...inp, minHeight: 38 }} placeholder="Description: what this field holds and how to read it (optional)"
-            maxLength={DESC_MAX} value={f.description || ''} onChange={e => patch(d => d.input.item_fields[i].description = e.target.value)} />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 4 }}>
+              <input style={{ ...inp, flex: 2 }} placeholder="field name" value={f.name} onChange={e => patch(d => { d.input.item_fields[i].name = e.target.value })} />
+              <select style={{ ...inp, flex: 1 }} value={f.type} onChange={e => patch(d => { d.input.item_fields[i].type = e.target.value })}>
+                {FIELD_TYPES.map(t => <option key={t}>{t}</option>)}
+              </select>
+              <label style={{ display: 'flex', gap: 5, alignItems: 'center', fontSize: 12, whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={!!f.required} onChange={e => patch(d => { d.input.item_fields[i].required = e.target.checked })} /> required
+              </label>
+              <button className="btn" onClick={() => patch(d => { d.input.item_fields.splice(i, 1) })}>✕</button>
+            </div>
+            <textarea style={{ ...inp, minHeight: 38 }} placeholder="Description: what this field holds and how to read it (optional)"
+              maxLength={DESC_MAX} value={f.description || ''} onChange={e => patch(d => { d.input.item_fields[i].description = e.target.value })} />
           </div>
         ))}
-        <button className="btn" onClick={() => patch(d => d.input.item_fields.push({ name: '', type: 'text', required: false }))}>+ field</button>
+        <button className="btn" onClick={() => patch(d => { d.input.item_fields.push({ name: '', type: 'text', required: false }) })}>+ field</button>
         <label style={{ display: 'flex', gap: 7, alignItems: 'center', marginTop: 12, fontSize: 13 }}>
-          <input type="checkbox" checked={uc.input.accepts_file} onChange={e => patch(d => d.input.accepts_file = e.target.checked)} /> Accept a CSV / Excel batch
+          <input type="checkbox" checked={uc.input.accepts_file} onChange={e => patch(d => { d.input.accepts_file = e.target.checked })} /> Accept a CSV / Excel batch
         </label>
-      </div>
-
-      {/* Validation gate */}
-      <div className="card" style={{ padding: 16, ...sec, borderLeft: '3px solid var(--warn)' }}>
-        <div style={h}>2 · Validation gate ⚠ runs first — if it fails, no stage runs</div>
+      </div>)
+    if (sel.k === 'gate') return (
+      <div className="card" style={{ ...card, borderLeft: '3px solid var(--warn)' }}>
+        <div style={h}>Validation gate ⚠ runs first — if it fails, no stage runs</div>
         <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13, marginBottom: 10 }}>
-          <input type="checkbox" checked={uc.validation.enabled} onChange={e => patch(d => d.validation.enabled = e.target.checked)} /> Enabled
+          <input type="checkbox" checked={uc.validation.enabled} onChange={e => patch(d => { d.validation.enabled = e.target.checked })} /> Enabled
         </label>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10 }}>
           <span className="meta">On fail:</span>
-          <select style={{ ...inp, width: 160 }} value={uc.validation.on_fail} onChange={e => patch(d => d.validation.on_fail = e.target.value)}>
+          <select style={{ ...inp, width: 160 }} value={uc.validation.on_fail} onChange={e => patch(d => { d.validation.on_fail = e.target.value })}>
             <option value="stop">Stop &amp; return reason</option>
             <option value="warn">Warn &amp; continue</option>
           </select>
@@ -275,118 +396,88 @@ export default function UseCases() {
         <label className="meta">Intake questions (all must pass)</label>
         {uc.validation.questions.map((q, i) => (
           <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-            <input style={inp} value={q} onChange={e => patch(d => d.validation.questions[i] = e.target.value)} />
-            <button className="btn" onClick={() => patch(d => d.validation.questions.splice(i, 1))}>✕</button>
+            <input style={inp} value={q} onChange={e => patch(d => { d.validation.questions[i] = e.target.value })} />
+            <button className="btn" onClick={() => patch(d => { d.validation.questions.splice(i, 1) })}>✕</button>
           </div>
         ))}
-        <button className="btn" onClick={() => patch(d => d.validation.questions.push(''))}>+ question</button>
-        <label className="meta" style={{ marginTop: 12, display: 'block' }}>Fail message</label>
-        <input style={inp} value={uc.validation.fail_message} onChange={e => patch(d => d.validation.fail_message = e.target.value)} />
-      </div>
+        <button className="btn" onClick={() => patch(d => { d.validation.questions.push('') })}>+ question</button>
+        <label className="meta" style={{ ...lab, marginTop: 12 }}>Fail message</label>
+        <input style={inp} value={uc.validation.fail_message} onChange={e => patch(d => { d.validation.fail_message = e.target.value })} />
+      </div>)
+    if (sel.k === 'stage') { const s = uc.stages[sel.si]; return s ? (
+      <div className="card" style={card}>
+        <div style={h}>Stage {sel.si + 1}</div>
+        <label className="meta">Stage name</label>
+        <input style={inp} value={s.name} onChange={e => patch(d => { d.stages[sel.si].name = e.target.value })} />
+        <label className="meta" style={lab}>Instructions (what the agent should do)</label>
+        <textarea style={{ ...inp, minHeight: 70 }} value={s.instructions} onChange={e => patch(d => { d.stages[sel.si].instructions = e.target.value })} />
+        <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+          <button className="btn" onClick={() => { patch(d => { d.stages[sel.si].output.columns.push({ name: '', type: 'text', values: [] }) }); setPage({ k: 'prop', si: sel.si, ci: s.output.columns.length }) }}>+ property</button>
+          {uc.stages.length > 1 && <button className="btn" style={{ color: 'var(--crit)' }} onClick={() => { if (confirm(`Remove stage ${sel.si + 1} and its properties?`)) { patch(d => { d.stages.splice(sel.si, 1) }); setPage({ k: 'basics' }) } }}>Remove this stage</button>}
+        </div>
+      </div>) : null }
+    if (sel.k === 'prop') { const c = uc.stages[sel.si]?.output.columns[sel.ci]; return c ? PropertyPage({ si: sel.si, ci: sel.ci, c }) : null }   // called, not mounted: it is defined here, so mounting it would reset the focus on every keystroke
+    return null
+  })()
 
-      {/* Stages */}
-      <div style={h}>3 · Stages (run in order, only if validation passed)</div>
-      {uc.stages.map((s, si) => (
-        <div className="card" style={{ padding: 16, ...sec }} key={si}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <strong>Stage {si + 1}</strong>
-            <button className="btn" onClick={() => patch(d => d.stages.splice(si, 1))}>✕ remove stage</button>
-          </div>
-          <label className="meta">Stage name</label>
-          <input style={inp} value={s.name} onChange={e => patch(d => d.stages[si].name = e.target.value)} />
-          <label className="meta" style={{ marginTop: 10, display: 'block' }}>Instructions (what the agent should do)</label>
-          <textarea style={{ ...inp, minHeight: 70 }} value={s.instructions} onChange={e => patch(d => d.stages[si].instructions = e.target.value)} />
-          <label className="meta" style={{ marginTop: 12, display: 'block' }}>Output columns (the result table)</label>
-          {s.output.columns.map((c, ci) => (
-            <div key={ci} style={{ marginBottom: 10 }}>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
-              <input style={{ ...inp, flex: 2, minWidth: 140 }} placeholder="column name" value={c.name} onChange={e => patch(d => d.stages[si].output.columns[ci].name = e.target.value)} />
-              <select style={{ ...inp, flex: 1, minWidth: 110 }} value={c.type} onChange={e => patch(d => d.stages[si].output.columns[ci].type = e.target.value)}>
-                {COLUMN_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
-              {c.type === 'enum' && (
-                <input style={{ ...inp, flex: 2, minWidth: 140 }} placeholder="values, comma-separated"
-                  value={(c.values || []).join(', ')}
-                  onChange={e => patch(d => d.stages[si].output.columns[ci].values = e.target.value.split(',').map(x => x.trim()).filter(Boolean))} />
-              )}
-              <button className="btn" onClick={() => patch(d => d.stages[si].output.columns.splice(ci, 1))}>✕</button>
-            </div>
-            <textarea style={{ ...inp, minHeight: 38 }}
-              placeholder="Description: what this column means (the agent reads this)"
-              maxLength={DESC_MAX} value={c.description || ''}
-              onChange={e => patch(d => d.stages[si].output.columns[ci].description = e.target.value)} />
-            <details style={{ marginTop: 4 }}>
-              <summary className="meta" style={{ cursor: 'pointer' }}>How to resolve, where to look, evidence</summary>
-              <div style={{ display: 'grid', gap: 6, marginTop: 6 }}>
-                <textarea style={{ ...inp, minHeight: 38 }} maxLength={DESC_MAX}
-                  placeholder="How to resolve: how to decide the value, and any rule to apply"
-                  value={c.how_to_resolve || ''}
-                  onChange={e => patch(d => d.stages[si].output.columns[ci].how_to_resolve = e.target.value)} />
-                <textarea className="collate" style={{ ...inp, minHeight: 60 }} maxLength={2500}
-                  placeholder="Combine the evidence: the last points, on how to read what was retrieved (which source wins, what is enough, when to ask). They continue the steps above and are added to the retrieved evidence."
-                  value={c.collate || ''}
-                  onChange={e => patch(d => { const col = d.stages[si].output.columns[ci]; if (e.target.value) col.collate = e.target.value; else delete col.collate })} />
-                <div className="meta">Look first in (documents):</div>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {docs.length === 0 && <span className="meta">No documents ingested yet.</span>}
-                  {docs.map(dn => {
-                    const on = (c.look_in || []).includes(dn)
-                    return <button key={dn} type="button" className={'btn' + (on ? ' primary' : '')}
-                      onClick={() => patch(d => { const col = d.stages[si].output.columns[ci]; const cur = col.look_in || []; col.look_in = on ? cur.filter(x => x !== dn) : [...cur, dn] })}>{dn}</button>
-                  })}
-                </div>
-                <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13 }}>
-                  <input type="checkbox" checked={c.evidence_required !== false}
-                    onChange={e => patch(d => { d.stages[si].output.columns[ci].evidence_required = e.target.checked })} />
-                  A cited source is required (if none is found, the architect is asked)
-                </label>
-                <input style={inp} maxLength={80} placeholder="Activity: the short sentence shown while it is worked, e.g. Classifying domains"
-                  value={c.activity || ''}
-                  onChange={e => patch(d => d.stages[si].output.columns[ci].activity = e.target.value)} />
-                <textarea style={{ ...inp, minHeight: 38 }} maxLength={2500} placeholder="Where to look: the kinds of source, as the steps name them (for example Application Catalog, Business Capability Map). Not file names: a new document of the right kind is found without editing this."
-                  value={c.where_to_look || ''}
-                  onChange={e => patch(d => d.stages[si].output.columns[ci].where_to_look = e.target.value)} />
-                <textarea style={{ ...inp, minHeight: 38 }} maxLength={2500} placeholder="Rules / decision criteria for this property"
-                  value={c.rules || ''}
-                  onChange={e => patch(d => d.stages[si].output.columns[ci].rules = e.target.value)} />
-                <textarea style={{ ...inp, minHeight: 38 }} maxLength={2500} placeholder="Examples: one correct, one wrong (the agent uses them to see the format and the reasoning, never to copy)"
-                  value={c.examples || ''}
-                  onChange={e => patch(d => d.stages[si].output.columns[ci].examples = e.target.value)} />
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                  <span className="meta">Minimum cited sources</span>
-                  <input type="number" min={1} max={5} style={{ ...inp, width: 70 }} value={c.min_sources || ''}
-                    onChange={e => patch(d => { const v = parseInt(e.target.value, 10); const col = d.stages[si].output.columns[ci]; if (v) col.min_sources = v; else delete col.min_sources })} />
-                  <span className="meta">(1 for a fact copied from a register, 2 for a judgment)</span>
-                </div>
-                <input style={inp} maxLength={300} placeholder="Info needed when INPUT is missing: what to ask the requester"
-                  value={c.info_needed || ''}
-                  onChange={e => patch(d => d.stages[si].output.columns[ci].info_needed = e.target.value)} />
-                <input style={inp} maxLength={300} placeholder="Info needed when a SOURCE is missing: what to say and whom to ask"
-                  value={c.info_needed_source || ''}
-                  onChange={e => patch(d => d.stages[si].output.columns[ci].info_needed_source = e.target.value)} />
-                <details>
-                  <summary className="meta" style={{ cursor: 'pointer' }}>Lookups (what the agent looks for; drafted from the steps when left empty)</summary>
-                  <LookupRelations lookups={c.lookups} edges={edges} counts={counts} col={c} pagesDefault={!!uc.wiki_pages} onChange={v => patch(d => { d.stages[si].output.columns[ci].lookups = v })} />
-                  <div className="meta">The lookups as JSON (to add or change a lookup):</div>
-                  <LookupsBox value={c.lookups} onValid={v => patch(d => { const col = d.stages[si].output.columns[ci]; if (v && v.length) col.lookups = v; else delete col.lookups })} />
-                </details>
-                {s.output.columns.length > 1 && (<>
-                  <div className="meta">Builds on (decided first):</div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {s.output.columns.filter((o, oi) => oi !== ci && o.name).map(o => {
-                      const on = (c.uses || []).includes(o.name)
-                      return <button key={o.name} type="button" className={'btn' + (on ? ' primary' : '')}
-                        onClick={() => patch(d => { const col = d.stages[si].output.columns[ci]; const cur = col.uses || []; col.uses = on ? cur.filter(x => x !== o.name) : [...cur, o.name] })}>{o.name}</button>
-                    })}
-                  </div></>)}
-              </div>
-            </details>
+  return (
+    <div className="wrap" style={{ maxWidth: 1180 }}>
+      <div className="view-head">
+        <div><div className="eyebrow">{editingId ? 'Edit' : 'New'} use case</div>
+          <h1>{uc.name || 'Untitled use case'}</h1></div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {editingId && <button className="btn" onClick={openHistory}>History</button>}
+          <button className="btn" onClick={() => { setUc(null); setEditingId(null); setPage(null); setHist(null) }}>Cancel</button>
+          <button className="btn primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        </div>
+      </div>
+      {error && <div className="card" style={{ padding: 12, color: 'var(--crit)', marginBottom: 14 }}>{error}</div>}
+
+      {hist && (
+        <div className="card uc-history" style={{ ...card, borderLeft: '3px solid var(--accent, #3b82f6)' }}>
+          <div style={h}>History of the saved settings</div>
+          {hist.store !== 'postgres' && <div className="meta" style={{ color: 'var(--crit)', marginBottom: 8 }}>
+            {hist.store === 'files' ? 'These settings are kept in a file on this server’s own disk: a redeploy or restart replaces them with the file that came with the code.'
+              : 'These settings are kept in a database file on this server’s own disk: a redeploy or restart loses them. Set HISTORY_BACKEND=postgres to keep them.'}</div>}
+          {hist.diff && hist.diff.in_file && (hist.diff.changed.length || hist.diff.added.length || hist.diff.removed.length || hist.diff.other.length) ? (
+            <div style={{ marginBottom: 10 }}>
+              <div className="meta">The file that came with the code differs from the saved settings:</div>
+              {hist.diff.changed.length > 0 && <div className="meta">Changed in the file: {hist.diff.changed.join('; ')}</div>}
+              {hist.diff.added.length > 0 && <div className="meta">Only in the file: {hist.diff.added.join('; ')}</div>}
+              {hist.diff.removed.length > 0 && <div className="meta">Only in the saved settings: {hist.diff.removed.join('; ')}</div>}
+              {hist.diff.other.length > 0 && <div className="meta">Other settings that differ: {hist.diff.other.join(', ')}</div>}
+              <button className="btn" style={{ marginTop: 6 }} onClick={loadFromFile}>Replace the saved settings with the file’s (the current ones stay in the history)</button>
+            </div>) : hist.diff && hist.diff.in_file ? <div className="meta" style={{ marginBottom: 8 }}>The saved settings are the same as the file that came with the code.</div> : null}
+          {hist.versions.length === 0 && <div className="meta">No earlier versions are kept (the settings are stored in files).</div>}
+          {hist.versions.map(v => (
+            <div key={v.vid} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+              <span style={{ minWidth: 150 }}>{new Date(v.saved_at * 1000).toLocaleString()}</span>
+              <span className="pill neutral">v{v.version}</span>
+              <span className="meta" style={{ flex: 1 }}>{v.note}</span>
+              <button className="btn" onClick={() => restoreVersion(v)}>Put back</button>
+            </div>))}
+          <div style={{ marginTop: 8 }}><button className="btn" onClick={() => setHist(null)}>Close</button></div>
+        </div>
+      )}
+
+      <div className="uc-layout" style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 250px) minmax(0, 1fr)', gap: 18, alignItems: 'start' }}>
+        <nav className="uc-sidebar" style={{ display: 'grid', gap: 4, position: 'sticky', top: 12 }}>
+          {nav('basics', undefined, undefined, 'Basics')}
+          {nav('input', undefined, undefined, 'Input')}
+          {nav('gate', undefined, undefined, 'Validation gate')}
+          {uc.stages.map((s, si) => (
+            <div key={si} style={{ display: 'grid', gap: 4, marginTop: 8 }}>
+              {nav('stage', si, undefined, `Stage ${si + 1}: ${s.name || 'untitled'}`)}
+              {s.output.columns.map((c, ci) => {
+                const bad = badKinds(c)
+                return nav('prop', si, ci, '   ' + (c.name || '(new property)'), bad ? '⚠' : (c.lookups || []).length ? (c.lookups.length + ' lookups') : '')
+              })}
             </div>
           ))}
-          <button className="btn" onClick={() => patch(d => d.stages[si].output.columns.push({ name: '', type: 'text', values: [] }))}>+ column</button>
-        </div>
-      ))}
-      <button className="btn" onClick={() => patch(d => d.stages.push({ name: '', instructions: '', output: { mode: 'table', columns: [{ name: '', type: 'text', values: [] }] } }))}>+ add stage</button>
+          <button className="btn" style={{ marginTop: 8 }} onClick={() => { patch(d => { d.stages.push({ name: '', instructions: '', output: { mode: 'table', columns: [{ name: '', type: 'text', values: [] }] } }) }); setPage({ k: 'stage', si: uc.stages.length }) }}>+ add stage</button>
+        </nav>
+        <main className="uc-page" style={{ minWidth: 0 }}>{body}</main>
+      </div>
       <div style={{ height: 40 }} />
     </div>
   )
