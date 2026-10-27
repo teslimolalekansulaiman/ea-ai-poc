@@ -22,6 +22,13 @@ MAX_SUGGESTIONS = 6
 _KIND_ORDER = ("application", "technology", "data", "security", "role")
 
 
+def clean_definition(text: str) -> str:
+    """A relationship's definition as the owner and the model read it: the modelling-notation label some definitions end
+    with ("(ArchiMate Flow)") is not part of what the relationship means here, so it is left out."""
+    t = re.sub(r"\s*\([^()]*archimate[^()]*\)", "", str(text or ""), flags=re.I)
+    return re.sub(r"\s*\barchimate\b\s*", " ", t, flags=re.I).strip()
+
+
 def edges_for(counts: dict, relation: str, kinds: list, direction: str) -> int:
     """Edges of `relation` the lookup could read: those at an entity of one of `kinds` (any kind when none are given)."""
     r = (counts.get("relations") or {}).get(relation)
@@ -41,7 +48,7 @@ def _prompt(prop: dict, lookup: dict, edge_types: list, counts: dict) -> str:
         seen = f"{edges_for(counts, e['key'], kinds, 'out')} outgoing, {edges_for(counts, e['key'], kinds, 'in')} incoming" if counts.get("edges") else "graph not available"
         src = ", ".join(sorted({t.replace('logical_', '').replace('physical_', '') for t in e.get("source_types", [])}))[:90]
         tgt = ", ".join(sorted({t.replace('logical_', '').replace('physical_', '') for t in e.get("target_types", [])}))[:90]
-        rows.append(f"- {e['key']}: {e.get('definition', '')} ({src} -> {tgt}). In the graph: {r.get('total', 0)} edges in all; at the kinds this lookup accepts: {seen}.")
+        rows.append(f"- {e['key']}: {clean_definition(e.get('definition', ''))} ({src} -> {tgt}). In the graph: {r.get('total', 0)} edges in all; at the kinds this lookup accepts: {seen}.")
     return f"""An enterprise-architecture team defines, for one PROPERTY of a demand assessment, which GRAPH RELATIONSHIPS to read around each entity that a name in the demand matches. The graph links applications, platforms, data sets, controls and roles. You propose the relationships; the team decides.
 
 PROPERTY: {prop.get('name', '')}

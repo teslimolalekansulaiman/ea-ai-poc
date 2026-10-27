@@ -41,6 +41,14 @@ def test_edges_the_lookup_could_read_depend_on_its_kinds_and_the_direction():
     assert f("is_owned_by", ["application"], "out") == 0 and f("nope", [], "both") == 0
 
 
+def test_the_notation_label_is_not_shown_to_the_owner_or_the_model():
+    assert rs.clean_definition("A directional data/information flow from one component/process to another (ArchiMate Flow).") == \
+        "A directional data/information flow from one component/process to another."
+    assert rs.clean_definition("Uses the ArchiMate model for a flow") == "Uses the model for a flow" and rs.clean_definition(None) == ""
+    et = [dict(EDGE_TYPES[0], definition="A flow (ArchiMate Flow)")]
+    assert "rchimate" not in rs._prompt(PROP, LOOK, et, COUNTS)
+
+
 def test_the_prompt_gives_the_property_the_lookup_and_the_edge_counts_for_its_kinds():
     p = rs._prompt(PROP, LOOK, EDGE_TYPES, COUNTS)
     assert "PROPERTY: Impacted application" in p and "which application each name is" in p and "kinds of entity a name may be: application" in p

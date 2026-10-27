@@ -39,6 +39,8 @@ function LookupRelations({ lookups, edges, counts, col, onChange }) {
   const edge = (k) => edges.find(e => e.key === k)
   const short = (ts) => [...new Set((ts || []).map(t => t.replace(/^(logical|physical)_/, '')))]
   const ends = (e) => e ? `${short(e.source_types).slice(0, 3).join(', ')}${short(e.source_types).length > 3 ? ', …' : ''}  →  ${short(e.target_types).slice(0, 3).join(', ')}${short(e.target_types).length > 3 ? ', …' : ''}` : ''
+  // a definition is shown without the modelling-notation label some carry, e.g. "(ArchiMate Flow)"
+  const clean = (t) => (t || '').replace(/\s*\([^()]*archimate[^()]*\)/gi, '').replace(/\s*\barchimate\b\s*/gi, ' ').trim()
   const haveGraph = !!counts && counts.edges > 0
   const total = (rel) => counts?.relations?.[rel]?.total || 0
   // edges the lookup would read: those at an entity of its kinds (any kind when none), in the direction chosen
@@ -87,7 +89,7 @@ function LookupRelations({ lookups, edges, counts, col, onChange }) {
                 <button type="button" className="btn" aria-label="remove relationship" onClick={() => set(li, l => { l.relations.splice(ri, 1) })}>remove</button>
                 {haveGraph && <span className="edge-count" style={{ color: n === 0 ? 'var(--crit)' : undefined, fontWeight: 600 }}>
                   {n === 0 ? 'no edges to read here' : `${n} edge${n === 1 ? '' : 's'} to read`}</span>}
-                {edge(r.relation) && <span className="meta" style={{ flexBasis: '100%' }}>{ends(edge(r.relation))} — {edge(r.relation).definition}</span>}
+                {edge(r.relation) && <span className="meta" style={{ flexBasis: '100%' }}>{ends(edge(r.relation))} — {clean(edge(r.relation).definition)}</span>}
               </div>
             )
           })}
