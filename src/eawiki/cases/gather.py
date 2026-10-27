@@ -29,6 +29,7 @@ from eawiki.cases import namelookup as nl
 from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 
 BLOCK_CHARS = 1100          # a table row or paragraph is read whole, not cut to a sentence
+FIGURE_CHARS = 2500         # a diagram's description names every box and its rating: it is read whole
 MAX_BLOCKS = 14
 MAX_WIKI = 8                # wiki pages shown to the answer step
 MAX_MENTIONS = 6            # mentions searched per lookup
@@ -457,7 +458,7 @@ def render(ev: dict) -> str:
     if ev["blocks"]:
         asked = _asked(ev)
         out.append("SOURCE BLOCKS:\n" + "\n".join(
-            f"  [{b['block_id']}] " + (("(the diagram that the caption [" + b['via'] + "] belongs to; this is its description) " if b.get("figure") else f"(what follows [{b['via']}] in its document, which was only a label" + (f"; read in order up to [{b['run_to']}]" if b.get("run_to") else "") + ") ") if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:BLOCK_CHARS])
+            f"  [{b['block_id']}] " + (("(the diagram that the caption [" + b['via'] + "] belongs to; this is its description) " if b.get("figure") else f"(what follows [{b['via']}] in its document, which was only a label" + (f"; read in order up to [{b['run_to']}]" if b.get("run_to") else "") + ") ") if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:FIGURE_CHARS if b.get("btype") == "figure" else BLOCK_CHARS])
             for b in ev["blocks"]))
     if ev["graph"] and ev["graph"]["facts"]:
         out.append(f"GRAPH FACTS (entities: {', '.join(ev['graph']['names'])}):\n" + ev["graph"]["facts"][:3000])

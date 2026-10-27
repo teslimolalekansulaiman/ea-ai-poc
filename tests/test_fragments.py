@@ -200,3 +200,13 @@ def test_the_answer_step_is_told_it_is_reading_a_diagram_description():
     ev = {"demand": {}, "lookups": [], "wiki": [], "graph_reads": [], "graph": None, "others": [], "used": [],
           "blocks": [dict(st[1], via="F:3", figure=True)]}
     assert "[F:2] (the diagram that the caption [F:3] belongs to; this is its description)" in gmod.render(ev)
+
+
+def test_a_diagram_description_is_read_whole_and_a_paragraph_keeps_its_limit():
+    desc = "F > S\n\n" + ("Human Capital names. " * 55) + "Costs and Finance is the only one rated 4 Measured."
+    para = "F > S\n" + ("word " * 400)
+    ev = {"demand": {}, "lookups": [], "wiki": [], "graph_reads": [], "graph": None, "others": [], "used": [],
+          "blocks": [{"block_id": "F:2", "btype": "figure", "text": desc}, {"block_id": "F:9", "btype": "paragraph", "text": para}]}
+    text = gmod.render(ev)
+    assert len(desc) > gmod.BLOCK_CHARS and "rated 4 Measured." in text                  # the end of the description is there
+    assert text.count("word word") < 400 and len(text) < len(desc) + gmod.BLOCK_CHARS + 200   # a long paragraph is still cut at its limit
