@@ -429,6 +429,31 @@ def usecase_create(spec: dict):
         raise HTTPException(400, str(e))
 
 
+@app.get("/api/graph/relation-counts")
+def graph_relation_counts():
+    """How many edges of each relationship type the graph holds, and at which kinds of entity: so the owner choosing
+    graph relationships for a lookup can see which carry anything."""
+    from eawiki.cases import graphread
+    from eawiki.query import graphquery as gq
+    return graphread.relation_counts(gq._load())
+
+
+@app.post("/api/usecases/suggest-relations")
+def usecase_suggest_relations(body: dict):
+    """A draft list of graph relationships for one lookup of one property, for the owner to accept or change.
+    Nothing is saved. body: {property: {name, description, how_to_resolve, rules}, lookup: {find, from, types, in, extract}}."""
+    from eawiki import metamodel as mm
+    from eawiki import subjects
+    from eawiki.cases import graphread, relsuggest
+    from eawiki.query import graphquery as gq
+    prop, lookup = body.get("property"), body.get("lookup")
+    if not isinstance(prop, dict) or not isinstance(lookup, dict) or not str(lookup.get("find") or "").strip():
+        raise HTTPException(400, "send {property: {...}, lookup: {find: ...}}")
+    counts = graphread.relation_counts(gq._load())
+    return {**relsuggest.suggest(prop, lookup, mm.view()["edge_types"], counts, lambda p: subjects.llm_text(p, API_BACKEND, ASK_MODEL)),
+            "graph_edges": counts["edges"]}
+
+
 @app.put("/api/usecases/{uc_id}")
 def usecase_update(uc_id: str, spec: dict):
     _require_writable()

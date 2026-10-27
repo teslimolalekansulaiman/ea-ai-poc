@@ -36,6 +36,8 @@ export const api = {
   runUsecase: (id, body) => post('/api/usecases/' + encodeURIComponent(id) + '/run', body),
 
   metamodel: () => J('/api/metamodel'),
+  relationCounts: () => J('/api/graph/relation-counts'),
+  suggestRelations: (body) => J('/api/usecases/suggest-relations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   mmNode: (key, obj) => J('/api/metamodel/node/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) }),
   mmNodeDel: (key) => J('/api/metamodel/node/' + encodeURIComponent(key), { method: 'DELETE' }),
   mmEdge: (key, obj) => J('/api/metamodel/edge/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) }),

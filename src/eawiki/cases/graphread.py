@@ -84,3 +84,21 @@ def read(by_mention: dict, relations: list[dict], g, per_mention: int = MAX_PER_
             out["status"][mention][cid] = "read" if shown else "none found"
     out["block_ids"] = list(dict.fromkeys(blocks))
     return out
+
+
+def relation_counts(g) -> dict:
+    """How many edges of each relationship type the graph holds, and between which kinds of entity, so the owner
+    who chooses relationships sees which carry anything. {'nodes', 'edges', 'relations': {relation: {'total',
+    'out': {kind: n}, 'in': {kind: n}}}}; 'out' counts an edge under the kind of its source, 'in' under the kind of
+    its target (kinds as in the lookup's types: application, technology, data, security, role; 'other' for the rest)."""
+    from eawiki.cases import namelookup as nl
+    kind_of = {"app": "application", "tech": "technology", "data": "data", "security": "security", "role": "role"}
+    rel: dict = {}
+    for e in g.edges:
+        r = rel.setdefault(e.get("relation") or "associated_with", {"total": 0, "out": {}, "in": {}})
+        r["total"] += 1
+        ks = kind_of.get(nl.family(g.by_id[e["source"]].get("type")), "other")
+        kt = kind_of.get(nl.family(g.by_id[e["target"]].get("type")), "other")
+        r["out"][ks] = r["out"].get(ks, 0) + 1
+        r["in"][kt] = r["in"].get(kt, 0) + 1
+    return {"nodes": len(g.by_id), "edges": len(g.edges), "relations": rel}
