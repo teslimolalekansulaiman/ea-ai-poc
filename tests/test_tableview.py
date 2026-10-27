@@ -83,3 +83,26 @@ def test_the_evidence_shows_the_matching_row_of_a_long_table():
           "graph": None, "others": [], "blocks": [{"block_id": "M:1", "btype": "table", "text": MAP_BLOCK}], "used": []}
     text = gmod.render(ev)
     assert "Roster Accuracy | Shift Management" in text
+
+
+# A matrix as a document stores it: a row per application, a column per control, a mark where one applies, equal marks side by side.
+MATRIX = ("Std > Application to Security Control Matrix\n\n"
+          "| Application | Encryption | Logging | Access review | MFA | Backup |\n|---|---|---|---|---|---|\n"
+          "| Evaluate | Yes | Yes |  | Yes |  |\n| Rota Hub |  | Yes | Yes | Yes | Yes |\n| Depot Wiki |  |  |  |  | Yes |")
+
+
+def test_a_matrix_keeps_which_column_each_mark_is_in_and_equal_marks_are_not_merged():
+    out = tv.render(MATRIX)
+    assert "Evaluate: Encryption=Yes; Logging=Yes; MFA=Yes" in out          # the empty Access review column is not a mark
+    assert "Rota Hub: Logging=Yes; Access review=Yes; MFA=Yes; Backup=Yes" in out
+    assert "Depot Wiki: Backup=Yes" in out and "Application | Encryption | Logging | Access review | MFA | Backup" in out
+
+
+def test_two_equal_cells_in_one_row_of_an_ordinary_table_stay():
+    out = tv.render("| Item | From | To |\n|---|---|---|\n| Leave | Annual | Annual |\n| Sick | Medical | Self |\n| Study | Unpaid | Unpaid |")
+    assert "Leave | Annual | Annual" in out and "Sick | Medical | Self" in out
+
+
+def test_a_merged_column_goes_only_when_the_whole_table_repeats_it():
+    out = tv.render(KV_BLOCK)
+    assert out.count("Retired") == 1
