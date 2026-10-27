@@ -31,7 +31,7 @@ MAX_QUERIES = 3
 
 def guidance_key(col: dict) -> str:
     """Changes exactly when something the plan depends on changes."""
-    keep = {k: col.get(k) for k in ("name", "type", "values", "description", "how_to_resolve", "where_to_look",
+    keep = {k: col.get(k) for k in ("name", "type", "values", "description", "how_to_resolve", "collate", "where_to_look",
                                     "look_in", "uses", "evidence_required", "lookups")}
     return hashlib.sha1(json.dumps(keep, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:16]
 

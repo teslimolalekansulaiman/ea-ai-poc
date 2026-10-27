@@ -318,6 +318,10 @@ export default function UseCases() {
                   placeholder="How to resolve: how to decide the value, and any rule to apply"
                   value={c.how_to_resolve || ''}
                   onChange={e => patch(d => d.stages[si].output.columns[ci].how_to_resolve = e.target.value)} />
+                <textarea className="collate" style={{ ...inp, minHeight: 60 }} maxLength={2500}
+                  placeholder="Combine the evidence: the last points, on how to read what was retrieved (which source wins, what is enough, when to ask). They continue the steps above and are added to the retrieved evidence."
+                  value={c.collate || ''}
+                  onChange={e => patch(d => { const col = d.stages[si].output.columns[ci]; if (e.target.value) col.collate = e.target.value; else delete col.collate })} />
                 <div className="meta">Look first in (documents):</div>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {docs.length === 0 && <span className="meta">No documents ingested yet.</span>}

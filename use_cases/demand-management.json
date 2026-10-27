@@ -176,7 +176,8 @@
             "type": "list",
             "description": "Architecture domains, main one first: Business, Data, Application, Integration, Technology, Security. A technical demand is Application, Data, Technology or Security. A people demand has no domain: write Not applicable.",
             "evidence_required": false,
-            "activity": "Classifying domains"
+            "activity": "Classifying domains",
+            "collate": "Add Securit statement when the data is Confidential or Restricted (check the Data Classification Standard), or the demand touches sign-in, encryption or security controls.\n5. Record the business domain (the department that asks) separately, not in this field."
           },
           {
             "name": "Urgency",
@@ -240,7 +241,8 @@
             "type": "list",
             "description": "Names with IDs from the application inventory or the contract register.",
             "info_needed": "The application (with its ID) this demand affects.",
-            "activity": "Mapping applications"
+            "activity": "Mapping applications",
+            "collate": "Link by a name match (through the catalogue). Never link by department alone.A solution that does not exist yet is not listed here\n\n1. Read the systems and data named in the demand and in the answers to the intake questions.\n2. Match each name to the Application Catalog, using the glossary and aliases (for example, 'the HR app' is the Peoplex HR system, C-204).\n3. Add applications that exchange data with the matched ones when the demand needs that data (Application Interaction Diagram, Data Flow Diagram, Data to Application Matrix).\n4. List the main application first, with its catalog ID or contract ID.\n5. take into consideration to use analysis you are doing in this step, and to show the linkage between the application and other domain artefacts and components (Data Catalog, Application to Technology Matrix, Application to Security Control Matrix), in the observation coloumn."
           },
           {
             "name": "Is duplicate",
@@ -295,14 +297,16 @@
               "Not assessed"
             ],
             "info_needed": "The classification level of the data involved.",
-            "activity": "Classifying the data"
+            "activity": "Classifying the data",
+            "collate": "Pick list: Public, Internal, Confidential, Restricted, Not stated, Not assessed. Level of the data involved, checked against the organization's data classification standard and the national data classification standard"
           },
           {
             "name": "Linked security capability",
             "type": "list",
             "description": "Digital or technical demand: the security capabilities it touches, at a general level (based on the NORA framework). People demand: Not applicable. The detailed assessment is with the security and infrastructure teams.",
             "info_needed": "The security capabilities this demand touches.",
-            "activity": "Linking security capabilities"
+            "activity": "Linking security capabilities",
+            "collate": "Digital or technical demand: the security capabilities it touches, at a general level (based on the NORA framework). People demand: Not applicable. Detailed assessment is with the security and infrastructure teams"
           },
           {
             "name": "Security review needed",

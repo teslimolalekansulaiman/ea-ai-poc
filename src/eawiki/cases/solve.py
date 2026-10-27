@@ -44,6 +44,9 @@ def _prompt(col: dict, item: dict, spec: dict, ev: dict, decided: dict) -> str:
           ("A cited source is NOT required: you may decide from the demand's fields, a definition or a rule, "
            "and cite the demand fields you used.")
     extra = ""
+    if (col.get("collate") or "").strip():
+        extra += ("HOW TO COMBINE WHAT WAS RETRIEVED (the owner's last points; they continue the steps above and apply to the "
+                  f"evidence below):\n{col['collate'].strip()}\n\n")
     if (spec.get("playbook") or "").strip():
         extra += f"RULES FOR EVERY PROPERTY OF THIS USE CASE:\n{spec['playbook'].strip()}\n\n"
     if (col.get("rules") or "").strip():

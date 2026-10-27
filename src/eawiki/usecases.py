@@ -110,7 +110,7 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -
     a = c.get("activity")
     if a is not None and (not isinstance(a, str) or len(a.strip()) > MAX_ACTIVITY):
         errs.append(f"{where}: activity must be text of at most {MAX_ACTIVITY} characters.")
-    for key in ("where_to_look", "rules", "examples"):
+    for key in ("where_to_look", "rules", "examples", "collate"):
         v = c.get(key)
         if v is not None and (not isinstance(v, str) or len(v.strip()) > MAX_GUIDANCE):
             errs.append(f"{where}: {key.replace('_', ' ')} must be text of at most {MAX_GUIDANCE} characters.")
@@ -196,7 +196,7 @@ def _tidy_descriptions(spec: dict) -> None:
     for s in spec.get("stages") or []:
         items += list((s.get("output") or {}).get("columns") or [])
     for it in items:
-        for key in ("description", "how_to_resolve", "info_needed", "info_needed_source", "activity", "where_to_look", "rules", "examples"):
+        for key in ("description", "how_to_resolve", "info_needed", "info_needed_source", "activity", "where_to_look", "rules", "examples", "collate"):
             d = (it.get(key) or "").strip() if isinstance(it.get(key), str) else ""
             if d:
                 it[key] = d
