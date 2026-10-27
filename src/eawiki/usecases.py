@@ -26,7 +26,7 @@ MAX_GUIDANCE = 2500        # rules, examples and where-to-look text of one prope
 MAX_PLAYBOOK = 4000        # the rules that apply to every property of the use case
 MAX_LOOKUPS = 6
 # What a demand can mention (the profile groups) and how a lookup may use them.
-PROFILE_GROUPS = ("systems", "data", "processes", "users", "mandates", "projects", "dates")
+PROFILE_GROUPS = ("systems", "data", "processes", "users", "mandates", "projects", "dates", "tools_today", "requested")
 LOOKUP_FROM = PROFILE_GROUPS + ("need", "all_text", "other_demands")
 LOOKUP_MATCH = ("name", "meaning", "compare")
 MAX_ACTIVITY = 80          # the short sentence the live card shows while a property is worked
