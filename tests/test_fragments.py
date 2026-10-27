@@ -127,3 +127,37 @@ def test_two_labels_of_the_same_table_are_read_once_and_a_long_run_is_cut():
     near2 = lambda bid, w: [r for r in long if abs(r["ordinal"] - int(bid.split(":")[1])) <= w]      # noqa: E731
     out, _, _ = ps.reshape([long[0]], 3, near2)
     assert len(next(b for b in out if b.get("via"))["text"]) < ps.RUN_CHARS + 200
+
+
+# Appendix A as the index holds it: Capability | Services | Maturity, a block per cell, 114 capabilities; the one asked about is far down.
+def appendix_store():
+    names = [(f"Capability {i:03d}", f"Services of {i:03d}", "3 Evidenced") for i in range(1, 115)]
+    names[96] = ("Workforce Performance", "Evaluation forms and bonus results", "2 Documented")
+    cells = ["Capability", "Services", "Maturity"] + [c for row in names for c in row]
+    rows = [{"block_id": f"A:{i}", "doc_id": "A", "btype": "paragraph", "section": "Appendix A / Supporting", "ordinal": i,
+             "text": f"A > Appendix A / Supporting\n{c}"} for i, c in enumerate(cells, 1)]
+    return rows
+
+
+def test_a_long_table_of_cells_keeps_the_header_and_the_row_that_matches_the_question():
+    store = appendix_store()
+    asked = []
+
+    def near(bid, w):
+        asked.append(w)
+        return [r for r in store if abs(r["ordinal"] - int(bid.split(":")[1])) <= w]
+    out, frag, added = ps.reshape([store[0]], 3, near, "which capability covers evaluation forms and bonus performance")
+    run = next(b for b in out if b.get("via"))
+    assert asked[0] == ps.RUN_WINDOW and len(run["text"]) < ps.RUN_CHARS + 300
+    assert "Services | Maturity" in run["text"]                                        # the column names stay
+    assert "Workforce Performance | Evaluation forms and bonus results | 2 Documented" in run["text"]
+    assert "…" in run["text"] and "the rest follows" in run["text"]
+    assert "Capability 050" not in run["text"]                                         # the middle of the table is left out
+
+
+def test_a_long_run_with_no_matching_cell_gives_its_start():
+    store = appendix_store()
+    near = lambda bid, w: [r for r in store if abs(r["ordinal"] - int(bid.split(":")[1])) <= w]      # noqa: E731
+    out, _, _ = ps.reshape([store[0]], 3, near, "zebra quartz")
+    run = next(b for b in out if b.get("via"))
+    assert "Capability 001" in run["text"] and "Workforce Performance" not in run["text"] and "the rest follows" in run["text"]

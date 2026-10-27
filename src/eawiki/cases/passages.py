@@ -21,6 +21,7 @@ lexical stand-in, which exercises the plumbing and the marking, not the quality 
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Callable, Optional
 
@@ -35,7 +36,9 @@ MAX_QUERY_TEXT = 500        # the demand's own words added to a lookup's questio
 HEAD_CHARS = 80             # an entry's name is at the start of its passage
 FETCH_FACTOR = 3            # a lookup by meaning fetches this many times what it keeps, so label-only hits can be set behind real ones
 MAX_EXPAND = 3              # label-only hits that are replaced by their neighbours, per search
-RUN_WINDOW = 40             # blocks read after a label-only hit (the same section, up to the next heading)
+RUN_WINDOW = 400            # blocks read after a label-only hit (the same section, up to the next heading)
+RUN_HEADER = 4              # the first cells of a long run are kept: they are the table's column names
+RUN_AROUND = 2              # cells kept on each side of a cell that matches what was asked: its row
 RUN_CHARS = 1800            # what follows a label, at most, as one passage
 FRAGMENT_CHARS = 60
 FRAGMENT_WORDS = 8
@@ -115,33 +118,73 @@ def _following(block: dict, near: list[dict]) -> list[dict]:
     return run
 
 
-def _run_text(run: list[dict]) -> str:
-    """What follows a label, as one passage: cells that are only a few words each (a table the document stored one cell per
-    block) read in order, joined with ' | '; a real passage or table on lines of its own; cut at RUN_CHARS."""
-    lines, cells, used = [], [], 0
+def _pieces(run: list[dict]) -> list[tuple[str, bool]]:
+    """What follows a label, block by block: (text, is a cell). A cell is a block of a few words (a table stored one cell per
+    block); a real passage or table is kept whole."""
+    out = []
+    for n in run:
+        piece = tableview.render(n.get("text", ""), "", RUN_CHARS) if (n.get("btype") == "table" or tableview.is_table(n)) else _body(n.get("text", ""))
+        if piece:
+            out.append((piece, is_fragment(n) and "\n" not in piece))
+    return out
+
+
+def _join(pieces: list[tuple[str, bool]], gaps: set) -> str:
+    """Cells joined with ' | ', real passages on lines of their own; a gap (cells left out) is marked."""
+    lines, cells = [], []
     def flush():
         if cells:
             lines.append(" | ".join(cells))
             cells.clear()
-    for n in run:
-        piece = tableview.render(n.get("text", ""), "", RUN_CHARS) if (n.get("btype") == "table" or tableview.is_table(n)) else _body(n.get("text", ""))
-        if not piece:
-            continue
-        if used + len(piece) > RUN_CHARS and (lines or cells):
-            flush()
-            lines.append("(more follows in the document)")
-            return "\n".join(lines)
-        used += len(piece) + 3
-        if is_fragment(n) and "\n" not in piece:
-            cells.append(piece)
+    for i, (text, is_cell) in enumerate(pieces):
+        if i in gaps:
+            cells.append("…") if is_cell else (flush(), lines.append("…"))
+        if is_cell:
+            cells.append(text)
         else:
             flush()
-            lines.append(piece)
+            lines.append(text)
     flush()
     return "\n".join(lines)
 
 
-def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None) -> tuple[list[dict], int, int]:
+def _run_text(run: list[dict], query: str = "") -> str:
+    """What follows a label, as one passage. When it is too long for RUN_CHARS it keeps the first cells (the column names) and,
+    around every cell that shares the most distinctive words with what was asked (weighted by how few cells carry the word),
+    that cell's row; with no match it keeps the start. What is left out is marked '…'."""
+    pieces = _pieces(run)
+    if sum(len(t) + 3 for t, _ in pieces) <= RUN_CHARS:
+        return _join(pieces, set())
+    q = tableview.words(query)
+    n = len(pieces)
+    df: dict = {}
+    for t, _ in pieces:
+        for w in tableview.words(t):
+            df[w] = df.get(w, 0) + 1
+    score = [sum(math.log(1 + n / df[w]) for w in q & tableview.words(t)) for t, _ in pieces]
+    order = [i for i in sorted(range(n), key=lambda i: -score[i]) if score[i] > 0]
+    chosen, used = set(range(min(RUN_HEADER, n))), sum(len(pieces[i][0]) + 3 for i in range(min(RUN_HEADER, n)))
+    for i in order:
+        around = [j for j in range(max(i - RUN_AROUND, 0), min(i + RUN_AROUND + 1, n)) if j not in chosen]
+        cost = sum(len(pieces[j][0]) + 3 for j in around)
+        if used + cost > RUN_CHARS:
+            continue
+        chosen |= set(around)
+        used += cost
+    if not order:                                              # nothing matches: the start of the run
+        chosen, used = set(), 0
+        for i in range(n):
+            if used + len(pieces[i][0]) + 3 > RUN_CHARS:
+                break
+            chosen.add(i)
+            used += len(pieces[i][0]) + 3
+    keep = sorted(chosen)
+    gaps = {keep[k] for k in range(1, len(keep)) if keep[k] != keep[k - 1] + 1}
+    tail = "\n(the rest follows in the document)" if keep and keep[-1] < n - 1 else ""
+    return _join([pieces[i] for i in keep], {k for k, i in enumerate(keep) if i in gaps}) + tail
+
+
+def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None, query: str = "") -> tuple[list[dict], int, int]:
     """For a search by meaning: real passages before label-only ones (those fill the list only when there are too few real
     ones), and each of the first few label-only hits is followed by what comes after it in its document, as one passage
     marked `via` (a table stored one cell per block comes back as its cells in order). Returns (passages, label-only hits
@@ -162,7 +205,7 @@ def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None) -> t
                 run = _following(b, expand_fn(b["block_id"], RUN_WINDOW) or [])
             except Exception:
                 run = []
-            text = _run_text(run)
+            text = _run_text(run, query)
             covered |= {n["block_id"] for n in run}
             free = [n for n in run if n.get("block_id") not in seen]      # the passage is cited by its first block that is not already a hit
             if not text or not free:
@@ -226,7 +269,7 @@ def read(lookup: dict, mentions: list, demand_text: str, search_fn: Callable, ca
             hits = search(search_fn, q, k * FETCH_FACTOR if by == "meaning" else k, docs, strict)
             fragments = added = 0
             if by == "meaning":
-                hits, fragments, added = reshape(hits, k, expand_fn)
+                hits, fragments, added = reshape(hits, k, expand_fn, q)
             for n in extra:
                 have = {b["block_id"] for b in hits}
                 hits += [b for b in search(search_fn, passage_query(lookup, n, demand_text), PER_MENTION, docs, strict) if b["block_id"] not in have]
