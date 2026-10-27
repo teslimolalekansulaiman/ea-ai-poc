@@ -18,7 +18,7 @@ LK = lambda find, frm, kinds, types=None, match="name", extract="": {"find": fin
 COLS = [
  dict(name="Data classification", type="enum", values=["Public", "Internal", "Confidential", "Restricted", "Not stated", "Not assessed"], min_sources=1,
       lookups=[LK("what each data set the demand names is and how it is classified", "data", ["Data Catalog", "Data Classification Standard"], ["data"], extract="its classification"),
-               dict(LK("what each level of the standard means", "need", ["Data Classification Standard"], match="meaning"), read_all=True)]),
+               LK("the definitions of the data classification levels (Public, Internal, Confidential, Restricted) and the rule when several levels are involved", "need", ["Standards"], match="meaning")]),
  dict(name="Domain", type="list", values=["Business", "Data", "Application", "Technology", "Security"], evidence_required=False, uses=["Data classification"], min_sources=1,
       lookups=[LK("what each system or platform the demand names is, and which domain it belongs to", "systems", [CAT, "Technology Catalog"], ["application", "technology"], extract="its type and domain"),
                LK("what each data set the demand names is", "data", ["Data Catalog"], ["data"], extract="its type"),
@@ -29,7 +29,7 @@ COLS = [
  dict(name="Linked security capability", type="list", uses=["Impacted application", "Data classification"], min_sources=1,
       lookups=[LK("the security controls linked to each impacted application", "result:Impacted application", ["Application to Security Control Matrix"], extract="the controls named"),
                LK("what the demand touches that needs a security capability", "need", ["Security Control Catalog"], match="meaning"),
-               dict(LK("what the data classification requires", "result:Data classification", ["Data Classification Standard"], match="meaning"), read_all=True)]),
+               LK("what the standard requires for data classified as", "result:Data classification", ["Standards"], match="meaning")]),
  dict(name="Duplicate with existing artefact", type="text", min_sources=1,
       lookups=[LK("whether each system the demand names already has a contract feature or a project", "systems", ["Contract Register", "Initiative Portfolio"], extract="the artefact, its ID, what it covers"),
                LK("whether each system or platform the demand names already has an entry of its own", "systems", [CAT, "Technology Catalog"], ["application", "technology"], extract="the artefact, its ID, what it covers"),

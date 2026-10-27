@@ -297,12 +297,26 @@ def test_reason_first_is_a_setting_of_the_property_and_off_elsewhere():
 def test_a_document_read_whole_that_is_not_ingested_is_reported_not_replaced_by_a_search():
     d = kb.DEMANDS[0]
     docs = [x for x in kb.DOCS if x != "Data_Classification_Standard"]
-    plan = pmod.default_plan(COLS["Data classification"], docs)
+    col = dict(COLS["Data classification"], lookups=[dict(COLS["Data classification"]["lookups"][1], read_all=True, **{"in": ["Data Classification Standard"]})])
+    plan = pmod.default_plan(col, docs)
     ev = gmod.gather(TOOLS, plan, SPEC, item_of(d), [], {}, None, profile_of(d), {})
     text = gmod.render(ev)
     assert "not read: no ingested document is named Data Classification Standard" in text
     assert not any(b["doc_id"] == "Data_Classification_Standard" for b in ev["blocks"])
     assert any("not ingested" in x for x in ev["searched"])
+
+
+def test_the_passage_search_is_asked_the_lookups_question_not_the_bare_words():
+    lk = {"find": "what each level of the standard means"}
+    assert gmod.passage_query(lk, "Confidential", "x") == "what each level of the standard means: Confidential"
+    q = gmod.passage_query(lk, None, "Employees request leave. " * 100)
+    assert q.startswith("what each level of the standard means. Employees") and len(q) < 560
+    assert gmod.passage_query({"find": ""}, "payroll", "x") == "payroll"
+
+
+def test_a_kind_of_document_matches_the_plural_and_the_singular():
+    assert pmod.resolve_docs("Standards", ["Data_Classification_Standard", "Application_Catalog"]) == ["Data_Classification_Standard"]
+    assert pmod.resolve_docs("Application Catalog", ["Application_Catalog", "Application_Catalogue_Old"]) == ["Application_Catalog"]
 
 
 def test_the_evidence_never_names_an_entity_the_knowledge_base_lacks():

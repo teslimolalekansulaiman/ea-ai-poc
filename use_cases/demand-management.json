@@ -443,14 +443,13 @@
                 ]
               },
               {
-                "find": "what each level of the standard means",
+                "find": "the definitions of the data classification levels (Public, Internal, Confidential, Restricted) and the rule when several levels are involved",
                 "from": "need",
                 "match": "meaning",
                 "in": [
-                  "Data Classification Standard"
+                  "Standards"
                 ],
-                "extract": "",
-                "read_all": true
+                "extract": ""
               }
             ],
             "reason_first": true
@@ -481,14 +480,13 @@
                 "extract": ""
               },
               {
-                "find": "what the data classification requires",
+                "find": "what the standard requires for data classified as",
                 "from": "result:Data classification",
                 "match": "meaning",
                 "in": [
-                  "Data Classification Standard"
+                  "Standards"
                 ],
-                "extract": "",
-                "read_all": true
+                "extract": ""
               }
             ],
             "uses": [

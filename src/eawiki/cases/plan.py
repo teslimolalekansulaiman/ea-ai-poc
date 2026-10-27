@@ -40,14 +40,18 @@ def _words(s: str) -> set:
     return set(re.findall(r"[^\W_]{2,}", str(s or "").casefold()))
 
 
+def _plural(w: str) -> str:
+    return w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+
+
 def resolve_docs(kind: str, docs: list[str]) -> list[str]:
     """The ingested documents a kind of source ("Application Catalog") stands for: a document whose
     name holds all the words of the kind. A document added later is matched the same way, so naming
     kinds, not files, never leaves a new document out."""
-    kw = _words(kind)
+    kw = {_plural(w) for w in _words(kind)}
     if not kw:
         return []
-    return [d for d in docs if kw <= _words(d)]
+    return [d for d in docs if kw <= {_plural(w) for w in _words(d)}]
 
 
 def _lookup(raw: dict, docs: list[str]) -> Optional[dict]:

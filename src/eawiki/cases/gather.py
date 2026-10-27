@@ -30,6 +30,7 @@ from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 BLOCK_CHARS = 1100          # a table row or paragraph is read whole, not cut to a sentence
 MAX_BLOCKS = 14
 MAX_WIKI = 8                # wiki pages shown to the answer step
+MAX_QUERY_TEXT = 500        # the demand's own words added to a lookup's question when it has no mention
 MAX_WHOLE = 8               # passages read from a short document that is read whole
 MAX_MENTIONS = 6            # mentions searched per lookup
 PER_MENTION = 3             # passages kept per mention
@@ -157,6 +158,18 @@ def _name_lookup(tools: Tools, m: str, lk: dict, prefer: list, strict: bool, ent
             "none": not entry, "ambiguous": nl.ambiguous(cands), "hits": hits}
 
 
+def passage_query(lk: dict, mention: Optional[str], demand_text: str) -> str:
+    """The question put to the passage search. The lookup's own question leads ("what each level of the standard
+    means"), followed by what it is about: the mention, or for the demand as a whole its opening words. A search
+    for the bare mention or the whole demand text finds passages that resemble the words, not ones that answer
+    the question the property is asking."""
+    find = str(lk.get("find") or "").strip()
+    if mention:
+        return f"{find}: {mention}" if find else mention
+    body = demand_text[:MAX_QUERY_TEXT]
+    return f"{find}. {body}" if find else body
+
+
 def _search(tools: Tools, query: str, k: int, prefer: list, strict: bool) -> list:
     """Named kinds first; then a short search of everything, so a new document is never shut out."""
     out, seen = [], set()
@@ -269,7 +282,7 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                         ev["graph"]["facts"] = "\n".join(x for x in (ev["graph"]["facts"], it["facts"]) if x)[:3000]
                     rec["items"].append(it)
                 else:
-                    q = m if m else text
+                    q = passage_query(lk, m, text)
                     hits = _search(tools, q, PER_MENTION if m else 5, prefer, strict)
                     for b in hits:
                         keep(b)
