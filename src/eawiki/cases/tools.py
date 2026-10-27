@@ -125,4 +125,4 @@ def real_tools() -> Tools:
 
     return Tools(search=search, blocks_by_ids=r.blocks_by_ids, link=link, graph_facts=graph_facts,
                  llm_json=lambda prompt: llm_json(prompt, backend, model), doc_ids=doc_ids,
-                 llm_text=lambda prompt: llm_text(prompt, backend, model), kb=RealKB(filestore(), gq._load))
+                 llm_text=lambda prompt: llm_text(prompt, backend, model), kb=RealKB(filestore(), gq._load), expand=r.expand)

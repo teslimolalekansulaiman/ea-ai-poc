@@ -48,6 +48,7 @@ class Tools:
     doc_ids: Callable[[], list]
     llm_text: Optional[Callable[[str], str]] = None             # the model's plain-text answer (comparison of demands, page finder)
     kb: Optional[object] = None                                 # entities(), graph(), page(slug), wiki_entries(): what the six steps read
+    expand: Optional[Callable] = None                           # (block id, window) -> the blocks next to it in its document
 
 
 def names_from_result(value) -> list[str]:
@@ -185,7 +186,7 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             if tools.kb is not None:
                 lk = {**lk, "pages": lk["pages"] if lk.get("pages") is not None else bool(spec.get("wiki_pages"))}
                 res = lkmod.run(lk, ms, text, tools.kb, tools.search, tools.llm_text, link_cache if link_cache is not None else {},
-                                lk["from"] if lk["from"] in PROFILE_GROUPS else "systems", strict)
+                                lk["from"] if lk["from"] in PROFILE_GROUPS else "systems", strict, tools.expand)
                 for b in res["blocks"]:
                     keep(b)
                 for pg in res["wiki"]:
@@ -210,7 +211,8 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                         else ("closest " + ", ".join(c["name"] for c in strong_or_partial[:2])) if strong_or_partial
                         else ("found " + ", ".join(it["entry"][:2])) if it["entry"]
                         else ("no entry of its own; only mentioned in " + ", ".join(it["mentioned"][:2])) if it["mentioned"]
-                        else "no match" if it["by"] == "name" else f"{len(it['closest'])} passages"))
+                        else "no match" if it["by"] == "name" else f"{len(it['closest'])} passages" + (
+                            f" ({it['fragments']} label-only" + (f", {it['expanded']} neighbouring passages added" if it.get("expanded") else ", no neighbour to add") + ")" if it.get("fragments") else "")))
                 ps = res.get("page_search")
                 if ps:
                     rec["page_search"] = ps
@@ -455,7 +457,7 @@ def render(ev: dict) -> str:
     if ev["blocks"]:
         asked = _asked(ev)
         out.append("SOURCE BLOCKS:\n" + "\n".join(
-            f"  [{b['block_id']}] " + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:BLOCK_CHARS])
+            f"  [{b['block_id']}] " + (f"(the passage after [{b['via']}], which was only a label) " if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:BLOCK_CHARS])
             for b in ev["blocks"]))
     if ev["graph"] and ev["graph"]["facts"]:
         out.append(f"GRAPH FACTS (entities: {', '.join(ev['graph']['names'])}):\n" + ev["graph"]["facts"][:3000])

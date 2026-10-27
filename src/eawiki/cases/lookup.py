@@ -55,7 +55,7 @@ def _page_search(lookup: dict, demand_text: str, kb, llm_text, cache: dict) -> d
 
 
 def run(lookup: dict, mentions: list, demand_text: str, kb, search_fn: Callable, llm_text: Optional[Callable],
-        cache: dict, group: str = "systems", strict: bool = False) -> dict:
+        cache: dict, group: str = "systems", strict: bool = False, expand_fn: Optional[Callable] = None) -> dict:
     """mentions: the names to look up, [None] for the demand as a whole, or [] when the demand names nothing of this kind (nothing is searched). Returns
     {'items': [...], 'wiki': [...], 'graph': {...}, 'blocks': [...], 'notes': [...]}."""
     kinds = kinds_of(lookup)
@@ -88,7 +88,7 @@ def run(lookup: dict, mentions: list, demand_text: str, kb, search_fn: Callable,
     graph = graphread.read({m: cands[m] for m in named}, lookup.get("relations") or [], kb.graph()) if (kb and named and nodes and lookup.get("relations")) else \
         {"skipped": "", "status": {}, "facts": {}, "more": {}, "block_ids": []}
     # 6: passages
-    psg = passages.read(lookup, mentions, demand_text, search_fn, cands, strict)
+    psg = passages.read(lookup, mentions, demand_text, search_fn, cands, strict, expand_fn)
     # a question that starts from no name may also be answered by a wiki page: the finder reads their titles and summaries
     page_search = _page_search(lookup, demand_text, kb, llm_text, cache) if (kb and lookup.get("pages")) else None
     pages = list(wiki["pages"])
