@@ -5,6 +5,21 @@ from __future__ import annotations
 from eawiki.cases.gather import Tools
 
 
+def graph_entities(g) -> list[dict]:
+    """The graph's entities in the shape the matcher reads (see namelookup): name, type, other names, catalog IDs
+    and the slug of the entity's wiki page. `g` is a query.graphquery._Graph."""
+    from eawiki.cases import namelookup as nl
+    from eawiki.pages import _slug
+    out = []
+    for nid, n in g.by_id.items():
+        others = [a for a in (n.get("aliases") or []) if a and a != n.get("name")]
+        out.append({"node_id": nid, "name": n.get("name", ""), "type": n.get("type", ""),
+                    "aliases": [a for a in others if not nl.is_id(a)],
+                    "ids": [a for a in others + [n.get("name", "")] if nl.is_id(a)],
+                    "slug": _slug(n.get("name", ""))})
+    return out
+
+
 def real_tools() -> Tools:
     from eawiki.query import graph as qgraph
     from eawiki.query import graphquery as gq
