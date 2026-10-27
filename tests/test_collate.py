@@ -29,6 +29,50 @@ def test_the_production_use_case_carries_the_owners_points_for_the_properties_th
     assert "collate" not in COLS["Duplicate with existing artefact / artefact name"]            # held back: the text given is about duplicate demands
 
 
+def test_everything_the_owner_gave_is_loaded_where_it_belongs():
+    same = "Two demands are the same when they ask for the same outcome"
+    assert COLS["Is duplicate"]["collate"].startswith(same) and "Use the ID format only" not in COLS["Is duplicate"]["collate"]
+    assert COLS["Duplicate demand number (in the sheet)"]["collate"].endswith("Do not write titles or names here.")
+    assert COLS["Domain"]["how_to_resolve"].startswith("1. Read the business need") and COLS["Domain"]["how_to_resolve"].rstrip().endswith("clearly needs them.")
+    o = COLS["Owners"]
+    assert o["uses"] == ["Impacted application", "Linked security capability"] and o["type"] == "list"
+    assert "the platform owner decides on the platform" in o["rules"] and "The application owner decides on the application." in o["rules"]
+    assert [l["from"] for l in o["lookups"]] == ["result:Impacted application", "systems", "data", "result:Linked security capability"]
+    names = [c["name"] for st in SPEC["stages"] for c in st["output"]["columns"]]
+    assert names.index("Owners") == names.index("Linked security capability") + 1
+
+
+def test_a_lookup_may_start_from_an_earlier_answer_only_if_that_property_is_decided_first():
+    col = {"name": "Owners", "type": "list", "uses": ["Impacted application"],
+           "lookups": [{"find": "who owns each", "from": "result:Impacted application", "match": "name"}]}
+    names = ["Impacted application", "Owners"]
+    assert usecases._lookup_errors("P", col["lookups"], None, col, names) == []
+    no_uses = dict(col, uses=[])
+    assert "needs 'Impacted application' in this column's 'builds on' list" in usecases._lookup_errors("P", col["lookups"], None, no_uses, names)[0]
+    ghost = dict(col, lookups=[{"find": "x", "from": "result:Nothing", "match": "name"}])
+    assert "not another column of this stage" in usecases._lookup_errors("P", ghost["lookups"], None, ghost, names)[0]
+    me = dict(col, lookups=[{"find": "x", "from": "result:Owners", "match": "name"}], uses=["Owners"])
+    assert "not another column" in usecases._lookup_errors("P", me["lookups"], None, me, names)[0]
+    assert "other_demands" in usecases._lookup_errors("P", [{"find": "x", "from": "bogus", "match": "name"}], None, col, names)[0]
+    assert pmod._lookup({"find": "x", "from": "result:Impacted application", "match": "name"}, [])["from"] == "result:Impacted application"
+    assert pmod._lookup({"find": "x", "from": "result:", "match": "name"}, []) is None
+
+
+def test_the_names_inside_an_earlier_answer_become_the_next_lookups_names():
+    from eawiki.cases import gather as gmod
+    assert gmod.names_from_result(["Peoplex HR System (C-204)", "HR & Payroll Portal (C-207)", "None"]) == ["Peoplex HR System", "C-204", "HR & Payroll Portal", "C-207"]
+    assert gmod.names_from_result("Not applicable") == [] and gmod.names_from_result("(unknown: asked the architect)") == [] and gmod.names_from_result(None) == []
+
+
+def test_an_unanswered_decision_is_listed_but_cannot_be_cited():
+    col = COLS["Linked security capability"]
+    ev = dict(EV, allowed={"demand:title"})
+    res = {"value": ["Not applicable"], "status": "answered", "evidence": ["decided:Demand type", "demand:title"]}
+    cell = smod.verify(col, res, ev, {"Demand type": "(unknown: asked the architect)"})
+    assert cell["evidence"] == ["demand:title"]
+    assert "  Demand type: (unknown: asked the architect)" in smod._prompt(col, {}, SPEC, EV, {"Demand type": "(unknown: asked the architect)"})
+
+
 def test_the_points_reach_the_model_after_the_steps_and_before_the_evidence():
     col = COLS["Domain"]
     p = smod._prompt(col, {}, SPEC, EV, {})

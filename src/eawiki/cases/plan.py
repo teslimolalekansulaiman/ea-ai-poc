@@ -23,7 +23,7 @@ import json
 import re
 from typing import Callable, Optional
 
-from eawiki.usecases import LOOKUP_FROM, LOOKUP_KINDS, LOOKUP_MATCH, MAX_LOOKUPS, PROFILE_GROUPS, RELATION_DIRECTIONS
+from eawiki.usecases import LOOKUP_FROM, LOOKUP_KINDS, LOOKUP_MATCH, MAX_LOOKUPS, PROFILE_GROUPS, RELATION_DIRECTIONS, RESULT_PREFIX
 
 SOURCES = ("demand", "documents", "graph", "other_demands")
 MAX_QUERIES = 3
@@ -53,7 +53,9 @@ def resolve_docs(kind: str, docs: list[str]) -> list[str]:
 def _lookup(raw: dict, docs: list[str]) -> Optional[dict]:
     if not isinstance(raw, dict) or not isinstance(raw.get("find"), str) or not raw["find"].strip():
         return None
-    if raw.get("from") not in LOOKUP_FROM or raw.get("match") not in LOOKUP_MATCH:
+    frm = raw.get("from")
+    if not (frm in LOOKUP_FROM or (isinstance(frm, str) and frm.startswith(RESULT_PREFIX) and frm[len(RESULT_PREFIX):].strip())) \
+            or raw.get("match") not in LOOKUP_MATCH:
         return None
     kinds = [k.strip() for k in (raw.get("in") or []) if isinstance(k, str) and k.strip()][:8]
     resolved = []
@@ -62,7 +64,7 @@ def _lookup(raw: dict, docs: list[str]) -> Optional[dict]:
     types = [t for t in (raw.get("types") or []) if t in LOOKUP_KINDS]
     relations = [{"relation": r["relation"].strip(), "direction": r["direction"]} for r in (raw.get("relations") or [])
                  if isinstance(r, dict) and isinstance(r.get("relation"), str) and r["relation"].strip() and r.get("direction") in RELATION_DIRECTIONS]
-    return {"find": raw["find"].strip()[:200], "from": raw["from"], "match": raw["match"], "in": kinds,
+    return {"find": raw["find"].strip()[:200], "from": frm, "match": raw["match"], "in": kinds,
             "docs": list(dict.fromkeys(resolved)), "extract": str(raw.get("extract") or "")[:200],
             "types": types, "relations": relations}
 

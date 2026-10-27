@@ -188,7 +188,8 @@
               "Application",
               "Technology",
               "Security"
-            ]
+            ],
+            "how_to_resolve": "1. Read the business need, the expected outcome, and the systems and data mentioned in the demand.\n2. Check each named system, data set and platform against the Application Catalog, Data Catalog, Technology Catalog and Security Control Catalog to see which domain it belongs to.\n3. Choose the main domain and write it first, based on the majority of the content. Add other domains only when the demand clearly needs them."
           },
           {
             "name": "Urgency",
@@ -267,14 +268,16 @@
             ],
             "evidence_required": false,
             "how_to_resolve": "Compare with the other demands in the same sheet first, then with existing applications, services, initiatives and contracts. A match needs the same need and the same systems, not the same words.",
-            "activity": "Checking for duplicates"
+            "activity": "Checking for duplicates",
+            "collate": "Two demands are the same when they ask for the same outcome, for the same users, on the same systems, even if they are worded differently.\n• Related demands with a different outcome are not duplicates. Mention them in your note; the Screening observation writes them up."
           },
           {
             "name": "Duplicate demand number (in the sheet)",
             "type": "text",
             "description": "Demand ID from the Input sheet, or blank.",
             "evidence_required": false,
-            "activity": "Finding the duplicate demand"
+            "activity": "Finding the duplicate demand",
+            "collate": "Two demands are the same when they ask for the same outcome, for the same users, on the same systems, even if they are worded differently.\n• Related demands with a different outcome are not duplicates. Mention them in your note; the Screening observation writes them up.\n• Use the ID format only. Do not write titles or names here."
           },
           {
             "name": "Duplicate with existing artefact / artefact name",
@@ -320,6 +323,74 @@
             "collate": "Use the Demand type decided earlier.\n• Digital or Technical demand: the security capabilities it touches, at a general level (based on the NORA framework).\n• People demand: the answer is Not applicable.\n• Demand type Not assessed: do not decide; ask which type the demand is.\nThe detailed assessment is with the security and infrastructure teams.",
             "uses": [
               "Demand type"
+            ]
+          },
+          {
+            "name": "Owners",
+            "type": "list",
+            "description": "The roles accountable for the capabilities, applications, data, platforms and security controls that the demand impacts. They confirm the impact and receive the demand for review. Roles only, never personal names.",
+            "how_to_resolve": "1. For each impacted application, take the owner role from the Application Catalog or the contract owner role in the contract register.\n2. For each impacted capability or service, take the owner role from the Business Capability Map or the Business Service Catalog. If there is none, use the owner of its business domain in the routing matrix.\n3. For impacted data, platforms and security controls, take the owner role from the Data Catalog, the Technology Catalog and the Security Control Catalog.",
+            "where_to_look": "• Application Catalog: the owner role of each application\n• Business Capability Map and Business Service Catalog: the owner role of each capability and service\n• Data Catalog: the data owner and steward\n• Technology Catalog: the platform owner\n• Security Control Catalog: the control owner\n• Organization Structure: units and roles, when an owner role is missing\n• Initiative portfolio: 'Project manager role (optional)'",
+            "rules": "Which owner takes precedence (proposed):\n• The application owner decides on the application.\n• The capability owner decides on the process and the service.\n• The data owner decides on the data, and the platform owner decides on the platform.\n• The architecture domain owners review the design. They do not replace the business owner.\nList only owners the retrieved evidence names. Capability and service owners are listed only if a retrieved passage names them. The demand coordinator confirms the owners afterwards.",
+            "examples": "Correct: 'HR Systems Lead (C-204); Lead Application Architect; Lead Security Architect' for the employee mobile app (the data is Confidential).\nWrong: a personal name, or 'HR Department' (a team, not a role).",
+            "info_needed": "None from the requester.",
+            "info_needed_source": "[PROPOSED by Claude] An owner role is missing from the catalog. Write 'owner not in data' and ask the Head of EA Office. The original had no needs-source line.",
+            "uses": [
+              "Impacted application",
+              "Linked security capability"
+            ],
+            "min_sources": 1,
+            "activity": "Finding the owners",
+            "lookups": [
+              {
+                "find": "who owns each impacted application",
+                "from": "result:Impacted application",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Contract Register"
+                ],
+                "types": [
+                  "application"
+                ],
+                "extract": "the owner role"
+              },
+              {
+                "find": "who owns each platform the demand names",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Technology Catalog"
+                ],
+                "types": [
+                  "technology"
+                ],
+                "extract": "the owner role"
+              },
+              {
+                "find": "who owns each data set the demand names",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog"
+                ],
+                "types": [
+                  "data"
+                ],
+                "extract": "the owner role"
+              },
+              {
+                "find": "who owns each linked security capability",
+                "from": "result:Linked security capability",
+                "match": "name",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "types": [
+                  "security"
+                ],
+                "extract": "the owner role"
+              }
             ]
           },
           {

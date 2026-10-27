@@ -340,6 +340,11 @@ class Engine:
             out[c["column"]] = "(unknown: asked the architect)" if c["status"] == "needs_input" else _show(c["value"])
         return out
 
+    def _decided_values(self, cid: str, pid: str, item_id: str) -> dict:
+        """What this demand's answered properties hold, as stored: a lookup that starts from an earlier answer reads these."""
+        return {c["column"]: c["value"] for c in self.store.cells(cid, pid)
+                if c["item_id"] == item_id and c["status"] == "answered"}
+
     def _run_level(self, cid, pid, level, run) -> None:
         names = ", ".join(c["name"] for c in level)
         self.store.add_event(cid, "step", {"phase": pid, "label": names, "columns": [c["name"] for c in level]})
@@ -361,7 +366,7 @@ class Engine:
     def _c_gather(self, s) -> dict:
         try:
             ev = gmod.gather(s["tools"], s["plan"], s["spec"], s["item"], s["others"], s["link_cache"], s.get("hint"),
-                             s.get("profile"))
+                             s.get("profile"), self._decided_values(s["cid"], s["pid"], s["item"]["_id"]))
             return {"ev": ev, "failed": False}
         except Exception as e:                                   # one property failing never stops the sheet
             return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}

@@ -29,6 +29,7 @@ MAX_LOOKUPS = 6
 PROFILE_GROUPS = ("systems", "data", "processes", "users", "mandates", "projects", "dates", "tools_today", "requested")
 LOOKUP_FROM = PROFILE_GROUPS + ("need", "all_text", "other_demands")
 LOOKUP_MATCH = ("name", "meaning", "compare")
+RESULT_PREFIX = "result:"      # a lookup may start from the answer of another property: "result:Impacted application"
 LOOKUP_KINDS = ("application", "data", "technology", "security", "role")   # the kinds of entity a name lookup accepts
 RELATION_DIRECTIONS = ("out", "in", "both")                                # from the matched entity: its outgoing, incoming or both
 MAX_RELATIONS = 12
@@ -120,7 +121,7 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -
     ms = c.get("min_sources")
     if ms is not None and (isinstance(ms, bool) or not isinstance(ms, int) or not 1 <= ms <= 5):
         errs.append(f"{where}: minimum sources must be a whole number from 1 to 5.")
-    errs += _lookup_errors(where, c.get("lookups"), relation_names)
+    errs += _lookup_errors(where, c.get("lookups"), relation_names, c, names)
     uses = c.get("uses")
     if uses is not None:
         if not isinstance(uses, list):
@@ -132,7 +133,7 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -
     return errs
 
 
-def _lookup_errors(where: str, lookups, relation_names=None) -> list[str]:
+def _lookup_errors(where: str, lookups, relation_names=None, col: Optional[dict] = None, names: Optional[list] = None) -> list[str]:
     """A property's lookups: what to find, from which mention, in which kinds of source, how to match."""
     if lookups is None:
         return []
@@ -143,8 +144,15 @@ def _lookup_errors(where: str, lookups, relation_names=None) -> list[str]:
         if not isinstance(lk, dict) or not isinstance(lk.get("find"), str) or not lk["find"].strip():
             errs.append(f"{where}: lookup {i} needs a 'find' sentence.")
             continue
-        if lk.get("from") not in LOOKUP_FROM:
-            errs.append(f"{where}: lookup {i}: 'from' must be one of {', '.join(LOOKUP_FROM)}.")
+        frm = lk.get("from")
+        if isinstance(frm, str) and frm.startswith(RESULT_PREFIX):
+            prop = frm[len(RESULT_PREFIX):]
+            if names is not None and (prop not in names or prop == (col or {}).get("name")):
+                errs.append(f"{where}: lookup {i}: 'from' {frm} names a property that is not another column of this stage.")
+            elif col is not None and prop not in (col.get("uses") or []):
+                errs.append(f"{where}: lookup {i}: 'from' {frm} needs '{prop}' in this column's 'builds on' list, so it is decided first.")
+        elif frm not in LOOKUP_FROM:
+            errs.append(f"{where}: lookup {i}: 'from' must be one of {', '.join(LOOKUP_FROM)}, or {RESULT_PREFIX}<another property>.")
         if lk.get("match") not in LOOKUP_MATCH:
             errs.append(f"{where}: lookup {i}: 'match' must be one of {', '.join(LOOKUP_MATCH)}.")
         li = lk.get("in", [])

@@ -23,6 +23,11 @@ STATUSES = ("answered", "needs_source", "needs_input")
 DECIDED = "decided:"          # the id of an earlier decision of the same demand, which an answer may cite
 
 
+def citable(v) -> bool:
+    """An earlier decision that can be cited: it has a value, and was not left to the architect ('(unknown: ...)')."""
+    return v not in ("", [], None) and not str(v).startswith("(unknown")
+
+
 def needs_evidence(col: dict) -> bool:
     return col.get("evidence_required") is not False
 
@@ -39,7 +44,7 @@ def not_assessed_value(col: dict):
 
 def _prompt(col: dict, item: dict, spec: dict, ev: dict, decided: dict) -> str:
     t = col.get("type", "text") + (f" (one of: {', '.join(col['values'])})" if col.get("values") else "")
-    done = "\n".join(f"  [{DECIDED}{k}] {k}: {'; '.join(v) if isinstance(v, list) else v}" for k, v in decided.items() if v not in ("", [], None)) or "  (nothing yet)"
+    done = "\n".join((f"  [{DECIDED}{k}] " if citable(v) else "  ") + f"{k}: {'; '.join(v) if isinstance(v, list) else v}" for k, v in decided.items() if v not in ("", [], None)) or "  (nothing yet)"
     req = ("A cited source is REQUIRED: answer only if the evidence supports it, citing the ids; if it does not, "
            "return status needs_input and say what is needed.") if needs_evidence(col) else \
           ("A cited source is NOT required: you may decide from the demand's fields, a definition or a rule, "
@@ -115,7 +120,7 @@ def _coerce(col: dict, value):
 def verify(col: dict, res, ev: dict, decided: Optional[dict] = None) -> dict:
     """Turn the model's answer into a stored cell. Never raises. An answer may cite an earlier decision of this
     demand (`decided:<property>`) as well as the evidence it was shown."""
-    ev = dict(ev, allowed=set(ev.get("allowed", set())) | {f"{DECIDED}{k}" for k, v in (decided or {}).items() if v not in ("", [], None)})
+    ev = dict(ev, allowed=set(ev.get("allowed", set())) | {f"{DECIDED}{k}" for k, v in (decided or {}).items() if citable(v)})
     how = ["Looked at: " + "; ".join(ev.get("used") or ["nothing"])]
     how += ["Searched " + x for x in (ev.get("searched") or [])[:8]]
     if not isinstance(res, dict):
