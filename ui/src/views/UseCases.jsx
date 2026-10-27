@@ -21,7 +21,55 @@ function LookupsBox({ value, onValid }) {
     <div>
       <textarea style={{ width: '100%', minHeight: 90, fontFamily: 'var(--mono)', fontSize: 12, border: bad ? '1px solid var(--crit)' : undefined }} value={text}
         onChange={e => { setText(e.target.value); try { const v = JSON.parse(e.target.value || '[]'); if (!Array.isArray(v)) throw new Error('a list'); setBad(''); onValid(v) } catch (x) { setBad(String(x.message || x)) } }} />
-      <div className="meta">{bad ? 'Not saved: ' + bad : 'Each lookup: find, from (systems, data, processes, users, mandates, projects, dates, need, all_text, other_demands), match (name, meaning, compare), in (kinds of source), extract.'}</div>
+      <div className="meta">{bad ? 'Not saved: ' + bad : 'Each lookup: find, from (systems, data, processes, users, mandates, projects, dates, tools_today, requested, need, all_text, other_demands), match (name, meaning, compare), in (kinds of source), types (kinds of entity), relations (graph relationships), extract.'}</div>
+    </div>
+  )
+}
+
+const KINDS = ['application', 'data', 'technology', 'security', 'role']
+const DIRECTIONS = [['out', 'outgoing (from the matched entity)'], ['in', 'incoming (to the matched entity)'], ['both', 'both directions']]
+
+// Per lookup: which kinds of entity a name may be, and which graph relationships to read around the entity it matches.
+// `edges` are the metamodel's relationship types (the graph holds no others).
+function LookupRelations({ lookups, edges, onChange }) {
+  if (!lookups || !lookups.length) return <div className="meta">No lookups yet. Lookups are drafted from the steps when left empty; add them below as JSON to define their graph relationships.</div>
+  const set = (li, fn) => { const next = structuredClone(lookups); fn(next[li]); if (!next[li].types?.length) delete next[li].types; if (!next[li].relations?.length) delete next[li].relations; onChange(next) }
+  const edge = (k) => edges.find(e => e.key === k)
+  const short = (ts) => [...new Set((ts || []).map(t => t.replace(/^(logical|physical)_/, '')))]
+  const ends = (e) => e ? `${short(e.source_types).slice(0, 3).join(', ')}${short(e.source_types).length > 3 ? ', …' : ''}  →  ${short(e.target_types).slice(0, 3).join(', ')}${short(e.target_types).length > 3 ? ', …' : ''}` : ''
+  return (
+    <div className="lookup-relations" style={{ display: 'grid', gap: 8, marginBottom: 8 }}>
+      {lookups.map((lk, li) => (
+        <div key={li} style={{ border: '1px solid var(--line, #d8dde6)', borderRadius: 6, padding: 8, display: 'grid', gap: 6 }}>
+          <div><b>{li + 1}.</b> {lk.find} <span className="meta">(from {lk.from}, match {lk.match}{lk.in?.length ? ', in ' + lk.in.join(', ') : ''})</span></div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className="meta">A name may be a:</span>
+            {KINDS.map(k => {
+              const on = (lk.types || []).includes(k)
+              return <button key={k} type="button" className={'btn' + (on ? ' primary' : '')} data-kind={k}
+                onClick={() => set(li, l => { const cur = l.types || []; l.types = on ? cur.filter(x => x !== k) : [...cur, k] })}>{k}</button>
+            })}
+            <span className="meta">{(lk.types || []).length ? '' : '(any kind)'}</span>
+          </div>
+          <div className="meta" style={{ marginTop: 2 }}>Graph relationships to read around each entity the name matches (one step){lk.match !== 'name' ? ' — read for lookups that match by name' : ''}:</div>
+          {(lk.relations || []).map((r, ri) => (
+            <div key={ri} style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }} className="relation-row">
+              <select value={r.relation} onChange={e => set(li, l => { l.relations[ri].relation = e.target.value })} style={{ minWidth: 200, maxWidth: '100%' }}>
+                {!edge(r.relation) && <option value={r.relation}>{r.relation} (not in the metamodel)</option>}
+                {edges.map(e => <option key={e.key} value={e.key}>{e.key}</option>)}
+              </select>
+              <select value={r.direction} onChange={e => set(li, l => { l.relations[ri].direction = e.target.value })}>
+                {DIRECTIONS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+              </select>
+              <button type="button" className="btn" aria-label="remove relationship" onClick={() => set(li, l => { l.relations.splice(ri, 1) })}>remove</button>
+              {edge(r.relation) && <span className="meta" style={{ flexBasis: '100%' }}>{ends(edge(r.relation))} — {edge(r.relation).definition}</span>}
+            </div>
+          ))}
+          <div><button type="button" className="btn add-relation" disabled={!edges.length}
+            onClick={() => set(li, l => { l.relations = [...(l.relations || []), { relation: edges[0].key, direction: 'both' }] })}>+ relationship</button>
+            {!(lk.relations || []).length && <span className="meta" style={{ marginLeft: 8 }}>None: the graph is not read for this lookup.</span>}</div>
+        </div>
+      ))}
     </div>
   )
 }
@@ -33,9 +81,10 @@ export default function UseCases() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [docs, setDocs] = useState([])          // ingested documents a property can point to
+  const [edges, setEdges] = useState([])        // the metamodel's relationship types, for the graph relationships of a lookup
 
   const reload = () => api.usecases().then(d => setList(d.usecases)).catch(e => setError(String(e)))
-  useEffect(() => { reload(); api.docs().then(d => setDocs((d.docs || []).map(x => x.doc_id))).catch(() => {}) }, [])
+  useEffect(() => { reload(); api.docs().then(d => setDocs((d.docs || []).map(x => x.doc_id))).catch(() => {}); api.metamodel().then(m => setEdges(m.edge_types || [])).catch(() => {}) }, [])
 
   const patch = (fn) => setUc(prev => { const d = structuredClone(prev); fn(d); return d })
 
@@ -251,6 +300,8 @@ export default function UseCases() {
                   onChange={e => patch(d => d.stages[si].output.columns[ci].info_needed_source = e.target.value)} />
                 <details>
                   <summary className="meta" style={{ cursor: 'pointer' }}>Lookups (what the agent looks for; drafted from the steps when left empty)</summary>
+                  <LookupRelations lookups={c.lookups} edges={edges} onChange={v => patch(d => { d.stages[si].output.columns[ci].lookups = v })} />
+                  <div className="meta">The lookups as JSON (to add or change a lookup):</div>
                   <LookupsBox value={c.lookups} onValid={v => patch(d => { const col = d.stages[si].output.columns[ci]; if (v && v.length) col.lookups = v; else delete col.lookups })} />
                 </details>
                 {s.output.columns.length > 1 && (<>

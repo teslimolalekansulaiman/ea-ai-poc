@@ -105,6 +105,30 @@ def test_the_use_case_accepts_relations_and_types_and_refuses_the_rest():
     assert usecases._lookup_errors("P", [lookup(relations=[{"relation": "anything", "direction": "in"}])], None) == []      # names unchecked when unknown
 
 
+def test_saving_a_use_case_checks_relations_against_the_metamodel_the_knowledge_base_holds():
+    import os
+    import tempfile
+    os.environ["EAWIKI_DATA"] = str(ROOT / "data")
+    from eawiki.storage import filestore
+    filestore.cache_clear()
+    names = usecases.relation_names()
+    assert names and {"sends_data_to", "is_deployed_on", "is_owned_by"} <= names and "associated_with" in names
+    spec = {"id": "t", "name": "T", "input": {"item_fields": [{"name": "title", "label": "Title", "type": "text"}]},
+            "stages": [{"name": "S", "id": "s", "output": {"columns": [{"name": "P", "type": "list", "lookups": [lookup(relations=[{"relation": "teleports_to", "direction": "in"}])]}]}}]}
+    old = usecases.DIR
+    usecases.DIR = Path(tempfile.mkdtemp())
+    try:
+        try:
+            usecases.save(spec)
+            raise AssertionError("an invented relationship type was saved")
+        except ValueError as e:
+            assert "'teleports_to' is not a relationship type of the metamodel" in str(e)
+        spec["stages"][0]["output"]["columns"][0]["lookups"][0]["relations"] = [{"relation": "is_owned_by", "direction": "out"}]
+        assert usecases.save(spec)["stages"][0]["output"]["columns"][0]["lookups"][0]["relations"] == [{"relation": "is_owned_by", "direction": "out"}]
+    finally:
+        usecases.DIR = old
+
+
 def test_the_plan_keeps_types_and_relations_and_drops_what_is_malformed():
     p = pmod._lookup(lookup(types=["application", "nonsense"], relations=APP_FLOWS + [{"relation": "x", "direction": "up"}, "junk"], **{"in": []}), [])
     assert p["types"] == ["application"] and p["relations"] == APP_FLOWS

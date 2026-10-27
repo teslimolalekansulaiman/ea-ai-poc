@@ -238,9 +238,20 @@ def get(uc_id: str) -> Optional[dict]:
     return json.loads(fp.read_text(encoding="utf-8")) if fp.exists() else None
 
 
+def relation_names() -> Optional[set]:
+    """The relationship types the metamodel allows (the graph holds no others), or None when it cannot be read."""
+    import os
+    try:
+        from eawiki.storage import filestore
+        raw = filestore().read_text(os.environ.get("EAWIKI_MENU_KEY", "togaf92_metamodel.json"))
+        return set(json.loads(raw)["edge_types"]) if raw else None
+    except Exception:
+        return None
+
+
 def save(spec: dict, uc_id: Optional[str] = None) -> dict:
     """Validate and write. Returns the stored spec. Raises ValueError on invalid."""
-    errs = validate(spec)
+    errs = validate(spec, relation_names())
     if errs:
         raise ValueError("; ".join(errs))
     spec = json.loads(json.dumps(spec))      # copy, so tidying never edits the caller's object
