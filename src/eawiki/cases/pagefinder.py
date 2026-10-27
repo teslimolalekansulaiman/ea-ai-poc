@@ -35,7 +35,8 @@ HOW = "chosen by the page finder"
 def page_item(slug: str, md: str) -> dict:
     """One wiki page as a list entry: its title, the type it states, and the first sentence of what it says."""
     d = wikiread.digest_page(md)
-    first = re.split(r"(?<=[.!?])\s", d["lead"], maxsplit=1)[0] if d["lead"] else ""
+    text = d["summary"] or d["lead"]
+    first = re.split(r"(?<=[.!?])\s", text, maxsplit=1)[0] if text else ""
     return {"slug": slug, "title": d["title"] or slug, "type": d["type"], "summary": first[:SUMMARY_CHARS]}
 
 

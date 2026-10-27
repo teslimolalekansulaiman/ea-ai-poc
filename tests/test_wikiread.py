@@ -1,4 +1,5 @@
 """Step 4 of the page finder: reading the wiki page of each candidate. No model."""
+import json
 import sys
 from pathlib import Path
 
@@ -15,15 +16,15 @@ from eawiki.cases import wikiread as wr  # noqa: E402
 def test_a_model_written_page_gives_its_opening_prose_and_its_bullets_without_citations():
     d = wr.digest_page(kb.page("peoplex-hr-system"))
     assert d["title"] == "Peoplex HR System" and d["type"] == ""                 # a model page states no type: the graph does
-    assert d["lead"].startswith("Core HR records, leave and the monthly payroll export.") and "[Application_Catalog" not in d["lead"]
-    assert "catalogued as C-204" in d["lead"] and "HR Systems Lead" in d["lead"]
+    assert d["summary"].startswith("Core HR records, leave and the monthly payroll export.") and d["summary_from"] == "first paragraph"
+    assert "[Application_Catalog" not in d["summary"] and "catalogued as C-204" in d["lead"] and "HR Systems Lead" in d["lead"]
     assert "Peoplex HR System is deployed on Oracle Database Platform" in d["facts"] and "[" not in d["facts"]
     assert not d["empty"]
 
 
 def test_a_page_built_from_a_table_gives_its_type_attributes_and_relationships():
     d = wr.digest_page(kb.page("leave-and-attendance-records"))
-    assert d["type"] == "data entity" and "listed in" not in d["lead"]
+    assert d["type"] == "data entity" and d["summary"] == "" and d["summary_from"] == "" and "listed in" not in d["lead"]
     assert "Classification: Confidential" in d["facts"] and "Owner role: HR Data Steward" in d["facts"]
     assert "Peoplex HR System accesses Leave and Attendance Records" in d["facts"]
 
@@ -40,13 +41,14 @@ def test_a_real_page_from_the_wiki_gives_what_it_is_first_and_its_relationships_
     """tests/fixtures/real_page_hr_portal.md: a page shown by the owner; its markup is reconstructed from the rendered text."""
     d = wr.digest_page((ROOT / "tests" / "fixtures" / "real_page_hr_portal.md").read_text(encoding="utf-8"))
     assert d["title"] == "HR & Payroll Portal" and d["type"] == ""
-    assert d["lead"].startswith("The portal handles HR and payroll. It took over from the older HR Legacy System")       # "What it is" leads
-    assert "Applications_As-Is" not in d["lead"] + d["facts"] and "[" not in d["lead"] + d["facts"]
-    assert d["lead"].count("HR & Payroll Portal") >= 1 and len(d["lead"]) <= wr.LEAD_CHARS
+    assert d["summary_from"] == "page" and d["summary"].startswith("The HR & Payroll Portal is an internal application")     # its own Summary
+    assert d["lead"].startswith("The portal handles HR and payroll. It took over from the older HR Legacy System")       # then "What it is"
+    assert "Applications_As-Is" not in d["summary"] + d["lead"] + d["facts"] and "[" not in d["summary"] + d["lead"] + d["facts"]
+    assert len(d["summary"]) <= wr.SUMMARY_CHARS and len(d["lead"]) <= wr.LEAD_CHARS
     for neighbour in ("Evaluate:", "Attendance:", "HR Legacy System:"):
         assert neighbour in d["facts"]
     assert "through API or Excel files" in d["facts"]
-    assert wr.digest_page("# T\n\n## T\n\nbody")["lead"] == "body"                                                   # the repeated name is not prose
+    assert wr.digest_page("# T\n\n## T\n\nbody")["summary"] == "body"                                                # the repeated name is not prose
 
 
 def test_a_bare_block_id_is_a_citation_and_a_time_is_not():
@@ -56,10 +58,32 @@ def test_a_bare_block_id_is_a_citation_and_a_time_is_not():
 def test_the_digest_does_not_depend_on_any_heading_and_survives_odd_pages():
     assert wr.digest_page("")["empty"] and wr.digest_page("# Only a title")["empty"]
     d = wr.digest_page("# X\n\nType: application\n\nOne line of prose.\n\n## Whatever the model called it\n\n1. first\n2. second")
-    assert d["type"] == "application" and d["lead"] == "One line of prose." and d["facts"] == "first; second"
+    assert d["type"] == "application" and d["summary"] == "One line of prose." and d["summary_from"] == "first paragraph" and d["facts"] == "first; second"
     long = wr.digest_page("# X\n\n" + ("A sentence that goes on. " * 100) + "\n\n" + "\n".join(f"- fact {i}" for i in range(40)))
     assert len(d["lead"]) <= wr.LEAD_CHARS and len(long["lead"]) <= wr.LEAD_CHARS and len(long["facts"]) <= wr.FACT_CHARS
     assert long["facts"].count(";") + 1 == wr.MAX_FACTS or len(long["facts"]) == wr.FACT_CHARS
+
+
+def test_a_page_with_a_summary_section_uses_it_and_one_without_is_marked():
+    with_s = wr.digest_page("# X\n\n## Summary\n\nX is a thing.\n\n## What it is\n\nIt does stuff.")
+    assert with_s["summary"] == "X is a thing." and with_s["summary_from"] == "page" and with_s["lead"] == "It does stuff."
+    without = wr.digest_page("# X\n\nX is a thing.\n\n## What it is\n\nIt does stuff.")
+    assert without["summary"] == "It does stuff." and without["summary_from"] == "first paragraph"      # the preferred prose stands in
+    none = wr.digest_page("# X\n\n## Relationships\n\n- a\n- b")
+    assert none["summary"] == "" and none["summary_from"] == "" and none["facts"] == "a; b" and not none["empty"]
+
+
+def test_the_page_writer_always_asks_for_a_summary_and_pages_built_in_code_have_one():
+    from eawiki import pages
+    assert "ALWAYS a '## Summary' section" in pages._page_prompt({"name": "X", "type": "application", "kind": "entity", "block_ids": []}, {}, {"edges": [], "attributes": []}, json.loads((ROOT / "data" / "togaf92_metamodel.json").read_text(encoding="utf-8")))
+    sub = {"name": "Leave Data", "type": "data_entity", "block_ids": []}
+    facts = {"edges": [], "attributes": [{"subject": "Leave Data", "name": "Owner", "value": "HR"}]}
+    stub = pages._stub_page(sub, {}, facts)["page_markdown"]
+    d = wr.digest_page(stub)
+    assert "## Summary" in stub and d["summary_from"] == "page" and d["summary"].startswith("Leave Data is a data_entity listed in the source tables.")
+    assert "1 attribute and 0 relationships" in d["summary"]
+    item = "\n".join(pages._item_section(sub, "Data_Catalog:3", facts))
+    assert wr.digest_page("# Leave Data\n\n" + item.split("\n", 1)[1])["summary"].startswith("Leave Data is a data_entity listed in the catalogue")
 
 
 def test_inline_citations_are_removed_so_the_answer_cannot_cite_what_it_was_not_shown():

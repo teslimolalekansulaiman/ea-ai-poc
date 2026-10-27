@@ -8,8 +8,8 @@ which has fixed headings, so the digest does not rely on any:
     then "## Attributes" and "## Relationships" bullets;
   * an item listed only on a catalogue page: no page of its own; the caller passes that item's section as markdown.
 
-The digest is the title, the type if the page states it, the opening prose (what it is) and the bullets
-(attributes and relationships), cut to a size. Inline citations are removed from the text: they point at
+The digest is the title, the type if the page states it, the summary, the rest of the opening prose (what it is) and the
+bullets (attributes and relationships), each cut to a size. Inline citations are removed from the text: they point at
 passages this step did not show, and an answer may cite only what it was shown. The page itself is cited as
 `wiki:<slug>`.
 
@@ -25,8 +25,9 @@ MAX_PER_MENTION = 3        # candidates per mention whose page is read, best fir
 MAX_PAGES = 8              # pages kept for one property
 # Headings the page generator's own prompt asks for ("a summary, what it is, ..."): prose under one of these leads the digest.
 PREFERRED = ("what it is", "overview", "description", "about")
-LEAD_CHARS = 700
-FACT_CHARS = 1000
+SUMMARY_CHARS = 450
+LEAD_CHARS = 450
+FACT_CHARS = 900
 FACT_EACH = 300           # one bullet is cut here: the neighbours' names come first in a relationship bullet
 MAX_FACTS = 12
 
@@ -47,8 +48,11 @@ def strip_citations(text: str) -> str:
     return _CITE.sub("", text or "").strip()
 
 
-def digest_page(md: str, lead_chars: int = LEAD_CHARS, fact_chars: int = FACT_CHARS) -> dict:
-    """{'title', 'type', 'lead', 'facts', 'empty'}. `type` is what the page itself says ("" if it says nothing)."""
+def digest_page(md: str, summary_chars: int = SUMMARY_CHARS, lead_chars: int = LEAD_CHARS, fact_chars: int = FACT_CHARS) -> dict:
+    """{'title', 'type', 'summary', 'summary_from', 'lead', 'facts', 'empty'}.
+    summary: the page's own "Summary" section; when the page has none, its first paragraph, and `summary_from` says
+    which ("page" | "first paragraph" | ""), so a page written without a summary can be seen and fixed at the source.
+    lead: the rest of what the page says it is (prose under "What it is" and the like first, then the other prose)."""
     lines = [ln.rstrip() for ln in (md or "").splitlines()]
     title = next((ln.lstrip("#").strip() for ln in lines if ln.startswith("# ")), "")
     typ = ""
@@ -60,7 +64,7 @@ def digest_page(md: str, lead_chars: int = LEAD_CHARS, fact_chars: int = FACT_CH
         if ln.strip().lower().startswith("type:"):
             typ = ln.split(":", 1)[1].strip()
             break
-    first, rest, heading = [], [], ""
+    summary, first, rest, heading = [], [], [], ""
     for ln in lines:
         t = ln.strip()
         if t.startswith("#"):
@@ -71,9 +75,17 @@ def digest_page(md: str, lead_chars: int = LEAD_CHARS, fact_chars: int = FACT_CH
         t = strip_citations(t)
         if not t or t == title:                      # the page's own name repeated under its title is not prose
             continue
-        (first if heading in PREFERRED else rest).append(t)
+        if heading == "summary":
+            summary.append(t)
+        else:
+            (first if heading in PREFERRED else rest).append(t)
+    summary_from = "page" if summary else ""
+    prose = first + rest
+    if not summary and prose:                        # no Summary section: the first paragraph stands in, and says so
+        summary, summary_from = [prose[0]], "first paragraph"
+        prose = prose[1:]
     lead, size = [], 0
-    for t in first + rest:                           # what the page says it is first; nothing is left out, only ordered
+    for t in prose:                                  # what the page says it is first; nothing is left out, only ordered
         lead.append(t)
         size += len(t) + 1
         if size >= lead_chars:
@@ -86,8 +98,9 @@ def digest_page(md: str, lead_chars: int = LEAD_CHARS, fact_chars: int = FACT_CH
         if len(facts) == MAX_FACTS:
             break
     facts_text = "; ".join(f for f in facts if f)
-    out = {"title": title, "type": typ, "lead": " ".join(lead)[:lead_chars].strip(), "facts": facts_text[:fact_chars].strip()}
-    out["empty"] = not (out["lead"] or out["facts"])
+    out = {"title": title, "type": typ, "summary": " ".join(summary)[:summary_chars].strip(), "summary_from": summary_from,
+           "lead": " ".join(lead)[:lead_chars].strip(), "facts": facts_text[:fact_chars].strip()}
+    out["empty"] = not (out["summary"] or out["lead"] or out["facts"])
     return out
 
 

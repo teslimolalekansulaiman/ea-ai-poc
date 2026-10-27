@@ -85,7 +85,7 @@ Source blocks for this subject (id :: section :: text) — the full context:
 
 Return ONE JSON object:
 {{
-  "page_markdown": "<a full, readable wiki page about the subject: start with '# {name}', then a summary, what it is, how it relates to other things, and any context / rationale / risks the blocks support. Cite blocks inline like [03-data:5]. Plain markdown; escape newlines as \\n inside this JSON string.>",
+  "page_markdown": "<a full, readable wiki page about the subject: start with '# {name}', then ALWAYS a '## Summary' section of one to three sentences saying what the subject is and what it is for, then '## What it is', how it relates to other things, and any context / rationale / risks the blocks support. Every page must have the '## Summary' section, even when the blocks say little: then say what little they state. Cite blocks inline like [03-data:5]. Plain markdown; escape newlines as \\n inside this JSON string.>",
   "edges": [{{"source": "<text>", "source_type": "<NODE TYPE>", "relation": "<EDGE TYPE>",
               "target": "<text>", "target_type": "<NODE TYPE>",
               "access_type": "<only for an accesses edge>",
@@ -123,6 +123,14 @@ def _needs_model(subject: dict, by_id: dict[str, Block]) -> bool:
     return False
 
 
+def _table_summary(name: str, subject: dict, where: str, attrs: list, edges: list) -> str:
+    """The one-sentence summary of a page built in code: only what the tables state."""
+    n_a, n_e = len(attrs), len(edges)
+    detail = (f" The tables record {n_a} attribute{'s' if n_a != 1 else ''} and {n_e} relationship{'s' if n_e != 1 else ''} for it."
+              if n_a or n_e else " The tables list it without further detail.")
+    return f"{name} is a {subject.get('type') or 'subject'} listed{where}.{detail}"
+
+
 def _stub_page(subject: dict, by_id: dict[str, Block], facts_1b: dict) -> dict:
     """A page built in code from what the tables state — no model, nothing invented. Same
     shape as a model page so everything downstream treats it alike (it adds no new edges:
@@ -140,7 +148,7 @@ def _stub_page(subject: dict, by_id: dict[str, Block], facts_1b: dict) -> dict:
         sect = " / ".join(by_id[tables[0]].section_path) or by_id[tables[0]].doc_id
         where = f" in {sect} " + " ".join(f"[{t}]" for t in tables)
     lines = [f"# {name}", "", f"*{subject.get('type') or 'subject'}* — listed{where or ' in the source tables'}.",
-             ""]
+             "", "## Summary", "", _table_summary(name, subject, where or " in the source tables", attrs, edges), ""]
     if attrs:
         lines += ["## Attributes", ""] + [f"- {a}" for a in attrs] + [""]
     if edges:
@@ -173,7 +181,8 @@ def _item_section(subject: dict, home: str, facts_1b: dict) -> list[str]:
     rels = sorted({f"{e['source']} --{e['relation']}--> {e['target']}"
                    for e in facts_1b.get("edges", [])
                    if _norm(e["source"]) == key or _norm(e["target"]) == key})
-    lines = [f"## {name}", "", f"*{subject.get('type') or 'subject'}* [{home}]", ""]
+    lines = [f"## {name}", "", f"*{subject.get('type') or 'subject'}* [{home}]", "",
+             _table_summary(name, subject, f" in the catalogue [{home}]", attrs, rels), ""]
     lines += [f"- {a}" for a in attrs] + [f"- {r}" for r in rels]
     if not attrs and not rels:
         lines.append("- Listed without further detail.")
