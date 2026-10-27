@@ -107,13 +107,13 @@ def search(search_fn: Callable, query: str, k: int, docs: list, strict: bool = F
 
 def read(lookup: dict, mentions: list, demand_text: str, search_fn: Callable, candidates: Optional[dict] = None,
          strict: bool = False) -> dict:
-    """Run one lookup's search. `mentions`: the names to look up (or [None] for the demand as a whole); `candidates`:
+    """Run one lookup's search. `mentions`: the names to look up ([None] for the demand as a whole; [] when the demand names nothing of this kind: no search); `candidates`:
     {mention: [candidate dicts with 'name'] } from steps 1 to 3. Returns {'items': [per mention], 'blocks': [...]}.
     item: {'mention', 'query', 'queries' (every question asked), 'by' ('name'|'meaning'), 'state' ('found'|'none'|'error'),
     'entry', 'mentioned', 'closest'}."""
     docs = list(lookup.get("docs") or [])
     items, blocks, seen = [], [], set()
-    for m in mentions or [None]:
+    for m in (mentions if mentions is not None else [None]):          # [] = the demand names nothing of this kind: nothing is searched
         q = passage_query(lookup, m, demand_text)
         by = "name" if m and lookup.get("match") == "name" else "meaning"
         # The mention may be an abbreviation or another wording of what the documents call by its official name ("CRM"):

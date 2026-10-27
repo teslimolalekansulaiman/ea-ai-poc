@@ -40,7 +40,7 @@ def _finder(kb, names: list[str], group: str, llm_text, cache: dict) -> dict:
 
 def run(lookup: dict, mentions: list, demand_text: str, kb, search_fn: Callable, llm_text: Optional[Callable],
         cache: dict, group: str = "systems", strict: bool = False) -> dict:
-    """mentions: the names to look up, or [None] for the demand as a whole. Returns
+    """mentions: the names to look up, [None] for the demand as a whole, or [] when the demand names nothing of this kind (nothing is searched). Returns
     {'items': [...], 'wiki': [...], 'graph': {...}, 'blocks': [...], 'notes': [...]}."""
     kinds = kinds_of(lookup)
     named = [m for m in mentions if m]
@@ -72,7 +72,7 @@ def run(lookup: dict, mentions: list, demand_text: str, kb, search_fn: Callable,
     graph = graphread.read({m: cands[m] for m in named}, lookup.get("relations") or [], kb.graph()) if (kb and named and nodes and lookup.get("relations")) else \
         {"skipped": "", "status": {}, "facts": {}, "more": {}, "block_ids": []}
     # 6: passages
-    psg = passages.read(lookup, mentions or [None], demand_text, search_fn, cands, strict)
+    psg = passages.read(lookup, mentions, demand_text, search_fn, cands, strict)
     items = []
     for it in psg["items"]:
         m = it["mention"]

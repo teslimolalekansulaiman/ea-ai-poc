@@ -87,6 +87,26 @@ def test_a_lookup_that_starts_from_an_earlier_answer_looks_up_the_names_in_it():
     assert "HR Systems Lead" in text and "Lead Security Architect" in text
 
 
+def test_a_demand_that_names_nothing_of_a_kind_is_not_searched_as_a_whole():
+    """A lookup that starts from the demand's mandates, when it names none, says so; it does not search the demand's text instead."""
+    calls = []
+    d = kb.DEMANDS[0]
+    item = dict(d["item"], _id=d["item"]["demand_id"])
+    prof = {g: [] for g in gmod.PROFILE_GROUPS}
+    prof["origin"] = "model"
+    plan = {"sources": ["demand", "documents"], "queries": ["{__text__}"], "documents": [], "origin": "t",
+            "lookups": [{"find": "which mandate", "from": "mandates", "match": "meaning", "in": [], "docs": [], "extract": "", "types": [], "relations": []},
+                        {"find": "which system", "from": "systems", "match": "name", "in": [], "docs": [], "extract": "", "types": [], "relations": []},
+                        {"find": "what the need is", "from": "need", "match": "meaning", "in": [], "docs": [], "extract": "", "types": [], "relations": []}]}
+    tools = kb_tools.make_tools()
+    tools.search = lambda q, k, docs: calls.append(q) or []
+    ev = gmod.gather(tools, plan, SPEC, item, [], {}, None, prof, {}, {})
+    text = gmod.render(ev)
+    assert "the demand mentions no mandates" in text and "the demand mentions no systems" in text
+    assert len(calls) == 1 and calls[0].startswith("what the need is")                      # only the lookup that starts from the need searched
+    assert [len(r["items"]) for r in ev["lookups"]] == [0, 0, 1]
+
+
 def test_a_meaning_lookup_reports_closest_passages_and_never_an_entry():
     text = gmod.render(gather("Domain", [], group="systems"))
     assert "closest passages" in text or "no passage came back" in text
