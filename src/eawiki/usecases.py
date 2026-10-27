@@ -53,8 +53,9 @@ def validate(spec: dict, relation_names=None) -> list[str]:
     errs: list[str] = []
     if not (spec.get("name") or "").strip():
         errs.append("Name is required.")
-    if spec.get("wiki_pages") is not None and not isinstance(spec["wiki_pages"], bool):
-        errs.append("wiki_pages must be true or false.")
+    for flag in ("wiki_pages", "read_images"):
+        if spec.get(flag) is not None and not isinstance(spec[flag], bool):
+            errs.append(f"{flag} must be true or false.")
     stages = spec.get("stages") or []
     if not stages:
         errs.append("At least one stage is required.")

@@ -24,7 +24,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from eawiki.cases import compare, lookup as lkmod, tableview
+from eawiki.cases import compare, figureread, lookup as lkmod, tableview
 from eawiki.cases import namelookup as nl
 from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 
@@ -50,6 +50,7 @@ class Tools:
     llm_text: Optional[Callable[[str], str]] = None             # the model's plain-text answer (comparison of demands, page finder)
     kb: Optional[object] = None                                 # entities(), graph(), page(slug), wiki_entries(): what the six steps read
     expand: Optional[Callable] = None                           # (block id, window) -> the blocks next to it in its document
+    read_image: Optional[Callable] = None                       # (block id, prompt) -> a vision model's text about the block's image, None if it has none
 
 
 def names_from_result(value) -> list[str]:
@@ -149,7 +150,7 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
            decided: Optional[dict] = None, profiles: Optional[dict] = None) -> dict:
     text = item_text(spec, item)
     ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "allowed": set(), "used": [], "hint": hint,
-          "lookups": [], "searched": [], "wiki": [], "graph_reads": []}
+          "lookups": [], "searched": [], "wiki": [], "graph_reads": [], "figure_questions": {}, "figure_reads": {}}
     if hint:
         plan = with_hint(plan, hint)
     strict = bool(plan.get("strict"))
@@ -190,6 +191,8 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                                 lk["from"] if lk["from"] in PROFILE_GROUPS else "systems", strict, tools.expand)
                 for b in res["blocks"]:
                     keep(b)
+                    if b.get("btype") == "figure":
+                        ev["figure_questions"].setdefault(b["block_id"], lk["find"])
                 for pg in res["wiki"]:
                     if pg["slug"] not in {w["slug"] for w in ev["wiki"]} and len(ev["wiki"]) < MAX_WIKI:
                         ev["wiki"].append(pg)
@@ -271,6 +274,15 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             for b in extra:
                 keep(b)
             ev["used"].append("the graph: " + ", ".join(ev["graph"]["names"][:4]))
+    figs = [b for b in ev["blocks"] if b.get("btype") == "figure"]
+    if figs and spec.get("read_images") is not False:
+        # a diagram among the passages is shown to a vision model with the question that found it: the description was written once, for search
+        ev["figure_reads"] = figureread.read(figs, ev["figure_questions"], text, tools.read_image, link_cache if link_cache is not None else {})
+        for b in figs:
+            r = ev["figure_reads"].get(b["block_id"]) or {}
+            ev["searched"].append(f"diagram [{b['block_id']}] read from its image: " + {
+                "read": "read", "none": "nothing in it bears on the question", "no image": "no image to read", "error": "could not be read (error)",
+                "not read": "not read (over the limit)"}.get(r.get("state"), "not read"))
     cmp_lookup = next((l for l in plan.get("lookups") or [] if l["from"] == "other_demands" and l["match"] == "compare"), None)
     if cmp_lookup and tools.llm_text:
         # Compared one by one with the demands most like this one (see compare.py); the plain list of similar demands is not shown.
@@ -396,6 +408,18 @@ def _render_item(it: dict) -> list[str]:
     return out
 
 
+def _render_figure_read(ev: dict, b: dict) -> str:
+    """What a vision model wrote about this diagram's image for the question, under the block, labelled as such."""
+    r = (ev.get("figure_reads") or {}).get(b.get("block_id"))
+    if not r:
+        return ""
+    if r["state"] == "read":
+        return "\n      Read from the image of this diagram, for the question above (by a vision model, not part of the document's text):\n" + "\n".join("        " + ln for ln in r["text"].splitlines())
+    if r["state"] == "none":
+        return "\n      The image of this diagram was read for the question: nothing in it bears on it."
+    return f"\n      The image of this diagram could not be read ({r['state']}): only its description above is available."
+
+
 def _render_page_search(ps: dict) -> str:
     """What the wiki search for this question came to, in words; a search that could not run is never 'no page fits'."""
     n = ps["offered"]
@@ -459,7 +483,7 @@ def render(ev: dict) -> str:
         asked = _asked(ev)
         out.append("SOURCE BLOCKS:\n" + "\n".join(
             f"  [{b['block_id']}] " + (("(the diagram that the caption [" + b['via'] + "] belongs to; this is its description) " if b.get("figure") else f"(what follows [{b['via']}] in its document, which was only a label" + (f"; read in order up to [{b['run_to']}]" if b.get("run_to") else "") + ") ") if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:FIGURE_CHARS if b.get("btype") == "figure" else BLOCK_CHARS])
-            for b in ev["blocks"]))
+            + _render_figure_read(ev, b) for b in ev["blocks"]))
     if ev["graph"] and ev["graph"]["facts"]:
         out.append(f"GRAPH FACTS (entities: {', '.join(ev['graph']['names'])}):\n" + ev["graph"]["facts"][:3000])
     if ev.get("compared"):

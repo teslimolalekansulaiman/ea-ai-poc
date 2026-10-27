@@ -123,6 +123,23 @@ def real_tools() -> Tools:
             out.append(Path(key).name.replace(".blocks.json", ""))
         return sorted(out)
 
+    def read_image(block_id, prompt):
+        """A vision model's answer to `prompt` about the image of a figure block; None when the block has no image file."""
+        import tempfile
+        from eawiki.storage import rel_key
+        from eawiki.subjects import llm_vision
+        fs = filestore()
+        raw = fs.read_text(f"blocks/{block_id.rsplit(':', 1)[0]}.blocks.json")
+        block = next((b for b in (json.loads(raw)["blocks"] if raw else []) if b.get("block_id") == block_id), None)
+        ip = ((block or {}).get("figure") or {}).get("image_path")
+        data = fs.read_bytes(rel_key(ip)) if ip else None
+        if not data:
+            return None
+        with tempfile.NamedTemporaryFile(suffix=Path(ip).suffix or ".png", delete=True) as f:
+            f.write(data)
+            f.flush()
+            return llm_vision(prompt, f.name, backend, None)
+
     return Tools(search=search, blocks_by_ids=r.blocks_by_ids, link=link, graph_facts=graph_facts,
                  llm_json=lambda prompt: llm_json(prompt, backend, model), doc_ids=doc_ids,
-                 llm_text=lambda prompt: llm_text(prompt, backend, model), kb=RealKB(filestore(), gq._load), expand=r.expand)
+                 llm_text=lambda prompt: llm_text(prompt, backend, model), kb=RealKB(filestore(), gq._load), expand=r.expand, read_image=read_image)

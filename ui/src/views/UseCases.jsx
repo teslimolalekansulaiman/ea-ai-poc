@@ -348,6 +348,10 @@ export default function UseCases() {
           <input type="checkbox" checked={!!uc.wiki_pages} onChange={e => patch(d => { if (e.target.checked) d.wiki_pages = true; else delete d.wiki_pages })} />
           <span>Search the wiki pages for every lookup (a model picks pages from their titles and first sentences). A lookup can still turn it off for itself.</span>
         </label>
+        <label style={{ display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 10, fontSize: 13 }}>
+          <input type="checkbox" checked={uc.read_images !== false} onChange={e => patch(d => { if (e.target.checked) delete d.read_images; else d.read_images = false })} />
+          <span>Show the image of a diagram to a vision model when the diagram is among the passages found (at most 2 per property). The model writes down what the diagram says about the question; the answer sees that beside the diagram's description. Off: only the description is used.</span>
+        </label>
       </div>)
     if (sel.k === 'input') return (
       <div className="card" style={card}>
