@@ -215,6 +215,14 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             where = ", ".join(lk["in"]) or "any document"
             rec = {"find": lk["find"], "from": lk["from"], "match": lk["match"], "in": where, "items": []}
             frm = lk["from"]
+            if lk.get("read_all") and not lk.get("docs"):
+                # a document that is read whole but is not ingested: say so, never fall back to a search of something else
+                rec["note"] = "not read: no ingested document is named " + " / ".join(lk["in"] or ["(none given)"])
+                rec["items"].append({"mention": "the whole document", "exact": [], "mentioned": [], "closest": [], "none": True,
+                                     "candidates": [], "ambiguous": False, "other_kinds": [], "facts": ""})
+                ev["lookups"].append(rec)
+                ev["searched"].append(f"read-whole document {' / '.join(lk['in'])}: not ingested")
+                continue
             if lk.get("read_all") and tools.doc_blocks and lk.get("docs"):
                 # a short reference document (a standard, a glossary) is read whole, not searched
                 got = 0

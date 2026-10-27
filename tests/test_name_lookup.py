@@ -294,6 +294,17 @@ def test_reason_first_is_a_setting_of_the_property_and_off_elsewhere():
     assert any("reason first" in e for e in usecases.validate(bad))
 
 
+def test_a_document_read_whole_that_is_not_ingested_is_reported_not_replaced_by_a_search():
+    d = kb.DEMANDS[0]
+    docs = [x for x in kb.DOCS if x != "Data_Classification_Standard"]
+    plan = pmod.default_plan(COLS["Data classification"], docs)
+    ev = gmod.gather(TOOLS, plan, SPEC, item_of(d), [], {}, None, profile_of(d), {})
+    text = gmod.render(ev)
+    assert "not read: no ingested document is named Data Classification Standard" in text
+    assert not any(b["doc_id"] == "Data_Classification_Standard" for b in ev["blocks"])
+    assert any("not ingested" in x for x in ev["searched"])
+
+
 def test_the_evidence_never_names_an_entity_the_knowledge_base_lacks():
     """Everything cited is a block, a wiki page or a demand field that was shown."""
     for d in kb.DEMANDS:
