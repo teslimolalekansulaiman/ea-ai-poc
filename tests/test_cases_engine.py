@@ -26,7 +26,7 @@ ITEMS.append({"demand_id": "D-2026-006", "title": "VPN not working for remote st
               "target_go_live": "2026-09-01"})
 
 CANNED = {
-    "Demand type": "Digital", "Domain": ["Application", "Integration"], "Urgency": "High",
+    "Demand type": "Digital", "Domain": ["Application", "Security"], "Urgency": "High",
     "Priority": "Standard", "Mandate / business or DT objective": "O-02 / I-04",
     "Linked initiative or project": None,                           # cites nothing: the architect is asked
     "Impacted business capability": ["Employee Self-Service"], "Impacted application": ["HR system (C-204)"],
