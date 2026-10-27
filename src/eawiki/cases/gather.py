@@ -24,7 +24,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from eawiki.cases import compare, lookup as lkmod
+from eawiki.cases import compare, lookup as lkmod, tableview
 from eawiki.cases import namelookup as nl
 from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 
@@ -382,6 +382,16 @@ def _render_item(it: dict) -> list[str]:
     return out
 
 
+def _asked(ev: dict) -> str:
+    """What was asked, in words: the demand's fields, each lookup's question and the names it searched for.
+    A table too long to show whole keeps the rows that share the most with this."""
+    parts = [str(v) for _, v in ev["demand"].values()]
+    for rec in ev.get("lookups") or []:
+        parts.append(str(rec.get("find") or ""))
+        parts += [str(it.get("mention") or "") for it in rec.get("items", [])]
+    return " ".join(parts)
+
+
 def render(ev: dict) -> str:
     out = []
     h = ev.get("hint")
@@ -416,8 +426,10 @@ def render(ev: dict) -> str:
         out.append("WHAT THE GRAPH LINKS THEM TO (only the relationships this property asks about; a link is evidence of a connection, not of impact):\n" + "\n".join(
             f"  {g['name']}: " + "; ".join(g["facts"]) + (f"; and {g['more']} more not shown" if g.get("more") else "") for g in ev["graph_reads"]))
     if ev["blocks"]:
+        asked = _asked(ev)
         out.append("SOURCE BLOCKS:\n" + "\n".join(
-            f"  [{b['block_id']}] {(b.get('text') or '')[:BLOCK_CHARS]}" for b in ev["blocks"]))
+            f"  [{b['block_id']}] " + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:BLOCK_CHARS])
+            for b in ev["blocks"]))
     if ev["graph"] and ev["graph"]["facts"]:
         out.append(f"GRAPH FACTS (entities: {', '.join(ev['graph']['names'])}):\n" + ev["graph"]["facts"][:3000])
     if ev.get("compared"):
