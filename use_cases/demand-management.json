@@ -180,6 +180,14 @@
             "collate": "4. Add Security when the data is Confidential or Restricted (check the Data Classification Standard; the Data classification is decided before this property, use it), or the demand touches sign-in, encryption or security controls.\n5. Record the business domain (the department that asks) separately, not in this field.",
             "uses": [
               "Data classification"
+            ],
+            "rules": "Valid domains and what each covers (exactly five):\n• Business: processes, services, policies, organization, capabilities and people\n• Data: any area that comes under the data domain in TOGAF and similar frameworks, for example data sources, analytics, reports, data quality, data sharing and data classification\n• Application: any area that comes under the application, system and platform domain in TOGAF and similar frameworks, for example applications for business users, and the interfaces and integration between applications, modules and system features\n• Technology: any area that comes under the infrastructure and technology domain in TOGAF and similar frameworks, for example infrastructure, cloud, hosting, network, data center and similar\n• Security: a new or changed security control or security capability. Controls can be sign-in and access, encryption, monitoring or protection of Confidential or personal data (for example, multi-factor sign-in for the staff portal)\nMain domain first. Integration is not a domain: interfaces and integration belong to Application. Business domains (Human Resources, Finance, Customer Services and others) are not values of this field.",
+            "values": [
+              "Business",
+              "Data",
+              "Application",
+              "Technology",
+              "Security"
             ]
           },
           {

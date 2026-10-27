@@ -22,6 +22,9 @@ def test_the_production_use_case_carries_the_owners_points_for_the_properties_th
     assert "observation column" not in COLS["Impacted application"]["collate"] and "In your note" in COLS["Impacted application"]["collate"]
     assert "NORA framework" in COLS["Linked security capability"]["collate"] and COLS["Linked security capability"]["uses"] == ["Demand type"]
     assert "People demand: the answer is Not applicable" in COLS["Linked security capability"]["collate"]
+    d = COLS["Domain"]
+    assert d["rules"].startswith("Valid domains and what each covers (exactly five):") and d["rules"].count("\n• ") == 5
+    assert d["values"] == ["Business", "Data", "Application", "Technology", "Security"]           # the five the rules list: the code enforces them
     assert "Pick list" not in COLS["Data classification"]["collate"]                           # the column's own values enforce the pick list
     assert "collate" not in COLS["Duplicate with existing artefact / artefact name"]            # held back: the text given is about duplicate demands
 
