@@ -24,6 +24,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from eawiki.cases import compare
 from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 
 BLOCK_CHARS = 1100          # a table row or paragraph is read whole, not cut to a sentence
@@ -43,6 +44,7 @@ class Tools:
     graph_facts: Callable[[list], dict]                         # entity ids -> {facts, block_ids}
     llm_json: Callable[[str], Optional[dict]]
     doc_ids: Callable[[], list]
+    llm_text: Optional[Callable[[str], str]] = None             # the model's plain-text answer, for the comparison of demands
 
 
 def names_from_result(value) -> list[str]:
@@ -139,7 +141,7 @@ def _rank_others(spec: dict, item: dict, others: list[dict]) -> list[dict]:
 
 def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
            link_cache: Optional[dict] = None, hint: Optional[dict] = None, profile: Optional[dict] = None,
-           decided: Optional[dict] = None) -> dict:
+           decided: Optional[dict] = None, profiles: Optional[dict] = None) -> dict:
     text = item_text(spec, item)
     ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "allowed": set(), "used": [], "hint": hint,
           "lookups": [], "searched": []}
@@ -220,7 +222,30 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             for b in extra:
                 keep(b)
             ev["used"].append("the graph: " + ", ".join(ev["graph"]["names"][:4]))
-    if "other_demands" in plan["sources"] or any(l["from"] == "other_demands" for l in plan.get("lookups") or []):
+    cmp_lookup = next((l for l in plan.get("lookups") or [] if l["from"] == "other_demands" and l["match"] == "compare"), None)
+    if cmp_lookup and tools.llm_text:
+        # Compared one by one with the demands most like this one (see compare.py); the plain list of similar demands is not shown.
+        cache = link_cache if link_cache is not None else {}
+        text_of = lambda o: item_text(spec, o)                                                      # noqa: E731
+        sheet = [item] + list(others)
+        key = ("compare-sets", tuple(sorted(str(o.get("_id")) for o in sheet)))
+        if key not in cache:
+            cache[key] = compare.candidate_sets(sheet, text_of, profiles)
+        res = compare.run(cmp_lookup["find"], item.get("_id"), text, (profiles or {}).get(item.get("_id")), list(others), text_of, profiles,
+                          tools.llm_text, cands=cache[key].get(item.get("_id")))
+        title = {o.get("_id"): str(o.get("title") or "") for o in others}
+        ev["compared"] = {"question": cmp_lookup["find"], "status": res["status"],
+                          "items": [dict(i, title=title.get(i["id"], "")) for i in res["items"]]}
+        for i in res["items"]:
+            ev["allowed"].add(f"demand:{i['id']}")
+        if res["items"]:
+            n = {v: sum(1 for i in res["items"] if i["verdict"] == v) for v in ("same", "related", "different", "unread")}
+            ev["searched"].append(f"compared with {len(res['items'])} demands: {n['same']} same, {n['related']} related, {n['different']} different"
+                                  + (f", {n['unread']} not compared" if n["unread"] else ""))
+            ev["used"].append(f"a comparison with the {len(res['items'])} demands most like this one")
+        else:
+            ev["searched"].append("compared with the other demands: none shares anything with this one")
+    elif "other_demands" in plan["sources"] or cmp_lookup or any(l["from"] == "other_demands" for l in plan.get("lookups") or []):
         for o, t in _rank_others(spec, item, others):
             ev["others"].append({"id": o.get("_id"), "text": t[:400]})
             ev["allowed"].add(f"demand:{o.get('_id')}")
@@ -252,6 +277,9 @@ def looked_in(ev: dict, plan: dict, tools: Tools) -> str:
         parts.append(f"all {n} ingested documents, and nothing relevant came back" if n else "the ingested documents, and nothing relevant came back")
     if ev.get("graph") and ev["graph"].get("names"):
         parts.append("the graph (" + ", ".join(ev["graph"]["names"][:4]) + ")")
+    if ev.get("compared"):
+        c = ev["compared"]
+        parts.append(f"compared with {len(c['items'])} other demands" if c["items"] else "no other demand shares anything with this one")
     if ev["others"]:
         parts.append(f"the {len(ev['others'])} most similar of the other demands")
     if ev["demand"]:
@@ -289,6 +317,19 @@ def render(ev: dict) -> str:
             f"  [{b['block_id']}] {(b.get('text') or '')[:BLOCK_CHARS]}" for b in ev["blocks"]))
     if ev["graph"] and ev["graph"]["facts"]:
         out.append(f"GRAPH FACTS (entities: {', '.join(ev['graph']['names'])}):\n" + ev["graph"]["facts"][:3000])
+    if ev.get("compared"):
+        c = ev["compared"]
+        if not c["items"]:
+            out.append("COMPARED WITH THE OTHER DEMANDS OF THE SHEET: no other demand shares a system, a data set, a process or enough words with this one.")
+        else:
+            lines = []
+            for i in c["items"]:
+                what = (f"{i['verdict']} - {i['reason']}" if i["reason"] else i["verdict"]) if i["verdict"] != "unread" else "NOT COMPARED (the model gave no answer for it)"
+                lines.append(f"  [demand:{i['id']}] {i['id']}" + (f" \"{i['title']}\"" if i.get("title") else "") + f": {what}")
+            head = f"COMPARED WITH THE OTHER DEMANDS OF THE SHEET (the question: {c['question']}):"
+            if c["status"] != "ok":
+                head += "\n  Some of these could not be compared. Do not conclude 'no duplicate' from a demand marked NOT COMPARED."
+            out.append(head + "\n" + "\n".join(lines))
     if ev["others"]:
         out.append("THE MOST SIMILAR OTHER DEMANDS IN THE SHEET:\n" + "\n".join(f"  [demand:{o['id']}] {o['text']}" for o in ev["others"]))
     return "\n\n".join(out) or "(no evidence found)"

@@ -446,3 +446,24 @@ def graph_parts():
     nodes = [{"node_id": n["node_id"], "name": n["name"], "type": n["type"], "aliases": list(n["aliases"])} for n in NODES]
     edges = [{"source": a, "target": b, "relation": r, "block_ids": [FIRST_BLOCK[a]]} for a, r, b in EDGES]
     return nodes, edges
+
+
+# ---- demands for the comparison with the other demands of a sheet ("Is duplicate") ------------------------------
+# Three demands written to be the same as, or only related to, demands above. They are NOT in DEMANDS (they carry no
+# by-name reference answers); the comparison tests use DEMANDS + DUP_DEMANDS as one sheet of 21.
+DUP_DEMANDS = [
+    D(119, "Staff mobile app for leave and attendance", "Human Resources",
+      "Staff cannot ask for leave or see their attendance on their phones. Requests go by email and paper and HR enters each one again in the HR system. Managers approve slowly.",
+      "Staff handle leave and attendance on their phones within a day, with no re-entry", "New solution", "High", "Audit finding on manual records", "2027-04-30",
+      "HR system, payroll, attendance machines"),
+    D(120, "Quarterly statutory report in the mandated format", "Finance",
+      "From next year the regulator requires a digital format for the quarterly financial report. We rebuild it by hand from the finance system's exports: it takes days and several people.",
+      "The quarterly report is produced automatically in the mandated format, with an audit trail", "Enhancement of existing", "Critical", "Mandated format starts 1 January 2027", "2026-12-20",
+      "finance system, data warehouse"),
+    D(121, "Employee salary slips on a self-service page", "Human Resources",
+      "Employees ask HR for copies of their salary slips. We want them to see and download their own slips online.",
+      "Salary slips are available online without contacting HR", "New solution", "Low", "", "2027-06-30",
+      "HR system, payroll"),
+]
+SAME_PAIRS = [("D-106", "D-115"), ("D-101", "D-119"), ("D-102", "D-120")]           # the same demand, worded differently (D-115 in Arabic)
+RELATED_PAIRS = [("D-101", "D-121"), ("D-101", "D-106"), ("D-101", "D-116")]        # the same systems or subject, a different outcome

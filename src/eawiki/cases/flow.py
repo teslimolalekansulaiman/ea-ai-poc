@@ -40,6 +40,7 @@ class CellState(TypedDict, total=False):
     tools: Any
     link_cache: dict
     profile: Optional[dict]   # what the demand mentions, by group
+    profiles: Optional[dict]  # the same for every demand of the sheet (the comparison with the other demands reads them)
     hint: Optional[dict]      # set when the architect pointed to a document
     question: Optional[dict]  # the open question that hint answers
     ev: dict

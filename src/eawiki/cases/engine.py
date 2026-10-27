@@ -358,7 +358,7 @@ class Engine:
                                     "others": [o for o in run["rows"] if o["_id"] != it["_id"]],
                                     "plan": run["plans"][col["name"]], "tools": run["tools"],
                                     "link_cache": run["link_cache"], "hint": None, "question": None,
-                                    "profile": run["profiles"].get(it["_id"])})
+                                    "profile": run["profiles"].get(it["_id"]), "profiles": run["profiles"]})
 
         list(run["pool"].map(one, tasks))
 
@@ -366,7 +366,7 @@ class Engine:
     def _c_gather(self, s) -> dict:
         try:
             ev = gmod.gather(s["tools"], s["plan"], s["spec"], s["item"], s["others"], s["link_cache"], s.get("hint"),
-                             s.get("profile"), self._decided_values(s["cid"], s["pid"], s["item"]["_id"]))
+                             s.get("profile"), self._decided_values(s["cid"], s["pid"], s["item"]["_id"]), s.get("profiles"))
             return {"ev": ev, "failed": False}
         except Exception as e:                                   # one property failing never stops the sheet
             return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}
@@ -489,6 +489,7 @@ class Engine:
         self._profiles[(cid, it["_id"])] = prof
         out = self.cell_graph.invoke({"cid": cid, "pid": pid, "spec": spec, "item": it, "col": col, "plan": plan, "profile": prof,
                                       "others": [o for o in case["items"] if o["_id"] != it["_id"]], "tools": tools,
+                                      "profiles": {i: p for (c, i), p in self._profiles.items() if c == cid},
                                       "link_cache": {}, "hint": {"document": document, "where": where}, "question": q})
         if out["cell"]["status"] == "answered":
             deps = self._dependants(stage, col["name"])

@@ -63,7 +63,7 @@ def real_tools() -> Tools:
     from eawiki.query import graphquery as gq
     from eawiki.query import link as lk
     from eawiki.storage import filestore
-    from eawiki.subjects import llm_json
+    from eawiki.subjects import llm_json, llm_text
     import os
     from pathlib import Path
 
@@ -95,4 +95,5 @@ def real_tools() -> Tools:
         return sorted(out)
 
     return Tools(search=search, blocks_by_ids=r.blocks_by_ids, link=link, graph_facts=graph_facts,
-                 llm_json=lambda prompt: llm_json(prompt, backend, model), doc_ids=doc_ids)
+                 llm_json=lambda prompt: llm_json(prompt, backend, model), doc_ids=doc_ids,
+                 llm_text=lambda prompt: llm_text(prompt, backend, model))
