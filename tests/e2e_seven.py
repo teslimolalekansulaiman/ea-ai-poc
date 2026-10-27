@@ -110,18 +110,18 @@ def main():
             text = " ".join(str(v) for k, v in it.items() if not k.startswith("_"))
             for p in PROPS[:-1]:
                 ok, detail = sc.score(SHORT.get(p, p), cs[p], gold[i], text, {SHORT.get(k, k): v for k, v in decided.items()})
-                lines.append((p, ok, detail))
+                lines.append((SHORT.get(p, p), ok, detail))
         elif i.startswith("D-2026-"):
             for label, ok, detail in score_sample(i, cs):
                 lines.append((label, ok, detail))
         partner = {y for pr in SAME if i in pr for y in pr if y != i and y in {r["_id"] for r in rows}}
         flag = str(cs.get("Is duplicate", {}).get("value"))
-        if i != "D-2026-104":                                            # the incident never reaches the comparison
+        if str(cs.get("Is it a true demand?", {}).get("value")) == "Yes":      # a demand stopped at the gate never reaches the comparison
             lines.append(("Is duplicate", flag == ("Yes" if partner else "No"), f"{flag} (want {'Yes' if partner else 'No'}{', partner ' + ', '.join(sorted(partner)) if partner else ''})"))
         for p, ok, _d in lines:
-            if p in tot:
-                tot[p][0] += ok
-                tot[p][1] += 1
+            if SHORT.get(p, p) in tot:
+                tot[SHORT.get(p, p)][0] += ok
+                tot[SHORT.get(p, p)][1] += 1
         report[i] = [(p, ok, str(d)[:300]) for p, ok, d in lines]
         bad = [(p, d) for p, ok, d in lines if not ok]
         print(f"{i} {'ok ' if not bad else 'BAD'} " + " ".join(('+' if ok else '-') for _p, ok, _d in lines))

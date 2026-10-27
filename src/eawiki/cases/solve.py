@@ -95,7 +95,7 @@ def _coerce(col: dict, value):
                 hit = next((v for v in vals if v.lower() == it.lower()), None)
                 if hit:
                     canon.append(hit)
-                elif NONE_WORDS.match(it) or it in NA_WORDS:
+                elif NONE_WORDS.match(it):                  # 'Not applicable' and the like are not on the pick list: they are rejected, and the model is told
                     canon.append(it)
                 else:
                     bad.append(it)
