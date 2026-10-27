@@ -467,3 +467,26 @@ DUP_DEMANDS = [
 ]
 SAME_PAIRS = [("D-106", "D-115"), ("D-101", "D-119"), ("D-102", "D-120")]           # the same demand, worded differently (D-115 in Arabic)
 RELATED_PAIRS = [("D-101", "D-121"), ("D-101", "D-106"), ("D-101", "D-116")]        # the same systems or subject, a different outcome
+
+
+# ---- four sample demands for the seven properties: a digital demand, the same demand worded differently, a people demand and an
+# invalid one (an incident). They are built on entities that exist in this knowledge base (HR & Payroll Portal, Training and
+# Development Pages, training records); the reference answers are judgments.
+SAMPLES = [
+    D(2026101, "Training completion should reach the HR & Payroll Portal", "Human Resources",
+      "Employees complete courses on the Training and Development Pages, but HR re-enters every certificate into the HR & Payroll Portal by hand. Records are late and sometimes wrong.",
+      "Training completion is recorded in the HR & Payroll Portal automatically", "Interface between systems", "Medium", "Annual appraisal cycle starts in January", "2027-01-15",
+      "Training and Development Pages, HR & Payroll Portal, training records"),
+    D(2026102, "Automatic update of staff training history in the payroll portal", "Human Resources",
+      "The training pages hold what each employee has completed, yet someone in HR copies these results into the HR & Payroll Portal each month. We want the portal to receive them without copying.",
+      "Training history in the portal is always current, with no manual copying", "Interface between systems", "Medium", "", "2027-02-28",
+      "training pages, HR & Payroll Portal"),
+    D(2026103, "Induction programme for newly appointed managers", "Human Resources",
+      "New managers get no structured induction. They learn policies informally and make avoidable mistakes when handling leave and performance reviews.",
+      "Every new manager completes a two-day induction in their first month", "Other", "Low", "", "2027-03-31", ""),
+    D(2026104, "HR & Payroll Portal login is failing", "Human Resources",
+      "Since this morning staff cannot log in to the HR & Payroll Portal. The error says the session has expired and the page reloads.",
+      "Fix it today", "Support issue", "Critical", "Staff cannot see their payslips", "2026-10-28", "HR & Payroll Portal"),
+]
+for _d in SAMPLES:                        # D(2026101, ...) -> D-2026-101
+    _d["item"]["demand_id"] = "D-2026-" + _d["item"]["demand_id"][-3:]

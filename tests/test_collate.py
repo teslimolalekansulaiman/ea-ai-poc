@@ -20,7 +20,7 @@ def test_the_production_use_case_carries_the_owners_points_for_the_properties_th
     assert COLS["Domain"]["collate"].startswith("4. Add Security when the data is Confidential or Restricted") and COLS["Domain"]["uses"] == ["Data classification"]
     assert "Never link by department alone" in COLS["Impacted application"]["collate"] and COLS["Impacted application"]["collate"].count("\n1. Read") == 1
     assert "observation column" not in COLS["Impacted application"]["collate"] and "In your note" in COLS["Impacted application"]["collate"]
-    assert "NORA framework" in COLS["Linked security capability"]["collate"] and COLS["Linked security capability"]["uses"] == ["Demand type"]
+    assert "NORA framework" in COLS["Linked security capability"]["collate"] and COLS["Linked security capability"]["uses"] == ["Demand type", "Impacted application", "Data classification"]
     assert "People demand: the answer is Not applicable" in COLS["Linked security capability"]["collate"]
     d = COLS["Domain"]
     assert d["rules"].startswith("Valid domains and what each covers (exactly five):") and d["rules"].count("\n• ") == 5

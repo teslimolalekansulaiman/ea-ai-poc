@@ -24,11 +24,13 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from eawiki.cases import compare
+from eawiki.cases import compare, lookup as lkmod
+from eawiki.cases import namelookup as nl
 from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 
 BLOCK_CHARS = 1100          # a table row or paragraph is read whole, not cut to a sentence
 MAX_BLOCKS = 14
+MAX_WIKI = 8                # wiki pages shown to the answer step
 MAX_MENTIONS = 6            # mentions searched per lookup
 PER_MENTION = 3             # passages kept per mention
 GLOBAL_EXTRA = 2            # passages of ANY document added after the named kinds
@@ -44,7 +46,8 @@ class Tools:
     graph_facts: Callable[[list], dict]                         # entity ids -> {facts, block_ids}
     llm_json: Callable[[str], Optional[dict]]
     doc_ids: Callable[[], list]
-    llm_text: Optional[Callable[[str], str]] = None             # the model's plain-text answer, for the comparison of demands
+    llm_text: Optional[Callable[[str], str]] = None             # the model's plain-text answer (comparison of demands, page finder)
+    kb: Optional[object] = None                                 # entities(), graph(), page(slug), wiki_entries(): what the six steps read
 
 
 def names_from_result(value) -> list[str]:
@@ -144,7 +147,7 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
            decided: Optional[dict] = None, profiles: Optional[dict] = None) -> dict:
     text = item_text(spec, item)
     ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "allowed": set(), "used": [], "hint": hint,
-          "lookups": [], "searched": []}
+          "lookups": [], "searched": [], "wiki": [], "graph_reads": []}
     if hint:
         plan = with_hint(plan, hint)
     strict = bool(plan.get("strict"))
@@ -179,6 +182,38 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                     rec["note"] = f"the demand mentions no {lk['from']}"
             else:
                 ms = [None]                          # one search on the demand as a whole
+            if tools.kb is not None:
+                res = lkmod.run(lk, ms, text, tools.kb, tools.search, tools.llm_text, link_cache if link_cache is not None else {},
+                                lk["from"] if lk["from"] in PROFILE_GROUPS else "systems", strict)
+                for b in res["blocks"]:
+                    keep(b)
+                for pg in res["wiki"]:
+                    if pg["slug"] not in {w["slug"] for w in ev["wiki"]} and len(ev["wiki"]) < MAX_WIKI:
+                        ev["wiki"].append(pg)
+                        ev["allowed"].add(pg["id"])
+                for cid, facts in res["graph"]["facts"].items():
+                    if facts:
+                        name = next((c["name"] for it in res["items"] for c in it["candidates"] if c["id"] == cid), cid)
+                        ev["graph_reads"].append({"name": name, "facts": [f["text"] for f in facts], "more": res["graph"]["more"].get(cid, 0)})
+                extra = tools.blocks_by_ids(res["graph"]["block_ids"][:4]) if res["graph"]["block_ids"] else []
+                for b in extra:
+                    keep(b)
+                for it in res["items"]:
+                    it["mention"] = it["mention"] or "the demand as a whole"
+                    strong_or_partial = [c for c in it["candidates"] if c["score"] >= nl.PARTIAL or str(c.get("how", "")).startswith("chosen")]
+                    it["exact"] = it["entry"]
+                    it["none"] = not (it["entry"] or strong_or_partial) if it["by"] == "name" else it["state"] != "found"
+                    ev["searched"].append(f"{rec['from']} '{it['mention']}' in {where}: " + (
+                        "could not search (error)" if it["state"] == "error"
+                        else ("entry " + ", ".join(c["name"] for c in it["candidates"][:2])) if any(c["strong"] for c in it["candidates"])
+                        else ("closest " + ", ".join(c["name"] for c in strong_or_partial[:2])) if strong_or_partial
+                        else ("found " + ", ".join(it["entry"][:2])) if it["entry"]
+                        else ("no entry of its own; only mentioned in " + ", ".join(it["mentioned"][:2])) if it["mentioned"]
+                        else "no match" if it["by"] == "name" else f"{len(it['closest'])} passages"))
+                rec["items"] = res["items"]
+                rec["new"] = True
+                ev["lookups"].append(rec)
+                continue
             for m in ms:
                 q = m if m else text
                 hits = _search(tools, q, PER_MENTION if m else 5, prefer, strict)
@@ -287,6 +322,66 @@ def looked_in(ev: dict, plan: dict, tools: Tools) -> str:
     return "; ".join(parts) or "nothing"
 
 
+def _label(c: dict) -> str:
+    kind = nl.label(c.get("type"))
+    how = c.get("how", "")
+    matched = f' "{c["matched"]}"' if c.get("matched") and how in ("alias", "exact", "id") else ""
+    ref = f"[wiki:{c['slug']}] " if c.get("slug") else ""
+    return f"{ref}{c['name']} ({kind}; {how}{matched})"
+
+
+def _render_wiki(w: dict) -> str:
+    d = w["digest"]
+    bits = [f"  [{w['id']}] {w['name']}."]
+    if d.get("summary"):
+        bits.append(f"Summary: {d['summary']}")
+    if d.get("lead"):
+        bits.append(d["lead"])
+    if d.get("facts"):
+        bits.append(f"Links and attributes: {d['facts']}")
+    return " ".join(bits)
+
+
+def _render_item(it: dict) -> list[str]:
+    """How one name fared across the six steps, in words: what it is, or that it has no entry and why."""
+    m = it["mention"]
+    out = []
+    if it["by"] == "meaning" or it.get("mention") == "the demand as a whole":
+        if it["state"] == "error":
+            return [f'     "{m}": THE SEARCH FAILED (nothing can be concluded from its silence).']
+        if not it["closest"]:
+            return [f'     "{m}": no passage came back.']
+        return [f'     "{m}": closest passages: ' + ", ".join(f"[{b}]" for b in it["closest"])]
+    cands = it["candidates"]
+    strong = [c for c in cands if c["strong"]]
+    partial = [c for c in cands if not c["strong"] and (c["score"] >= nl.PARTIAL or str(c.get("how", "")).startswith("chosen"))]
+    if strong:
+        line = f'     "{m}": HAS AN ENTRY: ' + "; ".join(_label(c) for c in strong[:2])
+        if partial:
+            line += "; also, less closely: " + "; ".join(_label(c) for c in partial[:2])
+    elif partial:
+        line = f'     "{m}": NO entry of its own. Closest, not confirmed: ' + "; ".join(_label(c) for c in partial[:3])
+    elif it["entry"]:
+        line = f'     "{m}": has an entry in the documents: ' + ", ".join(f"[{b}]" for b in it["entry"][:3])
+    elif it["mentioned"]:
+        line = f'     "{m}": NO entry of its own. It is only mentioned inside: ' + ", ".join(f"[{b}]" for b in it["mentioned"])
+    else:
+        line = f'     "{m}": NO entry and no passage names it' + ((". Closest, not a confirmed match: " + ", ".join(f"[{b}]" for b in it["closest"])) if it["closest"] else "")
+    if it["state"] == "error":
+        line += " (THE DOCUMENT SEARCH FAILED for this name: its silence means nothing.)"
+    if it.get("finder") == "unread":
+        line += " (The page finder could not be asked about this name, so it may have an entry under another wording.)"
+    out.append(line)
+    if it["ambiguous"]:
+        out.append("       AMBIGUOUS: this name fits entities of different kinds. Choose the one the demand means from its wording and say which in your note.")
+    if it["other_kinds"]:
+        out.append("       Also exists as another kind of thing (not offered as a candidate): " + "; ".join(f"{c['name']} ({nl.label(c.get('type'))})" for c in it["other_kinds"][:2]))
+    bad = [cid for cid, st in it.get("wiki", {}).items() if st == "error"]
+    if bad:
+        out.append("       (A wiki page could not be read for: " + ", ".join(bad) + ".)")
+    return out
+
+
 def render(ev: dict) -> str:
     out = []
     h = ev.get("hint")
@@ -303,6 +398,9 @@ def render(ev: dict) -> str:
             if rec.get("note"):
                 lines.append(f"     {rec['note']}")
             for it in rec["items"]:
+                if rec.get("new"):
+                    lines += _render_item(it)
+                    continue
                 if not it["none"]:
                     lines.append(f"     \"{it['mention']}\": has an entry: " + ", ".join(f"[{b}]" for b in it["exact"][:3]))
                 elif it.get("mentioned"):
@@ -312,6 +410,11 @@ def render(ev: dict) -> str:
                     near = (" Closest, not a confirmed match: " + ", ".join(f"[{b}]" for b in it["closest"])) if it["closest"] else ""
                     lines.append(f"     \"{it['mention']}\": NO passage names it.{near}")
         out.append("LOOKUPS (what was searched for, and what came back; the passages are below):\n" + "\n".join(lines))
+    if ev.get("wiki"):
+        out.append("WIKI PAGES (what the knowledge base's own page says each entity is; cite one as its id):\n" + "\n".join(_render_wiki(w) for w in ev["wiki"]))
+    if ev.get("graph_reads"):
+        out.append("WHAT THE GRAPH LINKS THEM TO (only the relationships this property asks about; a link is evidence of a connection, not of impact):\n" + "\n".join(
+            f"  {g['name']}: " + "; ".join(g["facts"]) + (f"; and {g['more']} more not shown" if g.get("more") else "") for g in ev["graph_reads"]))
     if ev["blocks"]:
         out.append("SOURCE BLOCKS:\n" + "\n".join(
             f"  [{b['block_id']}] {(b.get('text') or '')[:BLOCK_CHARS]}" for b in ev["blocks"]))

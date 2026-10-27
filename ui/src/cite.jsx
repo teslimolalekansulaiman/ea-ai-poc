@@ -20,7 +20,12 @@ export function CiteProvider({ children }) {
   const [block, setBlock] = useState(null)   // null = closed
   const open = useCallback(async (id) => {
     setBlock({ id, loading: true })
-    try { setBlock({ id, ...(await api.block(id)) }) }
+    try {
+      if (id.startsWith('wiki:')) {           // a wiki page the case read (the entity's own page)
+        const pg = await api.page(id.slice(5))
+        setBlock({ id, block_id: id, doc_id: 'wiki', file: 'Wiki page', section: pg.title, kind: 'wiki', type: 'text', text: pg.markdown })
+      } else setBlock({ id, ...(await api.block(id)) })
+    }
     catch { setBlock({ id, error: true }) }
   }, [])
   const close = useCallback(() => setBlock(null), [])

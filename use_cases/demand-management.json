@@ -189,7 +189,45 @@
               "Technology",
               "Security"
             ],
-            "how_to_resolve": "1. Read the business need, the expected outcome, and the systems and data mentioned in the demand.\n2. Check each named system, data set and platform against the Application Catalog, Data Catalog, Technology Catalog and Security Control Catalog to see which domain it belongs to.\n3. Choose the main domain and write it first, based on the majority of the content. Add other domains only when the demand clearly needs them."
+            "how_to_resolve": "1. Read the business need, the expected outcome, and the systems and data mentioned in the demand.\n2. Check each named system, data set and platform against the Application Catalog, Data Catalog, Technology Catalog and Security Control Catalog to see which domain it belongs to.\n3. Choose the main domain and write it first, based on the majority of the content. Add other domains only when the demand clearly needs them.",
+            "lookups": [
+              {
+                "find": "what each system or platform the demand names is, and which domain it belongs to",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Technology Catalog"
+                ],
+                "extract": "its type and domain",
+                "types": [
+                  "application",
+                  "technology"
+                ]
+              },
+              {
+                "find": "what each data set the demand names is",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog"
+                ],
+                "extract": "its type",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "whether the demand touches sign-in, encryption, monitoring or protection of confidential data",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "extract": ""
+              }
+            ],
+            "min_sources": 1
           },
           {
             "name": "Urgency",
@@ -254,7 +292,55 @@
             "description": "Names with IDs from the application inventory or the contract register.",
             "info_needed": "The application (with its ID) this demand affects.",
             "activity": "Mapping applications",
-            "collate": "Link by a name match (through the catalogue). Never link by department alone. A solution that does not exist yet is not listed here.\n\n1. Read the systems and data named in the demand and in the answers to the intake questions.\n2. Match each name to the Application Catalog, using the glossary and aliases (for example, 'the HR app' is the Peoplex HR system, C-204).\n3. Add applications that exchange data with the matched ones when the demand needs that data. Use the graph relationships read for each name, and the Application Interaction Diagram, Data Flow Diagram and Data to Application Matrix where they were retrieved.\n4. List the main application first, with its catalog ID or contract ID.\n5. In your note, describe how the application links to the other artefacts and components (Data Catalog, Application to Technology Matrix, Application to Security Control Matrix), so that the Screening observation can use it."
+            "collate": "Link by a name match (through the catalogue). Never link by department alone. A solution that does not exist yet is not listed here.\n\n1. Read the systems and data named in the demand and in the answers to the intake questions.\n2. Match each name to the Application Catalog, using the glossary and aliases (for example, 'the HR app' is the Peoplex HR system, C-204).\n3. Add applications that exchange data with the matched ones when the demand needs that data. Use the graph relationships read for each name, and the Application Interaction Diagram, Data Flow Diagram and Data to Application Matrix where they were retrieved.\n4. List the main application first, with its catalog ID or contract ID.\n5. In your note, describe how the application links to the other artefacts and components (Data Catalog, Application to Technology Matrix, Application to Security Control Matrix), so that the Screening observation can use it.",
+            "lookups": [
+              {
+                "find": "which application each name is",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Glossary and Aliases"
+                ],
+                "extract": "the application, its ID and owner role",
+                "types": [
+                  "application"
+                ],
+                "relations": [
+                  {
+                    "relation": "sends_data_to",
+                    "direction": "both"
+                  },
+                  {
+                    "relation": "communicates_with",
+                    "direction": "both"
+                  },
+                  {
+                    "relation": "accesses",
+                    "direction": "out"
+                  }
+                ]
+              },
+              {
+                "find": "which applications run on, or depend on, each platform the demand names",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Technology Catalog"
+                ],
+                "extract": "the applications connected to it",
+                "types": [
+                  "technology"
+                ],
+                "relations": [
+                  {
+                    "relation": "is_deployed_on",
+                    "direction": "in"
+                  }
+                ]
+              }
+            ],
+            "min_sources": 1
           },
           {
             "name": "Is duplicate",
@@ -303,7 +389,70 @@
             "type": "text",
             "description": "ID and name of the existing application, service, initiative or contract, or None.",
             "info_needed": "Whether an existing application, service, initiative or contract already covers this need.",
-            "activity": "Comparing with existing artefacts"
+            "activity": "Comparing with existing artefacts",
+            "lookups": [
+              {
+                "find": "whether each system the demand names already has a contract feature or a project",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Contract Register",
+                  "Initiative Portfolio"
+                ],
+                "extract": "the artefact, its ID, what it covers"
+              },
+              {
+                "find": "whether each system or platform the demand names already has an entry of its own",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Technology Catalog"
+                ],
+                "extract": "the artefact, its ID, what it covers",
+                "types": [
+                  "application",
+                  "technology"
+                ]
+              },
+              {
+                "find": "whether each data set the demand names already exists as a data set or report",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog",
+                  "Initiative Portfolio"
+                ],
+                "extract": "the data set, its ID, what it covers",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "whether a project or contract already covers each process the demand changes",
+                "from": "processes",
+                "match": "meaning",
+                "in": [
+                  "Initiative Portfolio",
+                  "Contract Register"
+                ],
+                "extract": ""
+              },
+              {
+                "find": "whether a project, contract, catalog entry or control already covers the need",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Initiative Portfolio",
+                  "Contract Register",
+                  "Data Catalog",
+                  "Technology Catalog",
+                  "Security Control Catalog"
+                ],
+                "extract": ""
+              }
+            ],
+            "min_sources": 1
           },
           {
             "name": "Architecture principles and standards alignment",
@@ -331,7 +480,32 @@
             ],
             "info_needed": "The classification level of the data involved.",
             "activity": "Classifying the data",
-            "collate": "The level of the data involved, checked against the organization's data classification standard and the national data classification standard. If either standard was not among the retrieved documents, say which in your note."
+            "collate": "The level of the data involved, checked against the organization's data classification standard and the national data classification standard. If either standard was not among the retrieved documents, say which in your note.",
+            "lookups": [
+              {
+                "find": "what each data set the demand names is and how it is classified",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog",
+                  "Data Classification Standard"
+                ],
+                "extract": "its classification",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "the definitions of the data classification levels (Public, Internal, Confidential, Restricted) and the rule when several levels are involved",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Standards"
+                ],
+                "extract": ""
+              }
+            ],
+            "min_sources": 1
           },
           {
             "name": "Linked security capability",
@@ -341,8 +515,40 @@
             "activity": "Linking security capabilities",
             "collate": "Use the Demand type decided earlier.\n• Digital or Technical demand: the security capabilities it touches, at a general level (based on the NORA framework).\n• People demand: the answer is Not applicable.\n• Demand type Not assessed: do not decide; ask which type the demand is.\nThe detailed assessment is with the security and infrastructure teams.",
             "uses": [
-              "Demand type"
-            ]
+              "Demand type",
+              "Impacted application",
+              "Data classification"
+            ],
+            "lookups": [
+              {
+                "find": "the security controls linked to each impacted application",
+                "from": "result:Impacted application",
+                "match": "name",
+                "in": [
+                  "Application to Security Control Matrix"
+                ],
+                "extract": "the controls named"
+              },
+              {
+                "find": "what the demand touches that needs a security capability",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "extract": ""
+              },
+              {
+                "find": "what the standard requires for data classified as",
+                "from": "result:Data classification",
+                "match": "meaning",
+                "in": [
+                  "Standards"
+                ],
+                "extract": ""
+              }
+            ],
+            "min_sources": 1
           },
           {
             "name": "Owners",

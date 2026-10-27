@@ -58,6 +58,35 @@ def wiki_entries_from(fs) -> list[dict]:
     return out
 
 
+class RealKB:
+    """What the six steps read, from the knowledge base in the file store. The graph and the page list are re-read at most
+    once a minute: a lookup runs for every name of every demand."""
+
+    def __init__(self, fs, load_graph, ttl: float = 60.0):
+        self.fs, self._load, self.ttl = fs, load_graph, ttl
+        self._box: dict = {}
+
+    def _cached(self, key, make):
+        import time
+        hit = self._box.get(key)
+        if hit is None or time.time() - hit[0] > self.ttl:
+            hit = (time.time(), make())
+            self._box[key] = hit
+        return hit[1]
+
+    def graph(self):
+        return self._cached("graph", self._load)
+
+    def entities(self) -> list:
+        return self._cached("entities", lambda: graph_entities(self.graph()))
+
+    def wiki_entries(self) -> list:
+        return self._cached("wiki", lambda: wiki_entries_from(self.fs))
+
+    def page(self, slug):
+        return wiki_page_from(self.fs, slug)
+
+
 def real_tools() -> Tools:
     from eawiki.query import graph as qgraph
     from eawiki.query import graphquery as gq
@@ -96,4 +125,4 @@ def real_tools() -> Tools:
 
     return Tools(search=search, blocks_by_ids=r.blocks_by_ids, link=link, graph_facts=graph_facts,
                  llm_json=lambda prompt: llm_json(prompt, backend, model), doc_ids=doc_ids,
-                 llm_text=lambda prompt: llm_text(prompt, backend, model))
+                 llm_text=lambda prompt: llm_text(prompt, backend, model), kb=RealKB(filestore(), gq._load))
