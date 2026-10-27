@@ -212,7 +212,7 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                         else ("found " + ", ".join(it["entry"][:2])) if it["entry"]
                         else ("no entry of its own; only mentioned in " + ", ".join(it["mentioned"][:2])) if it["mentioned"]
                         else "no match" if it["by"] == "name" else f"{len(it['closest'])} passages" + (
-                            f" ({it['fragments']} label-only" + (f", {it['expanded']} neighbouring passages added" if it.get("expanded") else ", no neighbour to add") + ")" if it.get("fragments") else "")))
+                            f" ({it['fragments']} label-only" + (f", what follows {it['expanded']} of them read" if it.get("expanded") else ", nothing found after them") + ")" if it.get("fragments") else "")))
                 ps = res.get("page_search")
                 if ps:
                     rec["page_search"] = ps
@@ -457,7 +457,7 @@ def render(ev: dict) -> str:
     if ev["blocks"]:
         asked = _asked(ev)
         out.append("SOURCE BLOCKS:\n" + "\n".join(
-            f"  [{b['block_id']}] " + (f"(the passage after [{b['via']}], which was only a label) " if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:BLOCK_CHARS])
+            f"  [{b['block_id']}] " + (f"(what follows [{b['via']}] in its document, which was only a label" + (f"; read in order up to [{b['run_to']}]" if b.get("run_to") else "") + ") " if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:BLOCK_CHARS])
             for b in ev["blocks"]))
     if ev["graph"] and ev["graph"]["facts"]:
         out.append(f"GRAPH FACTS (entities: {', '.join(ev['graph']['names'])}):\n" + ev["graph"]["facts"][:3000])

@@ -35,7 +35,8 @@ MAX_QUERY_TEXT = 500        # the demand's own words added to a lookup's questio
 HEAD_CHARS = 80             # an entry's name is at the start of its passage
 FETCH_FACTOR = 3            # a lookup by meaning fetches this many times what it keeps, so label-only hits can be set behind real ones
 MAX_EXPAND = 3              # label-only hits that are replaced by their neighbours, per search
-PER_FRAGMENT = 2            # neighbours taken for one label-only hit
+RUN_WINDOW = 40             # blocks read after a label-only hit (the same section, up to the next heading)
+RUN_CHARS = 1800            # what follows a label, at most, as one passage
 FRAGMENT_CHARS = 60
 FRAGMENT_WORDS = 8
 _ID = re.compile(r"\b[A-Za-z]{1,4}-\d+\b")
@@ -98,10 +99,53 @@ def is_fragment(block: dict) -> bool:
     return len(body) <= FRAGMENT_CHARS and len(body.split()) <= FRAGMENT_WORDS and not re.search(r"[.!?;:]", body)
 
 
+def _following(block: dict, near: list[dict]) -> list[dict]:
+    """The blocks after `block` in its document and in the same section, in order: what a label labels. A heading starts another
+    section, so the run ends there."""
+    me = next((r for r in near if r.get("block_id") == block["block_id"]), None)
+    start = ((me or block).get("ordinal") or 0)
+    section = (me or block).get("section")
+    run = []
+    for n in sorted(near, key=lambda r: r.get("ordinal") or 0):
+        if (n.get("ordinal") or 0) <= start:
+            continue
+        if n.get("btype") == "heading" or (section is not None and n.get("section") is not None and n.get("section") != section):
+            break
+        run.append(n)
+    return run
+
+
+def _run_text(run: list[dict]) -> str:
+    """What follows a label, as one passage: cells that are only a few words each (a table the document stored one cell per
+    block) read in order, joined with ' | '; a real passage or table on lines of its own; cut at RUN_CHARS."""
+    lines, cells, used = [], [], 0
+    def flush():
+        if cells:
+            lines.append(" | ".join(cells))
+            cells.clear()
+    for n in run:
+        piece = tableview.render(n.get("text", ""), "", RUN_CHARS) if (n.get("btype") == "table" or tableview.is_table(n)) else _body(n.get("text", ""))
+        if not piece:
+            continue
+        if used + len(piece) > RUN_CHARS and (lines or cells):
+            flush()
+            lines.append("(more follows in the document)")
+            return "\n".join(lines)
+        used += len(piece) + 3
+        if is_fragment(n) and "\n" not in piece:
+            cells.append(piece)
+        else:
+            flush()
+            lines.append(piece)
+    flush()
+    return "\n".join(lines)
+
+
 def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None) -> tuple[list[dict], int, int]:
     """For a search by meaning: real passages before label-only ones (those fill the list only when there are too few real
-    ones), and each of the first few label-only hits is followed by the passages next to it in its document, marked `via`.
-    Returns (passages, label-only hits seen, neighbours added)."""
+    ones), and each of the first few label-only hits is followed by what comes after it in its document, as one passage
+    marked `via` (a table stored one cell per block comes back as its cells in order). Returns (passages, label-only hits
+    seen, passages added)."""
     outside = [b for b in hits if b.get("outside")]
     named = [b for b in hits if not b.get("outside")]
     frag = [b for b in named if is_fragment(b)]
@@ -109,23 +153,24 @@ def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None) -> t
     keep += frag[:max(k - len(keep), 0)]
     seen = {b["block_id"] for b in keep + outside}
     added: list[dict] = []
+    covered: set = set()
     if expand_fn:
         for b in frag[:MAX_EXPAND]:
+            if b["block_id"] in covered:
+                continue                                  # already read as part of an earlier label's run
             try:
-                near = expand_fn(b["block_id"], 2) or []
+                run = _following(b, expand_fn(b["block_id"], RUN_WINDOW) or [])
             except Exception:
-                near = []
-            took = 0
-            for n in sorted(near, key=lambda r: r.get("ordinal") or 0):
-                if n.get("block_id") in seen or took >= PER_FRAGMENT or n.get("block_id") == b["block_id"]:
-                    continue
-                cand = {"block_id": n["block_id"], "doc_id": b.get("doc_id"), "btype": n.get("btype"), "section": n.get("section"),
-                        "text": n.get("text", ""), "via": b["block_id"]}
-                if is_fragment(cand) or (n.get("ordinal") or 0) < (next((r.get("ordinal") for r in near if r.get("block_id") == b["block_id"]), 0) or 0):
-                    continue                          # what follows a label is what it labels
-                seen.add(cand["block_id"])
-                added.append(cand)
-                took += 1
+                run = []
+            text = _run_text(run)
+            covered |= {n["block_id"] for n in run}
+            free = [n for n in run if n.get("block_id") not in seen]      # the passage is cited by its first block that is not already a hit
+            if not text or not free:
+                continue
+            head = f"{b.get('doc_id') or ''} > {run[0].get('section') or b.get('section') or ''}".strip(" >")
+            added.append({"block_id": free[0]["block_id"], "doc_id": b.get("doc_id"), "btype": "paragraph", "section": run[0].get("section"),
+                          "text": f"{head}\n{text}", "via": b["block_id"], "run_to": run[-1]["block_id"]})
+            seen.add(free[0]["block_id"])
     return keep + added + outside, len(frag), len(added)
 
 
