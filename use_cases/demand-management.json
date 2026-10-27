@@ -216,7 +216,8 @@
             ],
             "uses": [
               "Data classification"
-            ]
+            ],
+            "reason_first": true
           },
           {
             "name": "Urgency",
@@ -307,7 +308,8 @@
                   "technology"
                 ]
               }
-            ]
+            ],
+            "reason_first": true
           },
           {
             "name": "Is duplicate",
@@ -397,7 +399,8 @@
                 ],
                 "extract": ""
               }
-            ]
+            ],
+            "reason_first": true
           },
           {
             "name": "Architecture principles and standards alignment",
@@ -449,7 +452,8 @@
                 "extract": "",
                 "read_all": true
               }
-            ]
+            ],
+            "reason_first": true
           },
           {
             "name": "Linked security capability",
@@ -490,7 +494,8 @@
             "uses": [
               "Impacted application",
               "Data classification"
-            ]
+            ],
+            "reason_first": true
           },
           {
             "name": "Security review needed",

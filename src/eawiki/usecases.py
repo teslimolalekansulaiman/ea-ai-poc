@@ -106,6 +106,8 @@ def _column_errors(where: str, c: dict, names: list[str]) -> list[str]:
         errs.append(f"{where}: look in must be a list of at most {MAX_LOOK_IN} document names.")
     if c.get("evidence_required") is not None and not isinstance(c["evidence_required"], bool):
         errs.append(f"{where}: evidence required must be true or false.")
+    if c.get("reason_first") is not None and not isinstance(c["reason_first"], bool):
+        errs.append(f"{where}: reason first must be true or false.")
     a = c.get("activity")
     if a is not None and (not isinstance(a, str) or len(a.strip()) > MAX_ACTIVITY):
         errs.append(f"{where}: activity must be text of at most {MAX_ACTIVITY} characters.")
@@ -194,6 +196,8 @@ def _tidy_descriptions(spec: dict) -> None:
             it.pop("look_in", None)
         if it.get("evidence_required") is not False:
             it.pop("evidence_required", None)          # on by default: only an explicit "no" is stored
+        if it.get("reason_first") is not True:
+            it.pop("reason_first", None)               # off by default: only an explicit "yes" is stored
         if not it.get("uses"):
             it.pop("uses", None)
         if not it.get("lookups"):

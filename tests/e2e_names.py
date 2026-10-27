@@ -140,9 +140,13 @@ def score(name, cell, gold, demand_text="", decided=None):
     raise KeyError(name)
 
 
+REAL = {"tools": None}
+
+
 def run_demand(d):
     item = dict(d["item"], _id=d["item"]["demand_id"])
-    tools = kb.make_tools(llm)
+    tools = REAL["tools"] or kb.make_tools(llm)
+    link_cache = {}                 # one question-linking per demand, shared by its properties as in a case
     fields = gmod.labelled_fields(SPEC, item)
     prof = profmod.build_profile(fields, llm)
     item_text = " ".join(v for _l, v in fields.values())
@@ -150,7 +154,7 @@ def run_demand(d):
     for name in ORDER:
         col = COLS[name]
         plan = pmod.default_plan(col, kb.DOCS)
-        ev = gmod.gather(tools, plan, SPEC, item, [], {}, None, prof, decided)
+        ev = gmod.gather(tools, plan, SPEC, item, [], link_cache, None, prof, decided)
         cell = smod.solve(col, item, SPEC, ev, decided, llm)
         cells[name] = {k: cell.get(k) for k in ("value", "status", "evidence", "need", "question")} | {"note": next((h for h in cell["how"] if h.startswith("Model's note")), "")}
         decided[name] = cell["value"]
@@ -166,7 +170,11 @@ def main():
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--only", default="")
     ap.add_argument("--out", default="")
+    ap.add_argument("--real-graph", action="store_true", help="read the graph, pages and linker through the product's own code (passage search stays lexical)")
     a = ap.parse_args()
+    if a.real_graph:
+        import real_graph_kb
+        REAL["tools"] = real_graph_kb.real_tools()
     only = {x.strip() for x in a.only.split(",") if x.strip()}
     demands = [d for d in kb.DEMANDS if not only or d["item"]["demand_id"] in only]
     t = time.time()

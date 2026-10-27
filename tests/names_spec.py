@@ -50,5 +50,5 @@ def build_spec() -> dict:
     spec["name"] = "Names test"
     spec["validation"] = {"enabled": False}
     spec["stages"] = [{"name": "Names", "id": "names", "instructions": "Fill the properties from what the demand names.",
-                       "output": {"columns": [dict(c, **G[c["name"]]) for c in COLS]}}]
+                       "output": {"columns": [dict(c, reason_first=True, **G[c["name"]]) for c in COLS]}}]
     return spec

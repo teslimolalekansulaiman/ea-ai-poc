@@ -281,6 +281,19 @@ def test_one_typo_is_read_as_the_word_the_knowledge_base_has_and_says_so():
     assert nl._within_one("peoplx", "peoplex") and nl._within_one("finvera", "finvrea") and not nl._within_one("oracle", "orange")
 
 
+def test_reason_first_is_a_setting_of_the_property_and_off_elsewhere():
+    from eawiki.cases import solve as smod
+    d = kb.DEMANDS[0]
+    ev, _t = evidence(d, "Impacted application")
+    item = item_of(d)
+    on = smod._prompt(COLS["Impacted application"], item, SPEC, ev, {})
+    off = smod._prompt({k: v for k, v in COLS["Impacted application"].items() if k != "reason_first"}, item, SPEC, ev, {})
+    assert on.index('"note"') < on.index('"value"') and "never in the value" in on
+    assert off.index('"value"') < off.index('"note"') and "never in the value" not in off
+    bad = dict(SPEC, stages=[dict(SPEC["stages"][0], output={"columns": [dict(COLS["Domain"], reason_first="yes")]})])
+    assert any("reason first" in e for e in usecases.validate(bad))
+
+
 def test_the_evidence_never_names_an_entity_the_knowledge_base_lacks():
     """Everything cited is a block, a wiki page or a demand field that was shown."""
     for d in kb.DEMANDS:

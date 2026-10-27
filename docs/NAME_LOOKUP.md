@@ -49,3 +49,23 @@ glossary) whole instead of searching it.
   kept listing the platform a demand retires. It is marked for EA to confirm.
 * Real tools (`cases/tools.py`: graph nodes, entity index, filestore pages) are written but could not be run
   here: there is no ingested knowledge base in this environment. The node mapping is unit-tested.
+
+## Real graph run (added)
+
+`python tests/e2e_names.py --real-graph` writes the fixture in the product's own formats (graph.json, pages,
+blocks) and reads them through the real code: `query.graphquery` (graph facts), `query.executor` (pages),
+`query.link` (the question linker, which calls the model) and `cases.tools` (entity resolution). Only the passage
+search is still the lexical stand-in: **the real vector search (ArcadeDB plus an embedding model) was not run**,
+because the environment's network policy denies huggingface.co, where the embedding model is hosted. It needs
+that host allowed (or a model supplied) and an ArcadeDB; nothing was mocked in its place.
+Real-graph runs, 18 demands × 6 properties: all six right 18, 15, 17 of 18. The misses were judgments: a vague
+demand answered Data, an application listed because the real linker mapped "payroll data" to the HR & Payroll
+Portal, a missing owner of an application the demand names only as "payroll".
+
+## Scope
+
+Only the by-name properties were changed. The reason-first answer format is a per-property setting
+(`reason_first`, off by default) switched on for these six; the other properties' prompts are unchanged.
+`lookups`, `types`, `uses` and `read_all` are opt-in settings. The shared code that changed for every property:
+answers may cite `wiki:` ids that were shown; passages count as naming a mention by their first words only
+when an entity index is present.
