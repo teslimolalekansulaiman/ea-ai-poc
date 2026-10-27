@@ -64,7 +64,15 @@ function LookupRelations({ lookups, edges, counts, col, onChange }) {
       {counts && !haveGraph && <div className="meta">No graph is loaded, so edge counts are not available.</div>}
       {lookups.map((lk, li) => (
         <div key={li} style={{ border: '1px solid var(--line, #d8dde6)', borderRadius: 6, padding: 8, display: 'grid', gap: 6 }}>
-          <div><b>{li + 1}.</b> {lk.find} <span className="meta">(from {lk.from}, match {lk.match}{lk.in?.length ? ', in ' + lk.in.join(', ') : ''})</span></div>
+          <div><b>{li + 1}.</b> <span className="meta">starts from {lk.from}, matches by {lk.match}{lk.in?.length ? ', looks in ' + lk.in.join(', ') : ''}</span></div>
+          <label className="meta" htmlFor={'q-' + li}>Question asked of the documents (the search is led by it)</label>
+          <textarea id={'q-' + li} className="lookup-question" maxLength={200} rows={2} value={lk.find || ''}
+            style={{ width: '100%', border: !(lk.find || '').trim() ? '1px solid var(--crit)' : undefined }}
+            onChange={e => set(li, l => { l.find = e.target.value })} />
+          <div className="meta lookup-preview">{!(lk.find || '').trim() ? 'A question is needed: this lookup is not saved without one.'
+            : lk.match === 'name' && !['need', 'all_text', 'other_demands'].includes(lk.from)
+              ? <>Searches for: “{lk.find.trim()}: <i>a name from the demand</i>”, and, when the name is an abbreviation, also with the official name of the entity found for it.</>
+              : <>Searches for: “{lk.find.trim()}. <i>the opening words of the demand</i>”.</>}</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
             <span className="meta">A name may be a:</span>
             {KINDS.map(k => {
