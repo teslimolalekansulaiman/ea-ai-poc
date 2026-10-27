@@ -191,7 +191,7 @@ def resolve_entities(mention: str, nodes: list[dict], k: int = 4, kinds: Optiona
         if kinds and fam not in kinds:
             continue
         out.append({"id": nid, "name": n.get("name", ""), "type": n.get("type", ""), "family": fam, "score": round(s, 2),
-                    "how": how, "matched": matched, "strong": s >= STRONG})
+                    "how": how, "matched": matched, "strong": s >= STRONG, "slug": n.get("slug"), "graph": True})
     out.sort(key=lambda c: (-c["score"], c["name"]))
     return out[:k]
 

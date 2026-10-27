@@ -121,6 +121,10 @@ def _slug(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
+CATALOGUE_ONLY = {"DE-09", "DE-10", "SC-04"}      # listed only on a catalogue page: no page of their own
+PAGE_REDIRECTS = {}
+
+
 def build():
     nodes, blocks, pages = [], [], {}
     by_id = {}
@@ -153,20 +157,46 @@ def build():
             add_block("Application_to_Security_Control_Matrix", f"{n['node_id']} {n['name']}: {ctrls}.")
     for doc, t in EXTRA_BLOCKS:
         add_block(doc, t)
+    # The wiki has three page shapes (see eawiki/pages.py): a model-written page (free prose, inline citations, headings of
+    # its own), a page built in code for a table-only item (italic type line, Attributes, Relationships), and an item
+    # listed only on a catalogue page (no page of its own: a redirect points at its section). No heading is fixed.
+    redirected = set(CATALOGUE_ONLY)
+    catalogue = {}
     for n in nodes:
-        rel = []
-        for a, r, b in EDGES:
-            if a == n["node_id"]:
-                rel.append(f"- {r.replace('_', ' ')} {by_id[b]['name']}")
-            if b == n["node_id"]:
-                rel.append(f"- {by_id[a]['name']} {r.replace('_', ' ')} it")
+        edges = []
+        for a2, r, b2 in EDGES:
+            if a2 == n["node_id"]:
+                edges.append(f"{n['name']} {r.replace('_', ' ')} {by_id[b2]['name']}")
+            if b2 == n["node_id"]:
+                edges.append(f"{by_id[a2]['name']} {r.replace('_', ' ')} {n['name']}")
         fam = _family(n["type"])
         label = {"app": "application", "data": "data entity", "tech": "technology component", "security": "security control"}[fam]
-        lines = [f"# {n['name']}", f"Type: {label}", "", "## Summary", n["desc"] + f" {first_block[n['node_id']]}", ""]
-        if n["extra"] and fam == "data":
-            lines += [f"Classification: {n['extra']}.", ""]
-        lines += ["## Related context"] + (rel or ["- no connections are recorded."]) + [f"- Owner role: {n['owner']}."]
-        pages[n["slug"]] = "\n".join(lines)
+        blk = first_block[n["node_id"]]
+        attrs = [f"Owner role: {n['owner']}"] + ([f"Classification: {n['extra']}"] if fam == "data" and n["extra"] else []) \
+                + ([f"Lifecycle: {n['extra']}"] if fam == "app" else [])
+        if n["node_id"] in redirected:
+            catalogue.setdefault(CATALOG_DOC[n["type"]], []).append((n, label, blk, attrs, edges))
+        elif fam == "app":
+            lines = [f"# {n['name']}", "", f"{n['desc']} [{blk}]", "",
+                     f"It is catalogued as {n['node_id']} and its owner role is {n['owner']} [{blk}]."]
+            if edges:
+                lines += ["", "## How it connects", ""] + [f"- {e} [{blk}]" for e in edges]
+            pages[n["slug"]] = "\n".join(lines)
+        else:
+            lines = [f"# {n['name']}", "", f"*{label}* — listed in {CATALOG_DOC[n['type']]} [{blk}].", "", "## Attributes", ""] \
+                    + [f"- {a2}" for a2 in attrs] + ["- " + n["desc"]]
+            if edges:
+                lines += ["", "## Relationships", ""] + [f"- {e}" for e in edges]
+            pages[n["slug"]] = "\n".join(lines)
+    redirects = {}
+    for doc, items in catalogue.items():
+        slug = f"catalogue-{_slug(doc)}-1"
+        lines = [f"# {doc.replace('_', ' ')} — catalogue", "", f"{len(items)} items listed in {doc}.", ""]
+        for n, label, blk, attrs, edges in items:
+            lines += [f"## {n['name']}", "", f"*{label}* [{blk}]", ""] + [f"- {a2}" for a2 in attrs] + ["- " + n["desc"]] + [f"- {e}" for e in edges] + [""]
+            redirects[n["slug"]] = {"page": slug, "name": n["name"]}
+        pages[slug] = "\n".join(lines)
+    PAGE_REDIRECTS.update(redirects)
     return nodes, blocks, pages, first_block
 
 
@@ -202,7 +232,15 @@ def search(q, k, docs):
 
 
 def page(slug):
-    return PAGES.get(slug)
+    """A wiki page by slug; an item listed only on a catalogue page comes back as its own section (as the product does)."""
+    if slug in PAGES:
+        return PAGES[slug]
+    red = PAGE_REDIRECTS.get(slug)
+    cat = PAGES.get(red["page"]) if red else None
+    if not cat:
+        return None
+    sec = next((x for x in cat.split("\n## ")[1:] if x.splitlines()[0].strip() == red["name"]), None)
+    return f"# {red['name']}\n\n" + "\n".join(sec.splitlines()[1:]).strip() if sec else None
 
 
 def graph_facts(ids):
@@ -394,7 +432,10 @@ FINDER_CASES = [
 
 
 def page_entries():
-    """The wiki pages as the finder's list reads them: [{'slug', 'title', 'type', 'summary'}]."""
+    """The wiki as the finder's list reads it: own pages (catalogue pages themselves left out) plus one entry per
+    catalogue-only item. [{'slug', 'title', 'type', 'summary'}]"""
     sys.path.insert(0, str(ROOT / "src"))
     from eawiki.cases import pagefinder as pf
-    return [pf.page_item(slug, md) for slug, md in PAGES.items()]
+    out = [pf.page_item(slug, md) for slug, md in PAGES.items() if not slug.startswith("catalogue-")]
+    out += [pf.page_item(slug, page(slug)) for slug in PAGE_REDIRECTS]
+    return out

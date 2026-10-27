@@ -21,6 +21,7 @@ import re
 from typing import Callable, Optional
 
 from eawiki.cases import namelookup as nl
+from eawiki.cases import wikiread
 
 MAX_PICKS = 3             # entries kept per mention
 MAX_ITEMS = 400           # entries shown to the model in one call; a longer list is split into several calls
@@ -32,13 +33,10 @@ HOW = "chosen by the page finder"
 # ---- the list the model reads --------------------------------------------------------------------
 
 def page_item(slug: str, md: str) -> dict:
-    """One wiki page as a list entry: its title, its type, and the first sentence of what it says."""
-    lines = [ln.strip() for ln in (md or "").splitlines()]
-    title = next((ln.lstrip("# ").strip() for ln in lines if ln.startswith("#")), "") or slug
-    typ = next((ln.split(":", 1)[1].strip() for ln in lines[:8] if ln.lower().startswith("type:")), "")
-    body = [ln for ln in lines if ln and not ln.startswith("#") and not ln.lower().startswith("type:")]
-    first = re.split(r"(?<=[.!?])\s", body[0], maxsplit=1)[0] if body else ""
-    return {"slug": slug, "title": title, "type": typ, "summary": first[:SUMMARY_CHARS]}
+    """One wiki page as a list entry: its title, the type it states, and the first sentence of what it says."""
+    d = wikiread.digest_page(md)
+    first = re.split(r"(?<=[.!?])\s", d["lead"], maxsplit=1)[0] if d["lead"] else ""
+    return {"slug": slug, "title": d["title"] or slug, "type": d["type"], "summary": first[:SUMMARY_CHARS]}
 
 
 def build_index(entities: list[dict], pages: list[dict]) -> list[dict]:

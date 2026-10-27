@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from typing import Optional
+
 from eawiki.cases.gather import Tools
 
 
@@ -17,6 +21,40 @@ def graph_entities(g) -> list[dict]:
                     "aliases": [a for a in others if not nl.is_id(a)],
                     "ids": [a for a in others + [n.get("name", "")] if nl.is_id(a)],
                     "slug": _slug(n.get("name", ""))})
+    return out
+
+
+def wiki_page_from(fs, slug: str) -> Optional[str]:
+    """A wiki page by slug. An item listed only on a catalogue page has no page of its own: it is read as its own
+    section of that page (the page_redirects.json map says which)."""
+    name = Path(slug).name
+    md = fs.read_text(f"pages/{name}.md")
+    if md:
+        return md
+    raw = fs.read_text("graph/page_redirects.json")
+    red = (json.loads(raw) if raw else {}).get(name)
+    cat = fs.read_text(f"pages/{red['page']}.md") if red else None
+    if not cat:
+        return None
+    sec = next((x for x in cat.split("\n## ")[1:] if x.splitlines()[0].strip().lower() == red["name"].strip().lower()), None)
+    return f"# {red['name']}\n\n" + "\n".join(sec.splitlines()[1:]).strip() if sec else None
+
+
+def wiki_entries_from(fs) -> list[dict]:
+    """The wiki as the page finder's list reads it: one entry per page of its own (catalogue pages left out, they
+    are not things) and one per item listed only on a catalogue page."""
+    from eawiki.cases import pagefinder as pf
+    out = []
+    for key in fs.list("pages", ".md"):
+        slug = Path(key).stem
+        if slug.startswith("landscape-") or slug.startswith("catalogue-"):
+            continue
+        out.append(pf.page_item(slug, fs.read_text(key) or ""))
+    raw = fs.read_text("graph/page_redirects.json")
+    for slug in (json.loads(raw) if raw else {}):
+        md = wiki_page_from(fs, slug)
+        if md:
+            out.append(pf.page_item(slug, md))
     return out
 
 
