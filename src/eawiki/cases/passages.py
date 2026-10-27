@@ -37,6 +37,8 @@ HEAD_CHARS = 80             # an entry's name is at the start of its passage
 FETCH_FACTOR = 3            # a lookup by meaning fetches this many times what it keeps, so label-only hits can be set behind real ones
 MAX_EXPAND = 3              # label-only hits that are replaced by their neighbours, per search
 RUN_WINDOW = 400            # blocks read after a label-only hit (the same section, up to the next heading)
+CAPTION_CHARS = 160          # a short line with no sentence in it that sits next to a figure is read as the figure's caption
+MAX_FIGURES = 3             # figures added for the captions among the hits
 RUN_HEADER = 4              # the first cells of a long run are kept: they are the table's column names
 RUN_AROUND = 2              # cells kept on each side of a cell that matches what was asked: its row
 RUN_CHARS = 1800            # what follows a label, at most, as one passage
@@ -100,6 +102,32 @@ def is_fragment(block: dict) -> bool:
         return len(rows) + (1 if header else 0) <= 1
     body = _body(text)
     return len(body) <= FRAGMENT_CHARS and len(body.split()) <= FRAGMENT_WORDS and not re.search(r"[.!?;:]", body)
+
+
+def is_caption(block: dict) -> bool:
+    """A short paragraph that is not a sentence ('Figure 8: Capability map: supporting - enabling'): what a caption looks like,
+    in any language. Whether a figure is next to it decides if it is one."""
+    if block.get("btype") in ("table", "figure", "heading") or is_fragment(block):
+        return False
+    body = _body(block.get("text", ""))
+    return 0 < len(body) <= CAPTION_CHARS and not re.search(r"[.!?]\s*$", body) and "\n" not in body
+
+
+def _figures_for(block: dict, expand_fn: Callable, seen: set) -> list[dict]:
+    """The figure blocks directly before or after a caption: the diagram's description is what the caption is about, and the
+    caption is what a question about the diagram finds."""
+    try:
+        near = expand_fn(block["block_id"], 1) or []
+    except Exception:
+        return []
+    mine = block.get("ordinal")
+    if mine is None:
+        mine = next((r.get("ordinal") for r in near if r.get("block_id") == block["block_id"]), 0) or 0
+    figs = [n for n in near if n.get("btype") == "figure" and str(n.get("text") or "").strip()]
+    before = [n for n in figs if (n.get("ordinal") or 0) < mine]
+    pick = before[-1:] or [n for n in figs if (n.get("ordinal") or 0) > mine][:1]       # a caption usually sits below its figure; failing that, above it
+    return [{"block_id": n["block_id"], "doc_id": block.get("doc_id"), "btype": "figure", "section": n.get("section"),
+             "text": n.get("text", ""), "via": block["block_id"], "figure": True} for n in pick if n.get("block_id") not in seen]
 
 
 def _following(block: dict, near: list[dict]) -> list[dict]:
@@ -214,6 +242,14 @@ def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None, quer
             added.append({"block_id": free[0]["block_id"], "doc_id": b.get("doc_id"), "btype": "paragraph", "section": run[0].get("section"),
                           "text": f"{head}\n{text}", "via": b["block_id"], "run_to": run[-1]["block_id"]})
             seen.add(free[0]["block_id"])
+    if expand_fn:
+        for b in keep:
+            if len([a for a in added if a.get("figure")]) >= MAX_FIGURES:
+                break
+            if is_caption(b):
+                for f in _figures_for(b, expand_fn, seen):
+                    seen.add(f["block_id"])
+                    added.append(f)
     return keep + added + outside, len(frag), len(added)
 
 

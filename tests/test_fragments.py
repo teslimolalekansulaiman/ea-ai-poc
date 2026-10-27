@@ -161,3 +161,42 @@ def test_a_long_run_with_no_matching_cell_gives_its_start():
     out, _, _ = ps.reshape([store[0]], 3, near, "zebra quartz")
     run = next(b for b in out if b.get("via"))
     assert "Capability 001" in run["text"] and "Workforce Performance" not in run["text"] and "the rest follows" in run["text"]
+
+
+# A diagram and its caption as the document stores them: the figure block (its text is the description), then the caption paragraph.
+def fig_store():
+    return [
+        {"block_id": "F:1", "doc_id": "F", "btype": "paragraph", "section": "7.2 Capability model", "ordinal": 1, "text": "F > 7.2 Capability model\nThe model has 27 level-1 capabilities in four groups."},
+        {"block_id": "F:2", "doc_id": "F", "btype": "figure", "section": "7.2 Capability model", "ordinal": 2,
+         "text": "F > 7.2 Capability model\n\nA heat map. Human Capital (Workforce Planning, Job Performance, Training) is rated 2 Documented."},
+        {"block_id": "F:3", "doc_id": "F", "btype": "paragraph", "section": "7.2 Capability model", "ordinal": 3, "text": "F > 7.2 Capability model\nFigure 7: Capability map: supporting - operational"},
+        {"block_id": "F:4", "doc_id": "F", "btype": "figure", "section": "7.2 Capability model", "ordinal": 4, "text": "F > 7.2 Capability model\n\nAnother heat map."},
+    ]
+
+
+def test_what_counts_as_a_caption():
+    st = fig_store()
+    assert ps.is_caption(st[2]) and not ps.is_caption(st[0])                            # a sentence is not
+    assert not ps.is_caption(st[1]) and not ps.is_caption(blk(9, "Objective"))          # a figure; a bare label
+
+
+def test_a_caption_that_is_a_hit_brings_the_diagram_it_belongs_to():
+    st = fig_store()
+    near = lambda bid, w: [r for r in st if abs(r["ordinal"] - int(bid.split(":")[1])) <= w]      # noqa: E731
+    out, _, added = ps.reshape([st[2]], 3, near)
+    figs = [b for b in out if b.get("figure")]
+    assert added == 1 and [b["block_id"] for b in figs] == ["F:2"] and figs[0]["via"] == "F:3"      # the figure before it, not the next one
+    assert "Job Performance" in next(b for b in figs if b["block_id"] == "F:2")["text"]
+    out, _, added = ps.reshape([st[2], st[1]], 3, near)                                  # the figure is already a hit: not added twice
+    assert [b["block_id"] for b in out].count("F:2") == 1
+    above = [dict(st[3], ordinal=1, block_id="G:1"), dict(st[2], ordinal=2, block_id="G:2")]       # a caption above its figure: the one after it
+    near2 = lambda bid, w: [r for r in above if abs(r["ordinal"] - int(bid.split(":")[1])) <= w]   # noqa: E731
+    out, _, _ = ps.reshape([above[1]], 3, near2)
+    assert [b["block_id"] for b in out if b.get("figure")] == ["G:1"]
+
+
+def test_the_answer_step_is_told_it_is_reading_a_diagram_description():
+    st = fig_store()
+    ev = {"demand": {}, "lookups": [], "wiki": [], "graph_reads": [], "graph": None, "others": [], "used": [],
+          "blocks": [dict(st[1], via="F:3", figure=True)]}
+    assert "[F:2] (the diagram that the caption [F:3] belongs to; this is its description)" in gmod.render(ev)
