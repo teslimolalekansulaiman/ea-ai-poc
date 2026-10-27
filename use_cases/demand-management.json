@@ -338,23 +338,62 @@
             "activity": "Comparing with existing artefacts",
             "lookups": [
               {
-                "find": "whether each system or data set the demand names already has a contract feature or a project",
+                "find": "whether each system the demand names already has a contract feature or a project",
                 "from": "systems",
                 "match": "name",
                 "in": [
                   "Contract Register",
-                  "Initiative Portfolio",
-                  "Application Catalog"
+                  "Initiative Portfolio"
                 ],
                 "extract": "the artefact, its ID, what it covers"
               },
               {
-                "find": "whether a project or contract already covers the need",
-                "from": "need",
+                "find": "whether each system or platform the demand names already has an entry of its own",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Technology Catalog"
+                ],
+                "extract": "the artefact, its ID, what it covers",
+                "types": [
+                  "application",
+                  "technology"
+                ]
+              },
+              {
+                "find": "whether each data set the demand names already exists as a data set or report",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog",
+                  "Initiative Portfolio"
+                ],
+                "extract": "the data set, its ID, what it covers",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "whether a project or contract already covers each process the demand changes",
+                "from": "processes",
                 "match": "meaning",
                 "in": [
                   "Initiative Portfolio",
                   "Contract Register"
+                ],
+                "extract": ""
+              },
+              {
+                "find": "whether a project, contract, catalog entry or control already covers the need",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Initiative Portfolio",
+                  "Contract Register",
+                  "Data Catalog",
+                  "Technology Catalog",
+                  "Security Control Catalog"
                 ],
                 "extract": ""
               }

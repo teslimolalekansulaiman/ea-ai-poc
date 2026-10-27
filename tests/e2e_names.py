@@ -117,8 +117,9 @@ def score(name, cell, gold, demand_text="", decided=None):
         return want <= got and not (got - want), f"missing {sorted(want - got)} extra {sorted(got - want)} (controls of the applications it decided)"
     if name == "Owners":
         apps = ids_in(as_list(decided.get("Impacted application"))) & set(NAMES)
-        techs = {i for m, ids in g["mentions"].items() for i in ids if i.startswith("T-")}
-        want = {NAMES[i]["owner"].casefold() for i in apps | techs}
+        techs = {i for m, ids in g["mentions"].items() for i in ids if i.startswith(("T-", "DE-"))}      # platforms and data sets the demand names
+        ctrls = ids_in(as_list(decided.get("Linked security capability"))) & set(NAMES)              # the controls this run linked
+        want = {NAMES[i]["owner"].casefold() for i in apps | techs | ctrls}
         if not want:
             return empty, f"{vals} (want none)"
         # the guidance also takes the owner of impacted data, platforms and controls: those the demand names or the applications sit on

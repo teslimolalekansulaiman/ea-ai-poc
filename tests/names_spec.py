@@ -31,11 +31,16 @@ COLS = [
                LK("what the demand touches that needs a security capability", "need", ["Security Control Catalog"], match="meaning"),
                dict(LK("what the data classification requires", "result:Data classification", ["Data Classification Standard"], match="meaning"), read_all=True)]),
  dict(name="Duplicate with existing artefact", type="text", min_sources=1,
-      lookups=[LK("whether each system or data set the demand names already has a contract feature or a project", "systems", ["Contract Register", "Initiative Portfolio", CAT], extract="the artefact, its ID, what it covers"),
-               LK("whether a project or contract already covers the need", "need", ["Initiative Portfolio", "Contract Register"], match="meaning")]),
- dict(name="Owners", type="list", uses=["Impacted application"], min_sources=1,
+      lookups=[LK("whether each system the demand names already has a contract feature or a project", "systems", ["Contract Register", "Initiative Portfolio"], extract="the artefact, its ID, what it covers"),
+               LK("whether each system or platform the demand names already has an entry of its own", "systems", [CAT, "Technology Catalog"], ["application", "technology"], extract="the artefact, its ID, what it covers"),
+               LK("whether each data set the demand names already exists as a data set or report", "data", ["Data Catalog", "Initiative Portfolio"], ["data"], extract="the data set, its ID, what it covers"),
+               LK("whether a project or contract already covers each process the demand changes", "processes", ["Initiative Portfolio", "Contract Register"], match="meaning"),
+               LK("whether a project, contract, catalog entry or control already covers the need", "need", ["Initiative Portfolio", "Contract Register", "Data Catalog", "Technology Catalog", "Security Control Catalog"], match="meaning")]),
+ dict(name="Owners", type="list", uses=["Impacted application", "Linked security capability"], min_sources=1,
       lookups=[LK("who owns each impacted application", "result:Impacted application", [CAT], ["application"], extract="the owner role"),
-               LK("who owns each platform the demand names", "systems", ["Technology Catalog"], ["technology"], extract="the owner role")]),
+               LK("who owns each platform the demand names", "systems", ["Technology Catalog"], ["technology"], extract="the owner role"),
+               LK("who owns each data set the demand names", "data", ["Data Catalog"], ["data"], extract="the owner role"),
+               LK("who owns each linked security capability", "result:Linked security capability", ["Security Control Catalog"], ["security"], extract="the owner role")]),
 ]
 
 

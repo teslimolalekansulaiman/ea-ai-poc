@@ -204,8 +204,10 @@ def test_owners_of_the_applications_and_platforms_are_in_the_evidence():
         gold = d["gold"]["owners"]
         if not gold:
             continue
-        ev, text = evidence(d, "Owners", decided_apps(d))
-        m = has(text, *gold)
+        sec = [f"{NAMES[i]['name']} ({i})" for i in sorted(d["gold"]["security"] or [])]
+        ev, text = evidence(d, "Owners", dict(decided_apps(d), **{"Linked security capability": sec}))
+        m = has(text, *gold, *([NAMES["SC-01"]["owner"]] if sec else []),
+                *[NAMES[i]["owner"] for g in d["gold"]["mentions"].values() for i in g if i.startswith("DE-")])
         if m:
             miss.append((d["item"]["demand_id"], m))
     assert not miss, miss
