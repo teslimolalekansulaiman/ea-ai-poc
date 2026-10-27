@@ -7,6 +7,9 @@
   5. read the graph around them, for the relationships the lookup names   code (graphread)
   6. search the documents with the lookup's own question            code (passages; a vector search in production)
 
+A lookup that starts from no name can ask for one more thing (`pages`): the finder reads the titles and summaries of the wiki's
+pages and picks those that could answer the lookup's question, and step 4 reads them. Off unless the lookup says so.
+
 What comes back is one record the answer step reads: per name, its candidates (and how each was found), what its wiki page
 says, what the graph links it to, which passages are its entry, which only mention it, and where nothing was found. Every
 absence is stated with its reason: a step that could not run is never reported as "nothing found".
@@ -35,6 +38,19 @@ def _finder(kb, names: list[str], group: str, llm_text, cache: dict) -> dict:
     if key not in cache:
         index = pagefinder.build_index(kb.entities(), kb.wiki_entries())
         cache[key] = pagefinder.find([{"text": n, "group": group} for n in names], index, llm_text)
+    return cache[key]
+
+
+def _page_search(lookup: dict, demand_text: str, kb, llm_text, cache: dict) -> dict:
+    """The finder over the wiki's pages, asked the lookup's own question; the picked pages are read like any other (step 4).
+    Asked once for a question and a demand."""
+    key = ("pages", lookup.get("find"), demand_text)
+    if key not in cache:
+        found = pagefinder.find_pages(str(lookup.get("find") or ""), demand_text, kb.wiki_entries(), llm_text)
+        read = wikiread.read({"pages": found["picks"]}, kb.page) if found["picks"] else {"pages": [], "status": {}}
+        status = read["status"].get("pages", {})
+        cache[key] = {**found, "read": read["pages"],
+                      "picked": [{"name": c["name"], "slug": c["slug"], "state": status.get(c["id"], "not read")} for c in found["picks"]]}
     return cache[key]
 
 
@@ -73,9 +89,15 @@ def run(lookup: dict, mentions: list, demand_text: str, kb, search_fn: Callable,
         {"skipped": "", "status": {}, "facts": {}, "more": {}, "block_ids": []}
     # 6: passages
     psg = passages.read(lookup, mentions, demand_text, search_fn, cands, strict)
+    # a question that starts from no name may also be answered by a wiki page: the finder reads their titles and summaries
+    page_search = _page_search(lookup, demand_text, kb, llm_text, cache) if (kb and lookup.get("pages")) else None
+    pages = list(wiki["pages"])
+    if page_search:
+        have = {p["slug"] for p in pages}
+        pages += [p for p in page_search["read"] if p["slug"] not in have]
     items = []
     for it in psg["items"]:
         m = it["mention"]
         items.append({**it, "candidates": cands.get(m, []), "other_kinds": other.get(m, []), "ambiguous": ambiguous.get(m, False),
                       "finder": finder_state.get(m, ""), "wiki": wiki["status"].get(m, {}), "graph_status": graph["status"].get(m, {})})
-    return {"items": items, "wiki": wiki["pages"], "graph": graph, "blocks": psg["blocks"], "notes": notes}
+    return {"items": items, "wiki": pages, "graph": graph, "blocks": psg["blocks"], "notes": notes, "page_search": page_search}

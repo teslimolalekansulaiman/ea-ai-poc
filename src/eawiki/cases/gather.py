@@ -210,6 +210,14 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                         else ("found " + ", ".join(it["entry"][:2])) if it["entry"]
                         else ("no entry of its own; only mentioned in " + ", ".join(it["mentioned"][:2])) if it["mentioned"]
                         else "no match" if it["by"] == "name" else f"{len(it['closest'])} passages"))
+                ps = res.get("page_search")
+                if ps:
+                    rec["page_search"] = ps
+                    ev["searched"].append(f"wiki pages for '{lk['find']}' (read by title and summary, {ps['offered']} offered): " + (
+                        "could not ask the page finder" if ps["state"] == "unread"
+                        else "no wiki pages to choose from" if ps["state"] == "no pages"
+                        else "no page fits" if ps["state"] == "none"
+                        else ", ".join(p["name"] for p in ps["picked"])))
                 rec["items"] = res["items"]
                 rec["new"] = True
                 ev["lookups"].append(rec)
@@ -232,6 +240,8 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                     rec["items"].append({"mention": m or "the demand as a whole", "exact": [b["block_id"] for b in hits],
                                          "mentioned": [], "closest": [], "none": not hits})
             ev["lookups"].append(rec)
+            if rec.get("page_search"):
+                lines.append("     " + _render_page_search(rec["page_search"]))
             for it in rec["items"]:
                 ev["searched"].append(f"{rec['from']} '{it['mention']}' in {where}: " + (
                     ("found " + ", ".join(it["exact"][:2])) if not it["none"]
@@ -382,6 +392,20 @@ def _render_item(it: dict) -> list[str]:
     return out
 
 
+def _render_page_search(ps: dict) -> str:
+    """What the wiki search for this question came to, in words; a search that could not run is never 'no page fits'."""
+    n = ps["offered"]
+    if ps["state"] == "unread":
+        return f"Wiki pages: THE PAGE FINDER COULD NOT BE ASKED (nothing can be concluded from the absence of a page; {n} pages were not read)."
+    if ps["state"] == "no pages":
+        return "Wiki pages: the knowledge base has no wiki pages to choose from."
+    if ps["state"] == "none":
+        return f"Wiki pages: none of the {n} pages (title and first sentence read) could answer this."
+    bits = [p["name"] + ("" if p["state"] == "read" else f" (page could not be read: {p['state']})") for p in ps["picked"]]
+    part = " Part of the page list could not be read." if ps.get("unread_part") else ""
+    return f"Wiki pages: of {n} pages, the page finder picked from title and first sentence: " + "; ".join(bits) + "." + part
+
+
 def _asked(ev: dict) -> str:
     """What was asked, in words: the demand's fields, each lookup's question and the names it searched for.
     A table too long to show whole keeps the rows that share the most with this."""
@@ -407,6 +431,8 @@ def render(ev: dict) -> str:
             lines.append(f"  {i}. Find: {rec['find']}  (from {rec['from']}, in {rec['in']})")
             if rec.get("note"):
                 lines.append(f"     {rec['note']}")
+            if rec.get("page_search"):
+                lines.append("     " + _render_page_search(rec["page_search"]))
             for it in rec["items"]:
                 if rec.get("new"):
                     lines += _render_item(it)

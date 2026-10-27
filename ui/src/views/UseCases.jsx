@@ -21,7 +21,7 @@ function LookupsBox({ value, onValid }) {
     <div>
       <textarea style={{ width: '100%', minHeight: 90, fontFamily: 'var(--mono)', fontSize: 12, border: bad ? '1px solid var(--crit)' : undefined }} value={text}
         onChange={e => { setText(e.target.value); try { const v = JSON.parse(e.target.value || '[]'); if (!Array.isArray(v)) throw new Error('a list'); setBad(''); onValid(v) } catch (x) { setBad(String(x.message || x)) } }} />
-      <div className="meta">{bad ? 'Not saved: ' + bad : 'Each lookup: find, from (systems, data, processes, users, mandates, projects, dates, tools_today, requested, need, all_text, other_demands), match (name, meaning, compare), in (kinds of source), types (kinds of entity), relations (graph relationships), extract.'}</div>
+      <div className="meta">{bad ? 'Not saved: ' + bad : 'Each lookup: find, from (systems, data, processes, users, mandates, projects, dates, tools_today, requested, need, all_text, other_demands), match (name, meaning, compare), in (kinds of source), types (kinds of entity), relations (graph relationships), pages (true: also pick wiki pages by title and summary), extract.'}</div>
     </div>
   )
 }
@@ -35,7 +35,7 @@ const DIRECTIONS = [['out', 'outgoing (from the matched entity)'], ['in', 'incom
 function LookupRelations({ lookups, edges, counts, col, onChange }) {
   const [sugg, setSugg] = useState({})            // lookup index -> { loading, status, items, error }
   if (!lookups || !lookups.length) return <div className="meta">No lookups yet. Lookups are drafted from the steps when left empty; add them below as JSON to define their graph relationships.</div>
-  const set = (li, fn) => { const next = structuredClone(lookups); fn(next[li]); if (!next[li].types?.length) delete next[li].types; if (!next[li].relations?.length) delete next[li].relations; onChange(next) }
+  const set = (li, fn) => { const next = structuredClone(lookups); fn(next[li]); if (!next[li].types?.length) delete next[li].types; if (!next[li].relations?.length) delete next[li].relations; if (!next[li].pages) delete next[li].pages; onChange(next) }
   const edge = (k) => edges.find(e => e.key === k)
   const short = (ts) => [...new Set((ts || []).map(t => t.replace(/^(logical|physical)_/, '')))]
   const ends = (e) => e ? `${short(e.source_types).slice(0, 3).join(', ')}${short(e.source_types).length > 3 ? ', …' : ''}  →  ${short(e.target_types).slice(0, 3).join(', ')}${short(e.target_types).length > 3 ? ', …' : ''}` : ''
@@ -82,6 +82,10 @@ function LookupRelations({ lookups, edges, counts, col, onChange }) {
             })}
             <span className="meta">{(lk.types || []).length ? '' : '(any kind)'}</span>
           </div>
+          <label className="meta lookup-pages" style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+            <input type="checkbox" checked={!!lk.pages} onChange={e => set(li, l => { l.pages = e.target.checked })} />
+            <span>Also search the wiki pages. A model reads the title and first sentence of every wiki page and picks up to 3 that could answer the question above (for a mandate, a strategy or a roadmap, for example); those pages are read and cited. It works from the demand's words, so it also suits a lookup that starts from no name. Off: the wiki is read only for the names this lookup matches.</span>
+          </label>
           <div className="meta" style={{ marginTop: 2 }}>Graph relationships to read around each entity the name matches (one step){lk.match !== 'name' ? ' — only lookups that match by name read the graph' : ''}:</div>
           {(lk.relations || []).map((r, ri) => {
             const n = readable(r.relation, r.direction, lk.types || [])

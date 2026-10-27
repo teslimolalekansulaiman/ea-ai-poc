@@ -66,12 +66,12 @@ def _lookup(raw: dict, docs: list[str]) -> Optional[dict]:
                  if isinstance(r, dict) and isinstance(r.get("relation"), str) and r["relation"].strip() and r.get("direction") in RELATION_DIRECTIONS]
     return {"find": raw["find"].strip()[:200], "from": frm, "match": raw["match"], "in": kinds,
             "docs": list(dict.fromkeys(resolved)), "extract": str(raw.get("extract") or "")[:200],
-            "types": types, "relations": relations}
+            "types": types, "relations": relations, "pages": raw.get("pages") is True}
 
 
 def default_lookups(col: dict) -> list[dict]:
     return [{"find": (col.get("description") or col["name"]).split(". ")[0][:200], "from": "all_text",
-             "match": "meaning", "in": [], "docs": [], "extract": "", "types": [], "relations": []}]
+             "match": "meaning", "in": [], "docs": [], "extract": "", "types": [], "relations": [], "pages": False}]
 
 
 def default_plan(col: dict, docs: Optional[list[str]] = None) -> dict:

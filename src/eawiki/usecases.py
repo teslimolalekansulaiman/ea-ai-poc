@@ -162,6 +162,8 @@ def _lookup_errors(where: str, lookups, relation_names=None, col: Optional[dict]
         if ty is not None and (not isinstance(ty, list) or any(t not in LOOKUP_KINDS for t in ty)):
             errs.append(f"{where}: lookup {i}: 'types' must be a list of: {', '.join(LOOKUP_KINDS)}.")
         errs += _relation_errors(f"{where}: lookup {i}", lk.get("relations"), relation_names)
+        if lk.get("pages") is not None and not isinstance(lk["pages"], bool):
+            errs.append(f"{where}: lookup {i}: 'pages' must be true or false.")
     return errs
 
 
@@ -222,7 +224,7 @@ def _tidy_descriptions(spec: dict) -> None:
         if not it.get("lookups"):
             it.pop("lookups", None)
         for lk in it.get("lookups") or []:
-            for k in ("types", "relations"):
+            for k in ("types", "relations", "pages"):
                 if isinstance(lk, dict) and not lk.get(k):
                     lk.pop(k, None)
         if not it.get("min_sources"):
