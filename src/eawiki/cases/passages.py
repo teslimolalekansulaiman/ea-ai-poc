@@ -250,6 +250,8 @@ def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None, quer
                 for f in _figures_for(b, expand_fn, seen):
                     seen.add(f["block_id"])
                     added.append(f)
+    read_from = {a["via"] for a in added if not a.get("figure")}          # a label whose run was read says nothing more than its run does
+    keep = [b for b in keep if b["block_id"] not in read_from]
     return keep + added + outside, len(frag), len(added)
 
 

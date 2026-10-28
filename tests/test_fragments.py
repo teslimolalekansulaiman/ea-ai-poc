@@ -46,7 +46,7 @@ def test_real_passages_come_first_and_fragments_only_fill_a_short_list():
 
 def test_a_label_is_followed_by_what_comes_after_it_not_what_comes_before():
     out, frag, added = ps.reshape([STORE[4]], 3, expand)
-    assert frag == 1 and added == 1 and out[0]["block_id"] == f"{DOC}:5"
+    assert frag == 1 and added == 1 and f"{DOC}:5" not in [b["block_id"] for b in out]      # the label itself goes: its run says more
     run = next(b for b in out if b.get("via"))
     assert run["via"] == f"{DOC}:5" and run["block_id"] == f"{DOC}:6" and run["run_to"] == f"{DOC}:7"
     assert "Objective" in run["text"] and "Workforce Planning | Human Capital Management" in run["text"]
@@ -221,3 +221,12 @@ def test_the_passages_the_model_was_given_are_listed_with_what_they_are_and_wher
     lines = [h for h in how if h.startswith("Passage [")]
     assert len(lines) == 3 and lines[0].startswith(f"Passage [{DOC}:7] · {DOC} · table ·") and f"follows [{DOC}:5]" in lines[0]
     assert "belongs to [F:3]" in lines[1] and "The payroll interface sends each approved" in lines[2] and "Biz_Arch >" not in lines[2]
+
+
+def test_a_label_whose_run_could_not_be_read_stays_and_a_figure_caption_stays():
+    out, _, added = ps.reshape([STORE[2]], 3, lambda bid, w: [])                       # nothing follows: the label is all there is
+    assert added == 0 and [b["block_id"] for b in out] == [f"{DOC}:3"]
+    st = fig_store()
+    near = lambda bid, w: [r for r in st if abs(r["ordinal"] - int(bid.split(":")[1])) <= w]      # noqa: E731
+    out, _, _ = ps.reshape([st[2]], 3, near)
+    assert "F:3" in [b["block_id"] for b in out]                                         # a caption is a real passage: it stays with its diagram
