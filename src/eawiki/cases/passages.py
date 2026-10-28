@@ -254,6 +254,20 @@ def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None, quer
     return keep + added + outside, len(frag), len(added)
 
 
+_NUMBER = re.compile(r"^\s*\d+(?:\.\d+)*[.)]?\s+")
+
+
+def _heading_of(block: dict) -> str:
+    """The heading a passage sits under: the last part of its section path (a number in front of it removed). In a document
+    that gives every item a section of its own ('4.29 Evaluate') this is where the item's NAME is, and a table or paragraph
+    under it describes it without repeating it."""
+    sec = str(block.get("section") or "")
+    if not sec:
+        first = str(block.get("text") or "").strip().splitlines()[:1]
+        sec = first[0].split(" > ", 1)[1] if first and " > " in first[0] else ""
+    return _NUMBER.sub("", sec.split(" / ")[-1]).strip()
+
+
 def mark(blocks: list[dict], mention: str, candidate_names: Optional[list] = None) -> dict:
     """{'entry': [block ids], 'mentioned': [...], 'closest': [...]} for the passages found for one mention."""
     want = _words(mention)
@@ -262,7 +276,9 @@ def mark(blocks: list[dict], mention: str, candidate_names: Optional[list] = Non
         body = _body(b.get("text", ""))                    # the `document > section` line the index puts in front is not what the passage says
         h = head(body)
         # a candidate's name is a real entity's name (kind words aside); the mention itself must match as written
-        if says_name(h, mention) or any(names_head(h, n) for n in (candidate_names or []) if n):
+        under = _heading_of(b) if not is_fragment(b) else ""         # a real passage under a heading that IS the name describes that item
+        if says_name(h, mention) or any(names_head(h, n) for n in (candidate_names or []) if n) or \
+                (under and (says_name(under, mention) or any(names_head(under, n) for n in (candidate_names or []) if n))):
             entry.append(b["block_id"])
         elif want and want <= _words(body):
             mentioned.append(b["block_id"])

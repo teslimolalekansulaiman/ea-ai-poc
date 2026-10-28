@@ -256,3 +256,17 @@ def test_the_section_line_in_front_of_a_passage_is_not_what_it_says():
     it = ps.read(lookup("name"), ["Evaluate"], "x", search, None, False, None)["items"][0]
     assert it["entry"] == [f"{DOC}:31"]                                                  # the row that starts with the name, not every block under its heading
     assert it["mentioned"] == [] and f"{DOC}:30" not in it["closest"]                    # a passage is not about Evaluate because it sits in Evaluate's section
+
+
+def test_a_real_passage_under_a_heading_that_is_the_name_is_the_entry_and_its_labels_are_not():
+    sect = "Table of Contents / 29 Evaluate"
+    rows = [{"block_id": f"A:{i}", "doc_id": "A", "btype": t, "section": sect, "ordinal": i, "text": f"A > {sect}\n{x}"} for i, (t, x) in enumerate([
+        ("table", "| It is a service that helps HR create evaluation forms | It is a service that helps HR create evaluation forms | **Description** |\n| Facilities Office | Facilities Office | **Operator** |\n| Retired | Retired | **Status** |"),
+        ("paragraph", "Hosting"), ("paragraph", "Supplier name")], 1)]
+    rows.append({"block_id": "A:9", "doc_id": "A", "btype": "table", "section": "Table of Contents / 30 Evaluate Reports", "ordinal": 9,
+                 "text": "A > Table of Contents / 30 Evaluate Reports\n| Weekly report pack | **Description** |\n| Reports team | **Operator** |"})
+    search = lambda q, k, docs: [dict(b) for b in rows]                                  # noqa: E731
+    it = ps.read(lookup("name"), ["Evaluate"], "x", search, None, False, None)["items"][0]
+    assert it["entry"] == ["A:1"] and "A:2" not in it["closest"] and "A:3" not in it["closest"]       # labels are dropped
+    assert "A:9" in it["closest"] and "A:9" not in it["entry"]                           # another item whose name only contains it
+    assert ps._heading_of(rows[0]) == "Evaluate" and ps._heading_of({"text": "A > Doc / 4.19 HR & Payroll Portal\nx"}) == "HR & Payroll Portal"
