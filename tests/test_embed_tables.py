@@ -34,7 +34,7 @@ def test_a_long_table_is_embedded_in_windows_that_hold_every_row_once_with_the_h
     units = embed.embeddable_units([table_block(text)])
     assert len(units) > 2 and [u["id"] for u in units] == [f"D:5#{i}" for i in range(len(units))] and all(u["block_id"] == "D:5" for u in units)
     assert all(u["n_chunks"] == len(units) and u["type"] == "table" for u in units)
-    rows = [ln for u in units for ln in u["text"].splitlines() if ln.startswith("Capability ") or ln.startswith("Job Performance")]
+    rows = [ln for u in units for ln in u["text"].splitlines() if ln.startswith("Capability 0") or ln.startswith("Job Performance")]
     assert len(rows) == 60 and len(set(rows)) == 60                                       # every row, once
     assert all("Capability | Owner unit | Maturity" in u["text"] for u in units)             # the header row on every window
     win = next(u for u in units if "Job Performance" in u["text"])
