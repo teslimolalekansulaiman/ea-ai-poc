@@ -172,9 +172,10 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
         for lk in plan.get("lookups") or []:
             if lk["from"] == "other_demands":
                 continue
+            lk, kind_notes = resolve_kinds(lk, tools)
             prefer = lk.get("docs") or plan.get("documents") or []
             where = ", ".join(lk["in"]) or "any document"
-            rec = {"find": lk["find"], "from": lk["from"], "match": lk["match"], "in": where, "items": []}
+            rec = {"find": lk["find"], "from": lk["from"], "match": lk["match"], "in": where, "items": [], "kinds": kind_notes}
             if lk["from"].startswith(RESULT_PREFIX):
                 ms = names_from_result((decided or {}).get(lk["from"][len(RESULT_PREFIX):], ""))[:MAX_MENTIONS]
                 if not ms:
@@ -225,6 +226,8 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                         else "no wiki pages to choose from" if ps["state"] == "no pages"
                         else "no page fits" if ps["state"] == "none"
                         else ", ".join(p["name"] for p in ps["picked"])))
+                for kn in kind_notes:
+                    ev["searched"].append("where: " + kn)
                 rec["items"] = res["items"]
                 rec["new"] = True
                 ev["lookups"].append(rec)
@@ -247,8 +250,6 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
                     rec["items"].append({"mention": m or "the demand as a whole", "exact": [b["block_id"] for b in hits],
                                          "mentioned": [], "closest": [], "none": not hits})
             ev["lookups"].append(rec)
-            if rec.get("page_search"):
-                lines.append("     " + _render_page_search(rec["page_search"]))
             for it in rec["items"]:
                 ev["searched"].append(f"{rec['from']} '{it['mention']}' in {where}: " + (
                     ("found " + ", ".join(it["exact"][:2])) if not it["none"]
@@ -434,6 +435,33 @@ def _render_page_search(ps: dict) -> str:
     return f"Wiki pages: of {n} pages, the page finder picked from title and first sentence: " + "; ".join(bits) + "." + part
 
 
+def _kw(text: str) -> set:
+    return set(re.findall(r"[^\W_]{2,}", str(text or "").casefold()))
+
+
+def resolve_kinds(lk: dict, tools: "Tools") -> tuple[dict, list[str]]:
+    """The documents a lookup's kinds of source stand for. A kind is matched to a document by the words in its name (done
+    when the plan is made); a kind that no document name holds is matched to the documents that have a HEADING with all its
+    words ("Application to Security Control Matrix" is a section of a document, not a document). A kind that matches neither is
+    said so, and the lookup searches every document. Returns (the lookup with its documents, one sentence per kind that needed this)."""
+    docs, notes = list(lk.get("docs") or []), []
+    kinds = [k for k in lk.get("in") or [] if _kw(k)]
+    if not kinds:
+        return lk, notes
+    names = tools.doc_ids() or []
+    heads = tools.kb.headings() if tools.kb is not None and hasattr(tools.kb, "headings") else {}
+    for k in kinds:
+        if any(_kw(k) <= _kw(d) for d in names):
+            continue
+        hit = [d for d, hs in heads.items() if any(_kw(k) <= _kw(h) for h in hs)]
+        if hit:
+            docs += hit
+            notes.append(f"“{k}”: no document has this name; a section of this name is in {', '.join(hit)}")
+        else:
+            notes.append(f"“{k}”: no document or section has this name, so every document is searched")
+    return {**lk, "docs": list(dict.fromkeys(docs))}, notes
+
+
 def _asked(ev: dict) -> str:
     """What was asked, in words: the demand's fields, each lookup's question and the names it searched for.
     A table too long to show whole keeps the rows that share the most with this."""
@@ -459,6 +487,8 @@ def render(ev: dict) -> str:
             lines.append(f"  {i}. Find: {rec['find']}  (from {rec['from']}, in {rec['in']})")
             if rec.get("note"):
                 lines.append(f"     {rec['note']}")
+            for kn in rec.get("kinds") or []:
+                lines.append("     Where to look: " + kn + ".")
             if rec.get("page_search"):
                 lines.append("     " + _render_page_search(rec["page_search"]))
             for it in rec["items"]:

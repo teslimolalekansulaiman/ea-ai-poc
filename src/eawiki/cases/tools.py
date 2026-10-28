@@ -58,6 +58,18 @@ def wiki_entries_from(fs) -> list[dict]:
     return out
 
 
+def headings_from(fs) -> dict:
+    """{document: the text of its heading blocks}: what a kind of source ("Application Catalog") may be a section of."""
+    out = {}
+    for key in fs.list("blocks", ".blocks.json"):
+        try:
+            blocks = json.loads(fs.read_text(key) or "{}").get("blocks", [])
+        except Exception:
+            continue
+        out[Path(key).name.replace(".blocks.json", "")] = [b["text"] for b in blocks if b.get("type") == "heading" and b.get("text")]
+    return out
+
+
 class RealKB:
     """What the six steps read, from the knowledge base in the file store. The graph and the page list are re-read at most
     once a minute: a lookup runs for every name of every demand."""
@@ -82,6 +94,9 @@ class RealKB:
 
     def wiki_entries(self) -> list:
         return self._cached("wiki", lambda: wiki_entries_from(self.fs))
+
+    def headings(self) -> dict:
+        return self._cached("headings", lambda: headings_from(self.fs))
 
     def page(self, slug):
         return wiki_page_from(self.fs, slug)
