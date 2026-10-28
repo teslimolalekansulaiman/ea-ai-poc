@@ -13,7 +13,7 @@ from typing import Optional
 from eawiki.subjects import llm_text
 
 
-def assemble_context(blocks: list[dict], subgraph: Optional[dict] = None) -> str:
+def assemble_context(blocks: list[dict], subgraph: Optional[dict] = None, query: str = "") -> str:
     """Render retrieved blocks (+ optional graph facts) as the model's evidence."""
     lines: list[str] = []
     if subgraph and (subgraph.get("out") or subgraph.get("in")):
@@ -29,8 +29,13 @@ def assemble_context(blocks: list[dict], subgraph: Optional[dict] = None) -> str
         sect = b.get("section") or ""
         via = b.get("via")
         note = ("" if not via else f" (the diagram that the caption [{via}] belongs to; this is its description)" if b.get("figure")
+                else f" (the table that the caption [{via}] belongs to)" if b.get("captioned")
                 else f" (what follows [{via}] in its document, which was only a label)")
-        lines.append(f"[{cite}] ({sect}){note}\n{(b.get('text') or '').strip()}")
+        text = (b.get("text") or "").strip()
+        if b.get("btype") == "table":          # a long table is shown tidied, with the rows that bear on the question (as in the case runs)
+            from eawiki.cases import tableview
+            text = tableview.render(text, query)
+        lines.append(f"[{cite}] ({sect}){note}\n{text}")
     return "\n".join(lines)
 
 

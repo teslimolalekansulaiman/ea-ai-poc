@@ -116,8 +116,9 @@ def is_caption(block: dict) -> bool:
 
 
 def _figures_for(block: dict, expand_fn: Callable, seen: set) -> list[dict]:
-    """The figure blocks directly before or after a caption: the diagram's description is what the caption is about, and the
-    caption is what a question about the diagram finds."""
+    """The figure or table that a caption belongs to. A caption usually sits below its figure and above its table; so the figure before
+    it comes first, then the table or figure after it, then a table before it. The diagram's description (or the table) is what the
+    caption is about, and the caption is what a question about it finds."""
     try:
         near = expand_fn(block["block_id"], 1) or []
     except Exception:
@@ -125,11 +126,13 @@ def _figures_for(block: dict, expand_fn: Callable, seen: set) -> list[dict]:
     mine = block.get("ordinal")
     if mine is None:
         mine = next((r.get("ordinal") for r in near if r.get("block_id") == block["block_id"]), 0) or 0
-    figs = [n for n in near if n.get("btype") == "figure" and str(n.get("text") or "").strip()]
-    before = [n for n in figs if (n.get("ordinal") or 0) < mine]
-    pick = before[-1:] or [n for n in figs if (n.get("ordinal") or 0) > mine][:1]       # a caption usually sits below its figure; failing that, above it
-    return [{"block_id": n["block_id"], "doc_id": block.get("doc_id"), "btype": "figure", "section": n.get("section"),
-             "text": n.get("text", ""), "via": block["block_id"], "figure": True, "distance": block.get("distance")} for n in pick if n.get("block_id") not in seen]
+    items = [n for n in near if n.get("btype") in ("figure", "table") and str(n.get("text") or "").strip()]
+    before = [n for n in items if (n.get("ordinal") or 0) < mine][-1:]
+    after = [n for n in items if (n.get("ordinal") or 0) > mine][:1]
+    pick = [n for n in before if n.get("btype") == "figure"] or after or before
+    return [{"block_id": n["block_id"], "doc_id": block.get("doc_id"), "btype": n["btype"], "section": n.get("section"),
+             "text": n.get("text", ""), "via": block["block_id"], "figure": n["btype"] == "figure", "captioned": True,
+             "distance": block.get("distance")} for n in pick if n.get("block_id") not in seen]
 
 
 def _following(block: dict, near: list[dict]) -> list[dict]:
@@ -245,13 +248,13 @@ def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None, quer
             seen.add(free[0]["block_id"])
     if expand_fn:
         for b in keep:
-            if len([a for a in added if a.get("figure")]) >= MAX_FIGURES:
+            if len([a for a in added if a.get("captioned")]) >= MAX_FIGURES:
                 break
             if is_caption(b):
                 for f in _figures_for(b, expand_fn, seen):
                     seen.add(f["block_id"])
                     added.append(f)
-    read_from = {a["via"] for a in added if not a.get("figure")}          # a label whose run was read says nothing more than its run does
+    read_from = {a["via"] for a in added if not a.get("captioned")}          # a label whose run was read says nothing more than its run does
     keep = [b for b in keep if b["block_id"] not in read_from]
     return keep + added + outside, len(frag), len(added)
 

@@ -54,11 +54,15 @@ def _figure_context(b, blocks) -> str:
 
 
 def describe_table(b, backend: str, model) -> str:
+    text = (b.text or "").strip()
+    rows = (b.table or {}).get("num_rows")
+    partial = (f"\n\nThe table has {rows if rows else 'many'} rows in all; only the beginning is shown. Say what kind of items the rows list and how many "
+               "rows there are. Do NOT describe the rows shown as if they were the whole table.") if len(text) > 2200 else ""
     prompt = (
         "Describe this table in 2-3 sentences so it can be found by search: say what it "
         "lists, its columns, and the specific entities/subjects it covers (use their names). "
         "Plain text only, no preamble.\n\n"
-        f"Section: {_section(b)}\n\nTable (markdown):\n{(b.text or '').strip()[:2200]}\n\nDescription:")
+        f"Section: {_section(b)}\n\nTable (markdown):\n{text[:2200]}{partial}\n\nDescription:")
     return llm_text(prompt, backend, model).strip()
 
 

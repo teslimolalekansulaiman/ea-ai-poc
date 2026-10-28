@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import re
 import os
 import urllib.error
 import urllib.request
@@ -98,6 +99,31 @@ def chunk_text(text: str, max_chars: int = MAX_CHARS, overlap: int = OVERLAP) ->
     return [c for c in chunks if c]
 
 
+TABLE_WINDOW_FROM = 3000    # a table with more text than this is embedded in windows of rows, not as one description
+TABLE_WINDOW_CHARS = 1100   # the rows of one window, with the header row repeated at its top
+TABLE_WINDOW_MIN_ROWS = 6
+
+
+def table_windows(text: str) -> Optional[tuple[str, list[list[str]]]]:
+    """(the header row, the rows packed in windows) for a long table, None for one that fits as it is. A description written
+    from the first part of a table cannot hold the rows after it, so a question about one of them found nothing; every row is
+    embedded here, with the header row, tidied (padding, merged cells and markup removed)."""
+    from eawiki.cases import tableview as tv
+    _, header, rows = tv.parse(text)
+    if len(text) <= TABLE_WINDOW_FROM or len(rows) < TABLE_WINDOW_MIN_ROWS:
+        return None
+    windows, cur, used = [], [], len(header or "")
+    for r in rows:
+        if cur and used + len(r) + 1 > TABLE_WINDOW_CHARS:
+            windows.append(cur)
+            cur, used = [], len(header or "")
+        cur.append(r)
+        used += len(r) + 1
+    if cur:
+        windows.append(cur)
+    return header or "", windows
+
+
 def embeddable_units(blocks: Iterable[Block], skip_types=SKIP_TYPES,
                      max_chars: int = MAX_CHARS, overlap: int = OVERLAP) -> list[dict]:
     """Expand blocks into the units that will actually be embedded.
@@ -121,6 +147,24 @@ def embeddable_units(blocks: Iterable[Block], skip_types=SKIP_TYPES,
             if b.type == "figure" and not content:
                 content = ((b.figure or {}).get("caption") or "").strip()
             if not content:
+                continue
+            win = table_windows(content) if b.type == "table" else None
+            if win:
+                head_row, windows = win
+                gist = re.split(r"(?<=[.!?])\s", desc, maxsplit=1)[0] if desc else ""
+                total = sum(len(w) for w in windows)
+                done = 0
+                for i, rows_ in enumerate(windows):
+                    body = "\n".join(([head_row] if head_row else []) + rows_)
+                    note = f"(rows {done + 1} to {done + len(rows_)} of {total})"
+                    done += len(rows_)
+                    units.append({
+                        "id": f"{b.block_id}#{i}", "block_id": b.block_id, "doc_id": b.doc_id, "type": b.type,
+                        "kind": getattr(b, "kind", "architecture"), "section_path": b.section_path,
+                        "ordinal": b.ordinal, "chunk": i, "n_chunks": len(windows),
+                        "text": f"{header}\n\n{body}\n{note}",
+                        "embed_text": f"{header}\n{gist}\n{body}",
+                    })
                 continue
             text = f"{header}\n\n{content}"
             embed_text = f"{header}\n\n{desc}" if desc else text

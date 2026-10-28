@@ -515,7 +515,7 @@ def render(ev: dict) -> str:
     if ev["blocks"]:
         asked = _asked(ev)
         out.append("SOURCE BLOCKS:\n" + "\n".join(
-            f"  [{b['block_id']}] " + (("(the diagram that the caption [" + b['via'] + "] belongs to; this is its description) " if b.get("figure") else f"(what follows [{b['via']}] in its document, which was only a label" + (f"; read in order up to [{b['run_to']}]" if b.get("run_to") else "") + ") ") if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:FIGURE_CHARS if b.get("btype") == "figure" else BLOCK_CHARS])
+            f"  [{b['block_id']}] " + (("(the diagram that the caption [" + b['via'] + "] belongs to; this is its description) " if b.get("figure") else "(the table that the caption [" + b['via'] + "] belongs to) " if b.get("captioned") else f"(what follows [{b['via']}] in its document, which was only a label" + (f"; read in order up to [{b['run_to']}]" if b.get("run_to") else "") + ") ") if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:FIGURE_CHARS if b.get("btype") == "figure" else BLOCK_CHARS])
             + _render_figure_read(ev, b) for b in ev["blocks"]))
     if ev["graph"] and ev["graph"]["facts"]:
         out.append(f"GRAPH FACTS (entities: {', '.join(ev['graph']['names'])}):\n" + ev["graph"]["facts"][:3000])

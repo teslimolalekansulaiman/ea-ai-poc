@@ -262,7 +262,7 @@ def n_relevance(s: QAState) -> dict:
     if (gqr is None and s.get("subgraph") is None and not s.get("page") and not s.get("case_context") and not s.get("wiki_pages")
             and not det.relevance_ok(s.get("_block_objs", []), max_distance=s.get("max_distance", 0.95))):
         return {"status": "abstained", "answer": det.ABSTAIN}
-    context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"))
+    context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"), s.get("search_question") or s["question"])
     if s.get("case_context"):
         context = ("CASE RESULTS (what this case decided so far; authoritative for questions about its demands; "
                    "cite a source block only where a property names one):\n" + s["case_context"] + "\n\n" + context)
