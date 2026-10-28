@@ -210,3 +210,14 @@ def test_a_diagram_description_is_read_whole_and_a_paragraph_keeps_its_limit():
     text = gmod.render(ev)
     assert len(desc) > gmod.BLOCK_CHARS and "rated 4 Measured." in text                  # the end of the description is there
     assert text.count("word word") < 400 and len(text) < len(desc) + gmod.BLOCK_CHARS + 200   # a long paragraph is still cut at its limit
+
+
+def test_the_passages_the_model_was_given_are_listed_with_what_they_are_and_where_they_came_from():
+    from eawiki.cases import solve
+    ev = {"used": ["x"], "searched": [f"s{i}" for i in range(30)], "allowed": set(),
+          "blocks": [dict(STORE[6], via=f"{DOC}:5"), dict(STORE[1], figure=True, via="F:3"), STORE[3]]}
+    how = solve.verify({"name": "P", "type": "text"}, None, ev)["how"]
+    assert sum(1 for h in how if h.startswith("Searched ")) == 30                      # the searches are not cut at 8 any more
+    lines = [h for h in how if h.startswith("Passage [")]
+    assert len(lines) == 3 and lines[0].startswith(f"Passage [{DOC}:7] · {DOC} · table ·") and f"follows [{DOC}:5]" in lines[0]
+    assert "belongs to [F:3]" in lines[1] and "The payroll interface sends each approved" in lines[2] and "Biz_Arch >" not in lines[2]

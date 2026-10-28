@@ -19,6 +19,8 @@ from eawiki.cases import gather as gmod
 
 NONE_WORDS = re.compile(r"^(None|No link found|Not identified)$", re.I)
 NA_WORDS = ("Not assessed", "Not checked", "Not applicable", "No score")
+MAX_SEARCHED_LINES = 40      # the searches listed under 'How it was resolved'; a longer list hid the last ones (the diagrams read from their image)
+MAX_PASSAGE_LINES = 24
 STATUSES = ("answered", "needs_source", "needs_input")
 DECIDED = "decided:"          # the id of an earlier decision of the same demand, which an answer may cite
 
@@ -117,12 +119,27 @@ def _coerce(col: dict, value):
     return value, ""
 
 
+def _passage_lines(ev: dict) -> list[str]:
+    """What the model was given, one line per passage: 'Passage [id] · document · type · N characters [· what follows / belongs to [id]]: its start'.
+    So what the model did and did not see is on the screen, not guessed at."""
+    out = []
+    for b in (ev.get("blocks") or [])[:MAX_PASSAGE_LINES]:
+        text = str(b.get("text") or "")
+        lines = text.strip().splitlines()
+        body = " ".join(lines[1:] if lines and " > " in lines[0] else lines)
+        body = " ".join(body.split())
+        via = f" · {'belongs to' if b.get('figure') else 'follows'} [{b['via']}]" if b.get("via") else ""
+        out.append(f"Passage [{b.get('block_id')}] · {b.get('doc_id') or str(b.get('block_id', '')).rsplit(':', 1)[0]} · {b.get('btype') or 'text'} · {len(text)} characters{via}: {body[:220]}")
+    return out
+
+
 def verify(col: dict, res, ev: dict, decided: Optional[dict] = None) -> dict:
     """Turn the model's answer into a stored cell. Never raises. An answer may cite an earlier decision of this
     demand (`decided:<property>`) as well as the evidence it was shown."""
     ev = dict(ev, allowed=set(ev.get("allowed", set())) | {f"{DECIDED}{k}" for k, v in (decided or {}).items() if citable(v)})
     how = ["Looked at: " + "; ".join(ev.get("used") or ["nothing"])]
-    how += ["Searched " + x for x in (ev.get("searched") or [])[:8]]
+    how += ["Searched " + x for x in (ev.get("searched") or [])[:MAX_SEARCHED_LINES]]
+    how += _passage_lines(ev)
     if not isinstance(res, dict):
         return {"value": "", "status": "needs_input", "evidence": [], "how": how,
                 "need": col.get("info_needed") or f"No usable answer for '{col['name']}'.", "source": "model"}

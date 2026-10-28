@@ -249,7 +249,11 @@ export function CellDetail({ col, cell }) {
   return (
     <div className="cs-detail">
       {cell.need && <div className="cs-need"><h5>{cell.display === 'needs_source' ? 'What the knowledge base is missing' : 'What is needed'}</h5>{cell.need}</div>}
-      <div><h5>How it was resolved</h5><ol>{(cell.how || []).map((h, i) => <li key={i}>{h}</li>)}</ol></div>
+      <div><h5>How it was resolved</h5><ol>{(cell.how || []).filter(h => !h.startsWith('Passage [')).map((h, i) => <li key={i}>{h}</li>)}</ol>
+        {(cell.how || []).some(h => h.startsWith('Passage [')) && <details className="passages-seen">
+          <summary className="meta" style={{ cursor: 'pointer' }}>Passages the model was given ({(cell.how || []).filter(h => h.startsWith('Passage [')).length})</summary>
+          <ul style={{ fontSize: 12 }}>{(cell.how || []).filter(h => h.startsWith('Passage [')).map((h, i) => <li key={i}>{h.slice('Passage '.length)}</li>)}</ul>
+        </details>}</div>
       {(blocks.length > 0 || fields.length > 0 || earlier.length > 0) && <div><h5>Sources</h5>
         {blocks.map(b => <button key={b} className="cs-cite" onClick={() => cite.open(b)}>{b}</button>)}
         {fields.length > 0 && <div className="cs-muted">From the demand: {fields.join(', ')}</div>}
