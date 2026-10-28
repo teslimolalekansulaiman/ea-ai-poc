@@ -18,8 +18,11 @@ A page that cannot be read is reported as such ("error"), never as "no page".
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Callable, Optional
+
+from eawiki.cases import tableview
 
 MAX_PER_MENTION = 3        # candidates per mention whose page is read, best first
 MAX_PAGES = 8              # pages kept for one property
@@ -30,6 +33,7 @@ LEAD_CHARS = 450
 FACT_CHARS = 900
 FACT_EACH = 300           # one bullet is cut here: the neighbours' names come first in a relationship bullet
 MAX_FACTS = 12
+BODY_CHARS = 2500         # the parts of a page most relevant to a question, when the page is read for one
 
 # A citation is a block id, "<document>:<number>", in brackets or bare, possibly several run together. The document part
 # contains an underscore or a hyphen, so "10:30" and "3:1" are not citations.
@@ -37,6 +41,7 @@ _BLOCK = r"[\w][\w.\-]*[_\-][\w.\-]*:\d+"
 _LOOSE = r"[\w][\w.\-]*:\d+"                 # inside brackets any document name is taken as a citation
 _CITE = re.compile(rf"\s*\[{_LOOSE}(?:\s*[,;]\s*{_LOOSE})*\]|\s*(?<![A-Za-z_\-]){_BLOCK}")
 _ITALIC_TYPE = re.compile(r"^\*([^*]+)\*\s*(?:[-—–\[]|$)")
+_SEPARATOR = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$")
 _BULLET = re.compile(r"^\s*(?:[-*•]|\d+\.)\s+(.*\S)")
 
 
@@ -46,6 +51,50 @@ def evidence_id(slug: str) -> str:
 
 def strip_citations(text: str) -> str:
     return _CITE.sub("", text or "").strip()
+
+
+def body_text(md: str, query: str, chars: int = BODY_CHARS) -> str:
+    """The sections of a page that bear most on `query`, in the page's order, each under its heading, citations and table markup
+    removed. A page that lists things (the strategic objectives, the capabilities of a group) holds them in sections, bullets or
+    a table that the digest above (summary, lead, twelve bullets) does not reach. A section is weighted by the distinctive words
+    it shares with the query (a word counts more when few sections carry it); with no match the page's own order is kept. The
+    summary is left out: the digest shows it."""
+    sections, head, cur = [], "", []
+    for ln in (md or "").splitlines():
+        t = ln.strip()
+        if t.startswith("#"):
+            if cur:
+                sections.append((head, cur))
+            head, cur = t.lstrip("#").strip(), []
+            continue
+        if not t or _SEPARATOR.match(t) or _ITALIC_TYPE.match(t):
+            continue
+        if t.startswith("|"):
+            t = tableview._row_text(tableview._cells(t))
+        t = strip_citations(t)
+        if t:
+            cur.append(t)
+    if cur:
+        sections.append((head, cur))
+    sections = [(h, c) for h, c in sections if h.lower() != "summary" and c and not (len(c) == 1 and c[0] == h)]
+    if not sections:
+        return ""
+    texts = [(h + "\n" if h else "") + "\n".join(c) for h, c in sections]
+    q, n = tableview.words(query), len(texts)
+    df: dict = {}
+    for t in texts:
+        for w in tableview.words(t):
+            df[w] = df.get(w, 0) + 1
+    score = [sum(math.log(1 + n / df[w]) for w in q & tableview.words(t)) for t in texts]
+    order = [i for i in sorted(range(n), key=lambda i: -score[i]) if score[i] > 0] or list(range(n))
+    chosen, used = [], 0
+    for i in order:
+        cost = len(texts[i]) + 1
+        if used + cost > chars and chosen:
+            continue
+        chosen.append(i)
+        used += cost
+    return "\n".join(texts[i][:chars] for i in sorted(chosen))[:chars + 200]
 
 
 def digest_page(md: str, summary_chars: int = SUMMARY_CHARS, lead_chars: int = LEAD_CHARS, fact_chars: int = FACT_CHARS) -> dict:
@@ -104,7 +153,7 @@ def digest_page(md: str, summary_chars: int = SUMMARY_CHARS, lead_chars: int = L
     return out
 
 
-def read(by_mention: dict, page_fn: Callable[[str], Optional[str]], per_mention: int = MAX_PER_MENTION, total: int = MAX_PAGES) -> dict:
+def read(by_mention: dict, page_fn: Callable[[str], Optional[str]], per_mention: int = MAX_PER_MENTION, total: int = MAX_PAGES, deep: Optional[str] = None) -> dict:
     """by_mention: {mention: [candidate, ...]} best first; a candidate has id, name, type, how and (when it has one) slug.
     Returns {'pages': [{'id','slug','name','type','how','digest'}], 'status': {mention: {candidate id: state}}}.
     state: 'read' | 'no page' (the candidate has none) | 'error' (the page could not be read) | 'not read' (over the limit)."""
@@ -134,7 +183,10 @@ def read(by_mention: dict, page_fn: Callable[[str], Optional[str]], per_mention:
             if not md or not str(md).strip():
                 status[mention][c["id"]] = "no page"
                 continue
+            digest = digest_page(md)
+            if deep:                                   # read for one question: the parts of the page that bear on it as well
+                digest["body"] = body_text(md, deep)
             pages[slug] = {"id": evidence_id(slug), "slug": slug, "name": c["name"], "type": c.get("type", ""), "how": c.get("how", ""),
-                           "digest": digest_page(md)}
+                           "digest": digest}
             status[mention][c["id"]] = "read"
     return {"pages": list(pages.values()), "status": status}

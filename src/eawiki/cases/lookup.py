@@ -47,7 +47,7 @@ def _page_search(lookup: dict, demand_text: str, kb, llm_text, cache: dict) -> d
     key = ("pages", lookup.get("find"), demand_text)
     if key not in cache:
         found = pagefinder.find_pages(str(lookup.get("find") or ""), demand_text, kb.wiki_entries(), llm_text)
-        read = wikiread.read({"pages": found["picks"]}, kb.page) if found["picks"] else {"pages": [], "status": {}}
+        read = wikiread.read({"pages": found["picks"]}, kb.page, deep=f"{lookup.get('find') or ''} {demand_text[:600]}") if found["picks"] else {"pages": [], "status": {}}
         status = read["status"].get("pages", {})
         cache[key] = {**found, "read": read["pages"],
                       "picked": [{"name": c["name"], "slug": c["slug"], "state": status.get(c["id"], "not read")} for c in found["picks"]]}
@@ -93,8 +93,9 @@ def run(lookup: dict, mentions: list, demand_text: str, kb, search_fn: Callable,
     page_search = _page_search(lookup, demand_text, kb, llm_text, cache) if (kb and lookup.get("pages")) else None
     pages = list(wiki["pages"])
     if page_search:
-        have = {p["slug"] for p in pages}
-        pages += [p for p in page_search["read"] if p["slug"] not in have]
+        by_slug = {p["slug"]: p for p in pages}
+        by_slug.update({p["slug"]: p for p in page_search["read"]})        # a page read for the question has its body as well: it wins
+        pages = list(by_slug.values())
     items = []
     for it in psg["items"]:
         m = it["mention"]

@@ -366,6 +366,8 @@ def _render_wiki(w: dict) -> str:
         bits.append(d["lead"])
     if d.get("facts"):
         bits.append(f"Links and attributes: {d['facts']}")
+    if d.get("body"):
+        bits.append("\n    The parts of the page that bear most on the question:\n" + "\n".join("      " + ln for ln in d["body"].splitlines()))
     return " ".join(bits)
 
 

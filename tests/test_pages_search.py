@@ -188,3 +188,58 @@ def test_the_use_case_flag_is_validated_and_an_explicit_false_survives_saving():
     col["lookups"] = [lookup(pages=False), _without_pages()]
     usecases._tidy_descriptions(spec)
     assert col["lookups"][0]["pages"] is False and "pages" not in col["lookups"][1]
+
+
+# A page that LISTS things, as a model writes it: the objectives are under a heading, a table, and bullets the digest does not reach.
+LIST_PAGE = """# EA Strategic Objectives
+
+## Summary
+The strategic objectives of the organization. [Biz:300]
+
+## What it is
+A list of six objectives, each with a code and an intent.
+
+## Objectives
+| Code | Objective | Intent |
+|---|---|---|
+| SO1 | Lead in digital services | Make every citizen service available online [Biz:301] |
+| SO4 | Strengthen institutional excellence | Streamline internal services and cut manual work in HR and finance [Biz:302] |
+| SO6 | Grow the knowledge economy | Invest in research |
+
+## Review
+The list is reviewed every year in the planning cycle.
+"""
+
+
+def test_a_page_read_for_a_question_shows_the_sections_that_bear_on_it_and_not_the_markup():
+    from eawiki.cases import wikiread as wr
+    body = wr.body_text(LIST_PAGE, "which objective covers cutting manual work in HR and finance")
+    assert "SO4 | Strengthen institutional excellence | Streamline internal services and cut manual work in HR and finance" in body
+    assert "[Biz:" not in body and "|---|" not in body and "The strategic objectives of the organization" not in body    # citations, separators, the summary
+    assert wr.body_text(LIST_PAGE, "zebra quartz").startswith("What it is")                                     # no match: the page's own order
+    assert len(wr.body_text(LIST_PAGE * 4, "objective", 300)) <= 500
+
+
+def test_only_a_page_read_for_a_question_has_a_body():
+    from eawiki.cases import wikiread as wr
+    pick = [{"id": "page:eso", "name": "EA Strategic Objectives", "type": "", "how": "x", "slug": "eso", "score": 0.55}]
+    assert "body" not in wr.read({"m": pick}, lambda s: LIST_PAGE)["pages"][0]["digest"]
+    deep = wr.read({"m": pick}, lambda s: LIST_PAGE, deep="manual work finance")["pages"][0]["digest"]
+    assert "SO4 | Strengthen institutional excellence" in deep["body"]
+
+
+def test_the_evidence_shows_the_body_of_a_page_the_finder_picked_for_the_question():
+    entries = pages_of()
+    class ListKB(ThemeKB):
+        def wiki_entries(self):
+            return super().wiki_entries() + [pf.page_item("ea-strategic-objectives", LIST_PAGE)]
+
+        def page(self, slug):
+            return LIST_PAGE if slug == "ea-strategic-objectives" else super().page(slug)
+    n = len(entries) + 1
+    res = lkmod.run(lookup(find="Which strategic objective does this serve?"), [], "Staff cut manual work in HR and finance by hand", ListKB(), kb.search,
+                    lambda p: f"PAGES: {n}", {}, "mandates")
+    digest = next(p for p in res["wiki"] if p["slug"] == "ea-strategic-objectives")["digest"]
+    assert "SO4 | Strengthen institutional excellence" in digest["body"]
+    ev = {"demand": {}, "lookups": [], "graph": None, "others": [], "used": [], "graph_reads": [], "blocks": [], "wiki": [{"id": "wiki:x", "name": "X", "digest": digest}]}
+    assert "The parts of the page that bear most on the question:" in gmod.render(ev) and "SO4 | Strengthen institutional excellence" in gmod.render(ev)
