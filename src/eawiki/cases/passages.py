@@ -101,6 +101,8 @@ def is_fragment(block: dict) -> bool:
         _, header, rows = tableview.parse(text)
         return len(rows) + (1 if header else 0) <= 1
     body = _body(text)
+    if not re.search(r"\w", body):
+        return True                                           # nothing but punctuation (a lone colon, a dash)
     return len(body) <= FRAGMENT_CHARS and len(body.split()) <= FRAGMENT_WORDS and not re.search(r"[.!?;:]", body)
 
 

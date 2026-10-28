@@ -34,6 +34,7 @@ def test_what_counts_as_a_fragment():
     assert not ps.is_fragment(STORE[1]) and not ps.is_fragment(STORE[3])               # rows; a sentence
     assert not ps.is_fragment(blk(9, "A short sentence, with a verb."))
     assert not ps.is_fragment(blk(9, "x " * 40))                                       # long
+    assert ps.is_fragment(blk(9, "T > S\n:")) and ps.is_fragment(blk(9, "T > S\n—")) and ps.is_fragment(blk(9, ":"))     # only punctuation
 
 
 def test_real_passages_are_kept_and_bare_labels_are_not_used_to_fill_the_list():
