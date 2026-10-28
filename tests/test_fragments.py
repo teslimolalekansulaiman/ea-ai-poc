@@ -36,12 +36,14 @@ def test_what_counts_as_a_fragment():
     assert not ps.is_fragment(blk(9, "x " * 40))                                       # long
 
 
-def test_real_passages_come_first_and_fragments_only_fill_a_short_list():
+def test_real_passages_are_kept_and_bare_labels_are_not_used_to_fill_the_list():
     hits = [STORE[0], STORE[2], STORE[3], STORE[1]]
     out, frag, added = ps.reshape(hits, 2)
     assert [b["block_id"] for b in out] == [f"{DOC}:4", f"{DOC}:2"] and frag == 2 and added == 0
-    out, _, _ = ps.reshape([STORE[0], STORE[2], STORE[3]], 3)
-    assert [b["block_id"] for b in out] == [f"{DOC}:4", f"{DOC}:1", f"{DOC}:3"]       # too few real ones: labels fill the list
+    out, frag, _ = ps.reshape([STORE[0], STORE[2], STORE[3]], 3)
+    assert [b["block_id"] for b in out] == [f"{DOC}:4"] and frag == 2                 # too few real ones: the list is short, not padded with labels
+    out, frag, _ = ps.reshape([STORE[0], STORE[2]], 3)
+    assert out == [] and frag == 2
 
 
 def test_a_label_is_followed_by_what_comes_after_it_not_what_comes_before():
@@ -223,9 +225,9 @@ def test_the_passages_the_model_was_given_are_listed_with_what_they_are_and_wher
     assert "belongs to [F:3]" in lines[1] and "The payroll interface sends each approved" in lines[2] and "Biz_Arch >" not in lines[2]
 
 
-def test_a_label_whose_run_could_not_be_read_stays_and_a_figure_caption_stays():
-    out, _, added = ps.reshape([STORE[2]], 3, lambda bid, w: [])                       # nothing follows: the label is all there is
-    assert added == 0 and [b["block_id"] for b in out] == [f"{DOC}:3"]
+def test_a_label_with_nothing_after_it_is_dropped_and_a_figure_caption_stays():
+    out, _, added = ps.reshape([STORE[2]], 3, lambda bid, w: [])                       # nothing follows: a label is not kept
+    assert added == 0 and out == []
     st = fig_store()
     near = lambda bid, w: [r for r in st if abs(r["ordinal"] - int(bid.split(":")[1])) <= w]      # noqa: E731
     out, _, _ = ps.reshape([st[2]], 3, near)

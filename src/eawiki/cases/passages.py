@@ -213,15 +213,14 @@ def _run_text(run: list[dict], query: str = "") -> str:
 
 
 def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None, query: str = "") -> tuple[list[dict], int, int]:
-    """For a search by meaning: real passages before label-only ones (those fill the list only when there are too few real
-    ones), and each of the first few label-only hits is followed by what comes after it in its document, as one passage
+    """For a search by meaning: the real passages, without the label-only ones, and each of the first few label-only hits is
+    followed by what comes after it in its document, as one passage
     marked `via` (a table stored one cell per block comes back as its cells in order). Returns (passages, label-only hits
     seen, passages added)."""
     outside = [b for b in hits if b.get("outside")]
     named = [b for b in hits if not b.get("outside")]
     frag = [b for b in named if is_fragment(b)]
-    keep = [b for b in named if b not in frag][:k]
-    keep += frag[:max(k - len(keep), 0)]
+    keep = [b for b in named if b not in frag][:k]          # a bare label is not kept to fill the list: it says nothing, and what follows it is read instead
     seen = {b["block_id"] for b in keep + outside}
     added: list[dict] = []
     covered: set = set()
