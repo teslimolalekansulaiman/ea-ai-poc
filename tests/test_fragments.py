@@ -78,11 +78,11 @@ def test_read_by_meaning_reshapes_and_reports_it():
     assert ids[0] == f"{DOC}:4" and any(b.get("via") for b in res["blocks"])
 
 
-def test_read_by_name_is_untouched():
+def test_read_by_name_does_not_expand_and_keeps_what_names_or_mentions_it():
     search = lambda q, k, docs: [dict(STORE[0]), dict(STORE[3])]                           # noqa: E731
     res = ps.read(lookup("name"), ["Evaluate"], "x", search, None, False, expand)
     it = res["items"][0]
-    assert it["fragments"] == 0 and it["expanded"] == 0 and [b["block_id"] for b in res["blocks"]] == [f"{DOC}:1", f"{DOC}:4"]
+    assert it["fragments"] == 1 and it["expanded"] == 0 and [b["block_id"] for b in res["blocks"]] == [f"{DOC}:4"]      # the bare label is dropped; nothing is expanded
 
 
 def test_the_answer_step_is_told_which_passage_followed_a_label():
@@ -230,3 +230,27 @@ def test_a_label_whose_run_could_not_be_read_stays_and_a_figure_caption_stays():
     near = lambda bid, w: [r for r in st if abs(r["ordinal"] - int(bid.split(":")[1])) <= w]      # noqa: E731
     out, _, _ = ps.reshape([st[2]], 3, near)
     assert "F:3" in [b["block_id"] for b in out]                                         # a caption is a real passage: it stays with its diagram
+
+
+def test_a_search_by_name_drops_the_labels_that_are_neither_the_entry_nor_a_mention():
+    rows = [blk(20, "A > S\nHosting"), blk(21, "A > S\nSupplier name"), blk(22, "A > S\nEvaluate | Application | Retired"),
+            blk(23, "A > S\nThe Evaluate service creates the evaluation forms for HR."), blk(24, "A > S\nHR Department")]
+    search = lambda q, k, docs: [dict(b) for b in rows][:k]                              # noqa: E731
+    res = ps.read(lookup("name"), ["Evaluate"], "x", search, None, False, None)
+    it = res["items"][0]
+    ids = [b["block_id"] for b in res["blocks"]]
+    assert ids == [f"{DOC}:22", f"{DOC}:23"] and it["entry"] == [f"{DOC}:22"] and it["mentioned"] == [f"{DOC}:23"] and it["closest"] == []
+    assert it["fragments"] == 3 and it["state"] == "found"
+    only = lambda q, k, docs: [dict(rows[0]), dict(rows[1])]                             # noqa: E731
+    it = ps.read(lookup("name"), ["Evaluate"], "x", only, None, False, None)["items"][0]
+    assert it["state"] == "none"                                                         # nothing but labels: no entry, said as such
+
+
+def test_the_section_line_in_front_of_a_passage_is_not_what_it_says():
+    prefix = "Apps > Table of Contents / 29 Evaluate\n"
+    rows = [blk(30, prefix + "Hosting"), blk(31, prefix + "Evaluate | Application | Retired"), blk(32, prefix + "It is run by the Facilities Office."),
+            blk(33, "Apps > Table of Contents / 12 Rota Hub\nRota Hub | Application | Live")]
+    search = lambda q, k, docs: [dict(b) for b in rows]                                  # noqa: E731
+    it = ps.read(lookup("name"), ["Evaluate"], "x", search, None, False, None)["items"][0]
+    assert it["entry"] == [f"{DOC}:31"]                                                  # the row that starts with the name, not every block under its heading
+    assert it["mentioned"] == [] and f"{DOC}:30" not in it["closest"]                    # a passage is not about Evaluate because it sits in Evaluate's section

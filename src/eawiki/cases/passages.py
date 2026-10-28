@@ -260,11 +260,12 @@ def mark(blocks: list[dict], mention: str, candidate_names: Optional[list] = Non
     want = _words(mention)
     entry, mentioned, closest = [], [], []
     for b in blocks:
-        h = head(b.get("text", ""))
+        body = _body(b.get("text", ""))                    # the `document > section` line the index puts in front is not what the passage says
+        h = head(body)
         # a candidate's name is a real entity's name (kind words aside); the mention itself must match as written
         if says_name(h, mention) or any(names_head(h, n) for n in (candidate_names or []) if n):
             entry.append(b["block_id"])
-        elif want and want <= _words(b.get("text", "")):
+        elif want and want <= _words(body):
             mentioned.append(b["block_id"])
         else:
             closest.append(b["block_id"])
@@ -304,7 +305,7 @@ def read(lookup: dict, mentions: list, demand_text: str, search_fn: Callable, ca
         extra = [n for n in dict.fromkeys(official) if nl.norm(n) != nl.norm(m or "")][:MAX_OFFICIAL] if by == "name" else []
         try:
             k = PER_MENTION if m else PER_NEED
-            hits = search(search_fn, q, k * FETCH_FACTOR if by == "meaning" else k, docs, strict)
+            hits = search(search_fn, q, k * FETCH_FACTOR, docs, strict)
             fragments = added = 0
             if by == "meaning":
                 hits, fragments, added = reshape(hits, k, expand_fn, q)
@@ -316,6 +317,14 @@ def read(lookup: dict, mentions: list, demand_text: str, search_fn: Callable, ca
             continue
         marks = mark(hits, m, [c["name"] for c in (candidates or {}).get(m, [])]) if by == "name" else \
             {"entry": [], "mentioned": [], "closest": [b["block_id"] for b in hits]}
+        if by == "name":
+            # a label ("Hosting", "Supplier name") that is neither the entry for the name nor mentions it says nothing about it
+            labels = {b["block_id"] for b in hits if b["block_id"] in set(marks["closest"]) and is_fragment(b)}
+            fragments = len(labels)
+            hits = [b for b in hits if b["block_id"] not in labels]
+            hits = [b for b in hits if not b.get("outside")][:k] + [b for b in hits if b.get("outside")]       # what was fetched beyond k to make up for the labels
+            kept = {b["block_id"] for b in hits}
+            marks = {key: [i for i in v if i in kept] for key, v in marks.items()}
         items.append({"mention": m, "query": q, "queries": [q] + [passage_query(lookup, n, demand_text) for n in extra], "by": by,
                       "state": "found" if hits else "none", "fragments": fragments, "expanded": added, **marks})
         for b in hits:

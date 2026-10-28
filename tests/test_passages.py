@@ -60,14 +60,14 @@ def test_the_named_documents_are_searched_first_and_a_short_search_of_everything
         return kb.search(q, k, docs)
     lk = lookup("Impacted application")
     r = ps.read(lk, ["Peoplex HR System"], "x", fn)
-    assert calls[0] == (ps.PER_MENTION, lk["docs"]) and calls[1] == (ps.GLOBAL_EXTRA, None)
+    assert calls[0] == (ps.PER_MENTION * ps.FETCH_FACTOR, lk["docs"]) and calls[1] == (ps.GLOBAL_EXTRA, None)
     assert {"Application_Catalog"} <= {b["doc_id"] for b in r["blocks"]}
     calls.clear()
     ps.read(lk, ["Peoplex HR System"], "x", fn, strict=True)
-    assert calls == [(ps.PER_MENTION, lk["docs"])]                                             # strict: named documents only
+    assert calls == [(ps.PER_MENTION * ps.FETCH_FACTOR, lk["docs"])]                         # strict: named documents only
     calls.clear()
     ps.read(dict(lk, docs=[]), ["Peoplex HR System"], "x", fn)
-    assert calls == [(ps.PER_MENTION, None)]                                                   # no document named: search all, once
+    assert calls == [(ps.PER_MENTION * ps.FETCH_FACTOR, None)]                               # no document named: search all, once
 
 
 def test_a_passage_found_only_by_the_search_of_everything_says_so():
