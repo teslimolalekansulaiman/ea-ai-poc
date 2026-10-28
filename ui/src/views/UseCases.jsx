@@ -38,7 +38,12 @@ const DIRECTIONS = [['out', 'outgoing (from the matched entity)'], ['in', 'incom
 // graph really holds, so the owner sees which carry anything; "Suggest" drafts a list for the owner to accept or change.
 function LookupRelations({ lookups, edges, counts, col, pagesDefault, docs, onChange }) {
   const [sugg, setSugg] = useState({})            // lookup index -> { loading, status, items, error }
-  if (!lookups || !lookups.length) return <div className="meta">No lookups yet. Lookups are drafted from the steps when left empty; add them below as JSON to define their graph relationships.</div>
+  const blank = () => ({ find: '', from: 'need', match: 'meaning', in: [] })
+  if (!lookups || !lookups.length) return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      <div className="meta">No lookups yet. Lookups are drafted from the steps when left empty.</div>
+      <div><button type="button" className="btn add-lookup" onClick={() => onChange([blank()])}>+ lookup</button></div>
+    </div>)
   const set = (li, fn) => { const next = structuredClone(lookups); fn(next[li]); if (!next[li].types?.length) delete next[li].types; if (!next[li].relations?.length) delete next[li].relations; onChange(next) }
   const edge = (k) => edges.find(e => e.key === k)
   const short = (ts) => [...new Set((ts || []).map(t => t.replace(/^(logical|physical)_/, '')))]
@@ -68,7 +73,11 @@ function LookupRelations({ lookups, edges, counts, col, pagesDefault, docs, onCh
       {counts && !haveGraph && <div className="meta">No graph is loaded, so edge counts are not available.</div>}
       {lookups.map((lk, li) => (
         <div key={li} style={{ border: '1px solid var(--line, #d8dde6)', borderRadius: 6, padding: 8, display: 'grid', gap: 6 }}>
-          <div><b>{li + 1}.</b> <span className="meta">starts from {lk.from}, matches by {lk.match}{lk.in?.length ? ', looks in ' + lk.in.join(', ') : ''}</span></div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
+            <div><b>{li + 1}.</b> <span className="meta">starts from {lk.from}, matches by {lk.match}{lk.in?.length ? ', looks in ' + lk.in.join(', ') : ''}</span></div>
+            <button type="button" className="btn remove-lookup" style={{ color: 'var(--crit)' }}
+              onClick={() => { if (confirm(`Remove lookup ${li + 1}${lk.find ? ': "' + lk.find.slice(0, 60) + '"' : ''}?`)) onChange(lookups.filter((_, i) => i !== li)) }}>Remove this lookup</button>
+          </div>
           <label className="meta" htmlFor={'q-' + li}>Question asked of the documents (the search is led by it)</label>
           <textarea id={'q-' + li} className="lookup-question" maxLength={200} rows={2} value={lk.find || ''}
             style={{ width: '100%', border: !(lk.find || '').trim() ? '1px solid var(--crit)' : undefined }}
@@ -140,6 +149,8 @@ function LookupRelations({ lookups, edges, counts, col, pagesDefault, docs, onCh
           )}
         </div>
       ))}
+      <div><button type="button" className="btn add-lookup" disabled={lookups.length >= 6} onClick={() => onChange([...lookups, blank()])}>+ lookup</button>
+        {lookups.length >= 6 && <span className="meta"> (at most 6 lookups per property)</span>}</div>
     </div>
   )
 }
