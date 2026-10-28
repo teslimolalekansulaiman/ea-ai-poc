@@ -301,6 +301,10 @@ export default function UseCases() {
             <input type="checkbox" checked={c.evidence_required !== false} onChange={e => set(col => { col.evidence_required = e.target.checked })} />
             A cited source is required (if none is found, the architect is asked)
           </label>
+          <label style={{ display: 'flex', gap: 7, alignItems: 'flex-start', fontSize: 13, marginTop: 8 }}>
+            <input type="checkbox" checked={!!c.blank_ok} onChange={e => set(col => { if (e.target.checked) col.blank_ok = true; else delete col.blank_ok })} />
+            <span>No result is a valid answer: when nothing is found the property is “None” and the architect is not asked (for example, the number of a duplicate demand when there is no duplicate). A text property only.</span>
+          </label>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
             <span className="meta">Minimum cited sources</span>
             <input type="number" min={1} max={5} style={{ ...inp, width: 70 }} value={c.min_sources || ''}

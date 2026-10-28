@@ -354,7 +354,7 @@
               "Not assessed"
             ],
             "evidence_required": false,
-            "how_to_resolve": "Compare with the other demands in the same sheet first, then with existing applications, services, initiatives and contracts. A match needs the same need and the same systems, not the same words.",
+            "how_to_resolve": "Compare this demand with the other demands in the same request sheet, and with nothing else. Yes when another demand in the sheet asks for the same outcome, for the same users, on the same systems, even if it is worded differently; No when the comparison found none; Not assessed when a demand could not be compared. A match needs the same need and the same systems, not the same words.",
             "activity": "Checking for duplicates",
             "collate": "Two demands are the same when they ask for the same outcome, for the same users, on the same systems, even if they are worded differently.\n• Related demands with a different outcome are not duplicates. Mention them in your note; the Screening observation writes them up.",
             "lookups": [
@@ -383,7 +383,8 @@
             ],
             "uses": [
               "Is duplicate"
-            ]
+            ],
+            "blank_ok": true
           },
           {
             "name": "Duplicate with existing artefact / artefact name",

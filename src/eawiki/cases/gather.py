@@ -24,7 +24,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-from eawiki.cases import compare, figureread, lookup as lkmod, tableview
+from eawiki.cases import compare, figureread, lookup as lkmod, plan as pmod, tableview
 from eawiki.cases import namelookup as nl
 from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 
@@ -153,6 +153,7 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
           "lookups": [], "searched": [], "wiki": [], "graph_reads": [], "figure_questions": {}, "figure_reads": {}}
     if hint:
         plan = with_hint(plan, hint)
+    plan = {**plan, "sources": pmod.sources_for(plan.get("lookups") or [], plan.get("sources") or [])}      # a plan made before this rule is held to it too
     strict = bool(plan.get("strict"))
     if "demand" in plan["sources"]:
         for name, (label, v) in labelled_fields(spec, item).items():

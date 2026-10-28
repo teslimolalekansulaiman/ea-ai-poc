@@ -74,11 +74,19 @@ def default_lookups(col: dict) -> list[dict]:
              "match": "meaning", "in": [], "docs": [], "extract": "", "types": [], "relations": [], "pages": None}]
 
 
+def sources_for(lks: list[dict], sources: list[str]) -> list[str]:
+    """A property whose lookups all compare the demand with the other demands of the sheet looks at the sheet and nothing else: no
+    document, no graph."""
+    if lks and all(l["from"] == "other_demands" for l in lks):
+        return ["demand", "other_demands"]
+    return sources
+
+
 def default_plan(col: dict, docs: Optional[list[str]] = None) -> dict:
     docs = docs or []
     lks = [x for x in (_lookup(l, docs) for l in col.get("lookups") or []) if x] or default_lookups(col)
     pref = list(dict.fromkeys(list(col.get("look_in") or []) + [d for l in lks for d in l["docs"]]))
-    return {"sources": ["demand", "documents", "graph"], "queries": ["{__text__}"], "lookups": lks,
+    return {"sources": sources_for(lks, ["demand", "documents", "graph"]), "queries": ["{__text__}"], "lookups": lks,
             "documents": pref, "origin": "default"}
 
 
@@ -124,7 +132,7 @@ def validate(raw, col: dict, fields: list[str], docs: list[str]) -> Optional[dic
     named = list(dict.fromkeys(list(col.get("look_in") or []) + [d for l in lks for d in l["docs"]] + named))
     if lks and "documents" not in sources and any(l["from"] != "other_demands" for l in lks):
         sources.append("documents")
-    return {"sources": list(dict.fromkeys(sources)), "queries": ["{__text__}"], "lookups": lks or default_lookups(col),
+    return {"sources": list(dict.fromkeys(sources_for(lks, sources))), "queries": ["{__text__}"], "lookups": lks or default_lookups(col),
             "documents": named, "origin": "model"}
 
 
