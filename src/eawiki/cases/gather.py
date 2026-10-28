@@ -30,8 +30,8 @@ from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 
 BLOCK_CHARS = 1100          # a table row or paragraph is read whole, not cut to a sentence
 FIGURE_CHARS = 2500         # a diagram's description names every box and its rating: it is read whole
-MAX_BLOCKS = 14
-MAX_WIKI = 8                # wiki pages shown to the answer step
+MAX_BLOCKS = 20
+MAX_WIKI = 10               # wiki pages shown to the answer step
 MAX_MENTIONS = 6            # mentions searched per lookup
 PER_MENTION = 3             # passages kept per mention
 GLOBAL_EXTRA = 2            # passages of ANY document added after the named kinds
