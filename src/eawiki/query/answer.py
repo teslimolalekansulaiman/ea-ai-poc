@@ -27,7 +27,10 @@ def assemble_context(blocks: list[dict], subgraph: Optional[dict] = None) -> str
     for b in blocks:
         cite = b.get("block_id", "?")
         sect = b.get("section") or ""
-        lines.append(f"[{cite}] ({sect})\n{(b.get('text') or '').strip()}")
+        via = b.get("via")
+        note = ("" if not via else f" (the diagram that the caption [{via}] belongs to; this is its description)" if b.get("figure")
+                else f" (what follows [{via}] in its document, which was only a label)")
+        lines.append(f"[{cite}] ({sect}){note}\n{(b.get('text') or '').strip()}")
     return "\n".join(lines)
 
 
@@ -37,7 +40,7 @@ def build_prompt(question: str, context: str, history: Optional[list] = None) ->
         turns = "\n".join(f"{h.get('role')}: {h.get('content')}" for h in history[-6:])
         convo = ("Conversation so far (for reference and pronoun resolution only — do not "
                  "treat it as a source to cite):\n" + turns + "\n\n")
-    return f"""Answer the question using ONLY the context below (source blocks + any graph facts). Cite the block id in square brackets after each claim, like [03-data:5]. If the context does not contain the answer, say so plainly — do not invent facts.
+    return f"""Answer the question using ONLY the context below (source blocks + any graph facts). Cite the block id in square brackets after each claim, like [03-data:5]; cite a wiki page by its id, like [wiki:payroll-portal]. If the context does not contain the answer, say so plainly — do not invent facts.
 
 {convo}Question: {question}
 

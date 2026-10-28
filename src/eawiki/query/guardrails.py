@@ -56,7 +56,7 @@ _TOXIC_RE = re.compile("|".join(_TOXIC), re.I)
 # name — "Data Architecture Sample", "Applications_As-Is_Sample_SJC-Cleansed", "01_Business_v0.2"
 # — so it may hold spaces, underscores, dots and brackets, not only "03-data". The character set
 # is kept to letters/digits and those few marks, so an id can never carry markup.
-_CITE_ONE = r"[\w][\w \-.()]*:\d+(?:#\d+)?"
+_CITE_ONE = r"(?:wiki:[A-Za-z0-9][\w\-.]*|[\w][\w \-.()]*:\d+(?:#\d+)?)"      # a block id, or a wiki page as wiki:<slug>
 _CITE_RE = re.compile(rf"\[({_CITE_ONE}(?:\s*,\s*{_CITE_ONE})*)\]")
 
 

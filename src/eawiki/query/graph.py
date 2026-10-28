@@ -21,7 +21,10 @@ from typing import Any, Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from eawiki.cases import passages as psg
+from eawiki.cases.tools import RealKB
 from eawiki.query import answer as ans
+from eawiki.query import wikisearch as ws
 from eawiki.query import executor as ew
 from eawiki.query import graphquery as gq
 from eawiki.query import guardrails as det
@@ -29,6 +32,7 @@ from eawiki.query import link as lk
 from eawiki.query import route as rt
 from eawiki.query.retrieve import Retriever
 from eawiki.query.safety import NeMoGuard
+from eawiki.storage import filestore
 from eawiki.subjects import llm_text
 
 
@@ -70,10 +74,25 @@ class QAState(TypedDict, total=False):
     _block_objs: list
     subgraph: Optional[dict]
     page: str
+    wiki_pages: list         # wiki pages picked by title and summary and read for the question
+    wiki_search: dict
     context: str
     answer: str
     citation_check: dict
     output_guard: dict
+
+
+@lru_cache(maxsize=1)
+def _kb() -> RealKB:
+    """The wiki as the page search reads it (the pages and the graph, re-read at most once a minute)."""
+    return RealKB(filestore(), gq._load)
+
+
+def _passages(r, hits: list, k: int, query: str) -> list:
+    """What the vector search found, as the case runs read it: bare labels set aside, what follows a label read as one passage,
+    the diagram brought in when a caption is a hit (cases.passages.reshape). `hits` was fetched three times over to make up for the labels."""
+    out, _, _ = psg.reshape(hits, k, r.expand, query)
+    return out
 
 
 @lru_cache(maxsize=4)
@@ -198,13 +217,14 @@ def _graphquery(s: QAState) -> dict:
 def n_retrieve(s: QAState) -> dict:
     r = _retriever()
     q = s.get("search_question") or s["question"]
-    blocks = r.vector_search(q, k=s.get("k", 8), kinds=s.get("kinds"))
+    k = s.get("k", 8)
+    blocks = _passages(r, r.vector_search(q, k=k * psg.FETCH_FACTOR, kinds=s.get("kinds")), k, q)
     lnk = s.get("link")
     if lnk:
         seen = {b["block_id"] for b in blocks}
         # The user's own wording as well (the rewrite may have narrowed it), and the blocks the
         # linked entities were extracted from: found through the entity, not through the words.
-        extra = [b for b in r.vector_search(s["question"], k=s.get("k", 8), kinds=s.get("kinds"))
+        extra = [b for b in _passages(r, r.vector_search(s["question"], k=k * psg.FETCH_FACTOR, kinds=s.get("kinds")), k, s["question"])
                  if b["block_id"] not in seen]
         seen |= {b["block_id"] for b in extra}
         cited = [b for b in r.blocks_by_ids(lk.evidence_block_ids(lnk, gq._load()))
@@ -226,18 +246,30 @@ def n_retrieve(s: QAState) -> dict:
         page = ew._community_summaries() or (ew._all_wiki() if ew._wiki_fits() else "")
     else:
         page = ew._pages_from_blocks(block_ids, limit=2)
-    return {"_block_objs": blocks, "blocks": block_ids, "subgraph": None, "page": page}
+    wiki: dict = {}
+    if s.get("use_llm", True) and s["route"]["strategy"] != "global":
+        try:           # the wiki pages that could answer it, picked by title and summary (a failure here never stops the answer)
+            wiki = ws.pages_for(q, lambda p: llm_text(p, s.get("backend", "cli"), s.get("model")), _kb())
+        except Exception:
+            wiki = {}
+    return {"_block_objs": blocks, "blocks": block_ids, "subgraph": None, "page": page,
+            "wiki_pages": wiki.get("pages", []),
+            "wiki_search": {k_: wiki[k_] for k_ in ("state", "offered", "picked") if k_ in wiki}}
 
 
 def n_relevance(s: QAState) -> dict:
     gqr = s.get("graph_result")
-    if (gqr is None and s.get("subgraph") is None and not s.get("page") and not s.get("case_context")
+    if (gqr is None and s.get("subgraph") is None and not s.get("page") and not s.get("case_context") and not s.get("wiki_pages")
             and not det.relevance_ok(s.get("_block_objs", []), max_distance=s.get("max_distance", 0.95))):
         return {"status": "abstained", "answer": det.ABSTAIN}
     context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"))
     if s.get("case_context"):
         context = ("CASE RESULTS (what this case decided so far; authoritative for questions about its demands; "
                    "cite a source block only where a property names one):\n" + s["case_context"] + "\n\n" + context)
+    if s.get("wiki_pages"):
+        from eawiki.cases.gather import _render_wiki
+        context = ("WIKI PAGES (picked by title and summary and read for the question; cite one by its id, like [wiki:slug]):\n"
+                   + "\n".join(_render_wiki(w) for w in s["wiki_pages"]) + "\n\n" + context)
     if s.get("page"):
         context = ("WIKI (synthesized, connected context — cite the block ids it references, "
                    "not the page):\n" + s["page"] + "\n\n" + context)
@@ -266,7 +298,7 @@ def n_answer(s: QAState) -> dict:
 def n_output_guard(s: QAState) -> dict:
     if s.get("status") == "retrieved":      # no answer generated
         return {}
-    allowed_ids = {b["block_id"] for b in s.get("_block_objs", [])}
+    allowed_ids = {b["block_id"] for b in s.get("_block_objs", [])} | {w["id"] for w in s.get("wiki_pages", [])}
     cite = det.verify_citations(s.get("answer", ""), allowed_ids)
     out = {"citation_check": cite, "status": "answered"}
     if s.get("safety", True) and s.get("use_llm", True):
@@ -322,5 +354,6 @@ def run(question: str, backend: str = "cli", model=None, k: int = 8,
                       "max_distance": max_distance}
     out = dict(build_app().invoke(state))
     out.pop("_block_objs", None)
+    out["wiki_pages"] = [{"id": w["id"], "name": w["name"]} for w in out.get("wiki_pages") or []]      # the digests stay inside the run
     out.setdefault("status", "answered")
     return out

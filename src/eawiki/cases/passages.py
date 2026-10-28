@@ -129,7 +129,7 @@ def _figures_for(block: dict, expand_fn: Callable, seen: set) -> list[dict]:
     before = [n for n in figs if (n.get("ordinal") or 0) < mine]
     pick = before[-1:] or [n for n in figs if (n.get("ordinal") or 0) > mine][:1]       # a caption usually sits below its figure; failing that, above it
     return [{"block_id": n["block_id"], "doc_id": block.get("doc_id"), "btype": "figure", "section": n.get("section"),
-             "text": n.get("text", ""), "via": block["block_id"], "figure": True} for n in pick if n.get("block_id") not in seen]
+             "text": n.get("text", ""), "via": block["block_id"], "figure": True, "distance": block.get("distance")} for n in pick if n.get("block_id") not in seen]
 
 
 def _following(block: dict, near: list[dict]) -> list[dict]:
@@ -241,7 +241,7 @@ def reshape(hits: list[dict], k: int, expand_fn: Optional[Callable] = None, quer
                 continue
             head = f"{b.get('doc_id') or ''} > {run[0].get('section') or b.get('section') or ''}".strip(" >")
             added.append({"block_id": free[0]["block_id"], "doc_id": b.get("doc_id"), "btype": "paragraph", "section": run[0].get("section"),
-                          "text": f"{head}\n{text}", "via": b["block_id"], "run_to": run[-1]["block_id"]})
+                          "text": f"{head}\n{text}", "via": b["block_id"], "run_to": run[-1]["block_id"], "distance": b.get("distance")})
             seen.add(free[0]["block_id"])
     if expand_fn:
         for b in keep:
