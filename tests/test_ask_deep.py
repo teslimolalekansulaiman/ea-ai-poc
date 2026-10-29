@@ -141,3 +141,14 @@ def test_run_reports_what_the_model_was_given_block_by_block(monkeypatch):
     setup(monkeypatch, DeepRetriever())
     out = qg.run("Who owns Gamma?", use_llm=False, safety=False, deep=True)
     assert {b["block_id"] for b in out["context_blocks"]} >= {"D:50", "D:52"} and all(b["chars"] > 0 for b in out["context_blocks"])
+
+
+def test_the_prompt_separates_stated_from_worked_out_from_not_found_and_trusts_the_completeness_lines():
+    from eawiki.query import answer as ans
+    p = ans.build_prompt("Who owns Gamma?", "TABLES (3 shown):\n  [D:50] x", [{"role": "user", "content": "hi"}])
+    assert "STATED in the context" in p and "WORKED OUT from more than one piece" in p and "NOT in the context" in p
+    assert 'do not say the context "does not explicitly"' in p and "not an apology" in p
+    assert "believe it" in p and "could not be searched" in p and "make no statement you cannot cite" in p
+    assert "Cite the block id in square brackets" in p and "wiki:payroll-portal" in p                  # the citation rule is kept
+    assert p.index("Question: Who owns Gamma?") < p.index("Context:") < p.index("TABLES (3 shown)")
+    assert "do not treat it as a source to cite" in p                                                   # the conversation is still not a source

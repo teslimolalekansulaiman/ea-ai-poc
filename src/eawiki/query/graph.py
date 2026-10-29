@@ -355,7 +355,7 @@ def n_relevance(s: QAState) -> dict:
             and not det.relevance_ok(s.get("_block_objs", []), max_distance=s.get("max_distance", 0.95))):
         return {"status": "abstained", "answer": det.ABSTAIN}
     if s.get("_merged") is not None:
-        context = retmerge.render(s["_merged"]) + "\n\n(Cite a source by the id in brackets, a wiki page as wiki:<slug>. A section that says none found or could not be searched says so: nothing is concluded from it.)"
+        context = retmerge.render(s["_merged"]) + "\n\n(Cite a source by the id in brackets, a wiki page as wiki:<slug>.)"
     else:
         context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"), s.get("search_question") or s["question"])
     if s.get("case_context"):
