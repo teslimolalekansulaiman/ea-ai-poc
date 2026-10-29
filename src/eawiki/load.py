@@ -33,6 +33,24 @@ def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def block_doc(v: dict) -> dict:
+    """The Block vertex of one embedded unit. `part` of `parts` says which piece of its block this is (a long table is several windows, a long
+    paragraph several chunks), and a table window says which of its rows it holds (`rows_from` to `rows_to` of `rows_total`): a result can
+    then be told to be part 2 of 4, and the missing parts fetched."""
+    doc = {
+        "id": v["id"], "block_id": v["block_id"], "doc_id": v["doc_id"],
+        "btype": v.get("type", ""), "ordinal": v.get("ordinal", 0),
+        "kind": v.get("kind", "architecture"),
+        "section": " / ".join(v.get("section_path", [])),
+        "text": v.get("text", ""), "embedding": v.get("embedding", []),
+        "part": v.get("part", 1), "parts": v.get("parts", 1),
+    }
+    for k in ("rows_from", "rows_to", "rows_total"):
+        if v.get(k) is not None:
+            doc[k] = v[k]
+    return doc
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Step 6 — load graph + vectors into ArcadeDB")
     ap.add_argument("--graph", default="data/graph/graph.json")
@@ -71,13 +89,7 @@ def main() -> None:
 
     # --- blocks + embeddings (vertices) ---------------------------------
     for v in vectors:
-        store.insert("Block", {
-            "id": v["id"], "block_id": v["block_id"], "doc_id": v["doc_id"],
-            "btype": v.get("type", ""), "ordinal": v.get("ordinal", 0),
-            "kind": v.get("kind", "architecture"),
-            "section": " / ".join(v.get("section_path", [])),
-            "text": v.get("text", ""), "embedding": v.get("embedding", []),
-        })
+        store.insert("Block", block_doc(v))
     print(f"blocks:   {len(vectors)}")
 
     # --- relationships (edges) ------------------------------------------

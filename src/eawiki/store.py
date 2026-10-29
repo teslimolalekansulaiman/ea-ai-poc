@@ -13,7 +13,7 @@ VM differ only by environment:
 
 Graph model (kept generic on purpose — the metamodel evolves, the DB schema shouldn't):
     vertex Entity { node_id(unique), name, type, aliases[], origins[], attributes }
-    vertex Block  { id(unique), block_id, doc_id, btype, section, text, embedding[] }
+    vertex Block  { id(unique), block_id, doc_id, btype, section, text, part, parts, rows_from, rows_to, rows_total, embedding[] }
     edge   REL    { relation, source_count, origins[], evidence[] }   Entity -> Entity
     edge   CITES  { }                                                 Entity -> Block
 The relation name lives on REL.relation (queryable); the vector index lives on

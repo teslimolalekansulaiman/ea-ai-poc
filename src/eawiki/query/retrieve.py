@@ -16,6 +16,15 @@ from eawiki import embed as embmod
 from eawiki.store import ArcadeDBStore
 
 
+def tags(row: dict) -> dict:
+    """part / parts / rows_* of a stored unit. A row loaded before the tags existed is part 1 of 1, with no row range."""
+    out = {"part": int(row.get("part") or 1), "parts": int(row.get("parts") or 1)}
+    for k in ("rows_from", "rows_to", "rows_total"):
+        if row.get(k) is not None:
+            out[k] = int(row[k])
+    return out
+
+
 class Retriever:
     def __init__(self, store: Optional[ArcadeDBStore] = None,
                  meta_path: str = "data/graph/embeddings_meta.json"):
@@ -33,6 +42,13 @@ class Retriever:
         self._embedder = embmod.get_embedder(self.backend, model, self.dim, 32)
 
     # --- vector side -----------------------------------------------------
+    def _select(self, sql: str, old_sql: str, params: dict) -> list[dict]:
+        """A query that reads the part tags; on an index loaded before they existed it falls back to the same query without them."""
+        try:
+            return self.store.query(sql, params=params) or []
+        except Exception:
+            return self.store.query(old_sql, params=params) or []
+
     def embed_query(self, q: str) -> list[float]:
         return [float(x) for x in self._embedder.encode([q])[0]]
 
@@ -57,7 +73,7 @@ class Retriever:
             out.append({"block_id": r.get("block_id"), "doc_id": r.get("doc_id"),
                         "kind": r.get("kind", "architecture"),
                         "section": r.get("section"), "btype": r.get("btype"),
-                        "text": r.get("text", ""), "distance": dist})
+                        "text": r.get("text", ""), "distance": dist, **tags(r)})
             if len(out) >= k:
                 break
         return out
@@ -70,11 +86,13 @@ class Retriever:
         if not base:
             return []
         doc, ordn = base[0]["doc_id"], base[0].get("ordinal", 0)
-        rows = self.store.query(
+        rows = self._select(
+            "SELECT block_id, btype, section, text, ordinal, part, parts, rows_from, rows_to, rows_total FROM Block "
+            "WHERE doc_id = :d AND ordinal >= :lo AND ordinal <= :hi ORDER BY ordinal, part",
             "SELECT block_id, btype, section, text, ordinal FROM Block "
             "WHERE doc_id = :d AND ordinal >= :lo AND ordinal <= :hi ORDER BY ordinal",
-            params={"d": doc, "lo": ordn - window, "hi": ordn + window})
-        return rows or []
+            {"d": doc, "lo": ordn - window, "hi": ordn + window})
+        return [{**r, **tags(r)} for r in rows]
 
     # --- graph side ------------------------------------------------------
     def find_entities(self, text: str, limit: int = 5) -> list[dict]:
@@ -99,10 +117,11 @@ class Retriever:
         """Fetch block text/section for a set of block_ids (graph-route evidence)."""
         if not block_ids:
             return []
-        rows = self.store.query(
+        rows = self._select(
+            "SELECT block_id, btype, section, text, part, parts, rows_from, rows_to, rows_total FROM Block WHERE block_id IN :ids ORDER BY part",
             "SELECT block_id, btype, section, text FROM Block WHERE block_id IN :ids",
-            params={"ids": list(block_ids)})
-        return rows or []
+            {"ids": list(block_ids)})
+        return [{**r, **tags(r)} for r in rows]
 
     def subgraph(self, node_id: str) -> dict:
         """Outgoing + incoming typed relationships of an entity (one hop)."""

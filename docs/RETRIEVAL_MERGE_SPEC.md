@@ -1,6 +1,7 @@
 # Retrieval merge — specification (draft for review, nothing built yet)
 
-Status: draft. The numbers marked **(proposed)** are for the owner to correct before anything is built.
+Status: draft, numbers agreed by the owner. **Step 1 of section 10 (the tags) is built**: embedding units, the loaded vertex and the search results carry
+`part`, `parts` and the row range; an index loaded before them reads as part 1 of 1. The rest is not built.
 
 ## 1. Purpose
 

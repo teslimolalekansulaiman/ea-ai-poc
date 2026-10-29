@@ -104,6 +104,15 @@ TABLE_WINDOW_CHARS = 1100   # the rows of one window, with the header row repeat
 TABLE_WINDOW_MIN_ROWS = 6
 
 
+def table_rows(content: str, btype: str) -> dict:
+    """The row range a table unit holds, for a table that is one unit: every row. {} for anything that is not a table with rows."""
+    if btype != "table":
+        return {}
+    from eawiki.cases import tableview as tv
+    n = len(tv.parse(content)[2])
+    return {"rows_from": 1, "rows_to": n, "rows_total": n} if n else {}
+
+
 def table_windows(text: str) -> Optional[tuple[str, list[list[str]]]]:
     """(the header row, the rows packed in windows) for a long table, None for one that fits as it is. A description written
     from the first part of a table cannot hold the rows after it, so a question about one of them found nothing; every row is
@@ -162,6 +171,7 @@ def embeddable_units(blocks: Iterable[Block], skip_types=SKIP_TYPES,
                         "id": f"{b.block_id}#{i}", "block_id": b.block_id, "doc_id": b.doc_id, "type": b.type,
                         "kind": getattr(b, "kind", "architecture"), "section_path": b.section_path,
                         "ordinal": b.ordinal, "chunk": i, "n_chunks": len(windows),
+                        "part": i + 1, "parts": len(windows), "rows_from": done - len(rows_) + 1, "rows_to": done, "rows_total": total,
                         "text": f"{header}\n\n{body}\n{note}",
                         "embed_text": f"{header}\n{gist}\n{body}",
                     })
@@ -171,8 +181,9 @@ def embeddable_units(blocks: Iterable[Block], skip_types=SKIP_TYPES,
             units.append({
                 "id": b.block_id, "block_id": b.block_id, "doc_id": b.doc_id, "type": b.type,
                 "kind": getattr(b, "kind", "architecture"), "section_path": b.section_path,
-                "ordinal": b.ordinal, "chunk": 0, "n_chunks": 1,
+                "ordinal": b.ordinal, "chunk": 0, "n_chunks": 1, "part": 1, "parts": 1,
                 "text": text, "embed_text": embed_text,
+                **table_rows(content, b.type),
             })
             continue
 
@@ -186,7 +197,7 @@ def embeddable_units(blocks: Iterable[Block], skip_types=SKIP_TYPES,
                 "block_id": b.block_id, "doc_id": b.doc_id, "type": b.type,
                 "kind": getattr(b, "kind", "architecture"),
                 "section_path": b.section_path, "ordinal": b.ordinal,
-                "chunk": i, "n_chunks": len(chunks), "text": c, "embed_text": c,
+                "chunk": i, "n_chunks": len(chunks), "part": i + 1, "parts": len(chunks), "text": c, "embed_text": c,
             })
     return units
 
