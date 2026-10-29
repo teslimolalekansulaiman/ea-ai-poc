@@ -22,6 +22,7 @@ export default function KB() {
   const [reing, setReing] = useState(null)      // null = idle, else the reingest status
   const [busy, setBusy] = useState(false)       // during the add/remove request itself
   const [err, setErr] = useState('')
+  const [sourceCount, setSourceCount] = useState(1)   // source files on the server
   const [waiting, setWaiting] = useState([])    // saved on the server but not built into the knowledge base yet
   const [kinds, setKinds] = useState({})        // kind -> what it means, from the server
   const [limits, setLimits] = useState({ max_file_mb: 25, max_batch_files: 20, max_batch_mb: 100 })
@@ -33,7 +34,7 @@ export default function KB() {
   const fileRef = useRef(null)
   const { open } = useCite()
 
-  const loadDocs = () => api.docs().then(d => { setDocs(d.docs); setWaiting(d.waiting || []); if (d.kinds) setKinds(d.kinds); if (d.limits) setLimits(d.limits) }).catch(() => {})
+  const loadDocs = () => api.docs().then(d => { setDocs(d.docs); setWaiting(d.waiting || []); setSourceCount(d.source_count ?? 1); if (d.kinds) setKinds(d.kinds); if (d.limits) setLimits(d.limits) }).catch(() => {})
 
   useEffect(() => { loadDocs() }, [])
   // On mount, pick up a rebuild that may already be running (e.g. from the Model tab).
@@ -97,6 +98,7 @@ export default function KB() {
   }, [staged, docs, limits])
   const valid = checked.filter(e => !e.problem)
   const changes = valid.length + marked.length
+  const emptying = docs.length > 0 && marked.length >= docs.length && waiting.length === 0 && valid.length === 0     // every document goes and nothing comes in
 
   const toggleMark = (id) => setMarked(m => m.includes(id) ? m.filter(x => x !== id) : [...m, id])
   const setKind = (id, kind) => setStaged(st => st.map(e => e.id === id ? { ...e, kind } : e))
@@ -117,12 +119,19 @@ export default function KB() {
     await Promise.all([worker(), worker(), worker()])
     const saved = results.filter(r => r.state === 'added' || r.state === 'replaced').length
     const gone = marked.filter(Boolean)
+    let emptiedNote = ''
     try {
-      if (saved || gone.length) { const r = await api.applyDocs(gone, saved); setReing(r.reingest) }
+      if (saved || gone.length) {
+        const r = await api.applyDocs(gone, saved, emptying)
+        if (r.reingest) setReing(r.reingest)
+        if (r.emptied) emptiedNote = r.durable === false
+          ? 'No rebuild was started (there is nothing to build from). The removal could not be saved to the bucket yet, so it may come back if the server restarts.'
+          : 'No rebuild was started: there is nothing to build from. What is already built keeps answering until you add documents and apply; then everything is rebuilt from the new set.'
+      }
     } catch (x) {
       setErr(String(x).replace('Error: ', '') + (saved ? ' The files above were saved but nothing was rebuilt; fix this and press Rebuild.' : ''))
     }
-    setOutcome([...results, ...gone.map(d => ({ name: d, state: 'removed', reason: 'Archived, not deleted.' }))].concat(
+    setOutcome([...results, ...gone.map(d => ({ name: d, state: 'removed', reason: 'Archived, not deleted.' })), ...(emptiedNote ? [{ name: 'Every document', state: 'removed', reason: emptiedNote }] : [])].concat(
       checked.filter(e => e.problem).map(e => ({ name: e.file.name, state: 'rejected', reason: e.problem }))))
     setStaged([]); setMarked([])
     setBusy(false)
@@ -158,8 +167,8 @@ export default function KB() {
           <p>The documents every answer is grounded in. Choose as many files as you like and mark any to remove, then apply once: the wiki, graph and vector index are rebuilt a single time for the whole batch.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="btn" disabled={running || busy} onClick={onRebuild}
-            title="Rebuild from the current documents, with no change to them">Rebuild</button>
+          <button className="btn" disabled={running || busy || sourceCount === 0} onClick={onRebuild}
+            title={sourceCount === 0 ? 'There are no source documents to build from; add some first' : 'Rebuild from the current documents, with no change to them'}>Rebuild</button>
           <label className={'btn primary' + (running || busy ? ' disabled' : '')}>
             {busy ? 'Working…' : '+ Add documents'}
             <input ref={fileRef} type="file" accept=".docx,.pptx" multiple hidden disabled={running || busy} onChange={onPick} />
@@ -205,7 +214,7 @@ export default function KB() {
         <div className="card changes">
           <div className="changes-head">
             <div><b>{valid.length}</b> to add{valid.length ? ` (${mb(valid.reduce((n, e) => n + e.file.size, 0))})` : ''} · <b>{marked.length}</b> to remove
-              <span className="meta"> · one rebuild for all of it</span></div>
+              <span className="meta">{emptying ? ' · no rebuild' : ' · one rebuild for all of it'}</span></div>
             <div className="changes-actions">
               {staged.length > 1 && (
                 <label className="meta">Set every file to{' '}
@@ -217,9 +226,15 @@ export default function KB() {
               )}
               <button className="btn" disabled={busy} onClick={clearChanges}>Clear</button>
               <button className="btn primary" disabled={running || busy || !changes} onClick={onApply}
-                title={running ? 'A rebuild is running; wait for it to finish' : ''}>{busy ? 'Applying…' : `Apply ${changes} change${changes === 1 ? '' : 's'}`}</button>
+                title={running ? 'A rebuild is running; wait for it to finish' : ''}>{busy ? 'Applying…' : emptying ? 'Remove all (no rebuild)' : `Apply ${changes} change${changes === 1 ? '' : 's'}`}</button>
             </div>
           </div>
+          {emptying && (
+            <div className="meta" style={{ marginBottom: 10, color: 'var(--warn)' }}>
+              This removes every document. Nothing is rebuilt now, because there is nothing to build from. What is already built keeps answering until you add
+              documents and apply; the rebuild then replaces it with the new set. The files are archived, not deleted.
+            </div>
+          )}
           <div className="tbl-scroll"><table className="data">
             <thead><tr><th>File</th><th>Kind</th><th>Verdict</th><th /></tr></thead>
             <tbody>
@@ -280,6 +295,10 @@ export default function KB() {
           </table></div>
         </div>
       )}
+      {sourceCount === 0 && docs.length > 0 && (
+        <div className="card changes"><div className="meta">There are no source documents. The knowledge base below is what was built before they were removed, and it keeps answering. Add documents and apply to replace it.</div></div>
+      )}
+
       {waiting.length > 0 && (
         <div className="card changes">
           <div className="changes-head">
@@ -302,7 +321,7 @@ export default function KB() {
         <div className={'card kb-doc' + (marked.includes(doc.doc_id) ? ' marked' : '')} key={doc.doc_id}>
           <div className="top"><div className="fi" style={{ background: 'var(--l-application)' }}>DOCX</div>
             <div><div className="nm">{doc.doc_id}</div><div className="meta mono">{doc.file || doc.doc_id + '.docx'}</div></div></div>
-          <div><span className="pill ok">✓ Parsed</span> <span className="pill neutral">{doc.kind}</span></div>
+          <div><span className="pill ok">✓ Parsed</span> <span className="pill neutral">{doc.kind}</span>{doc.source_removed && <> <span className="pill warn" title="Its source file was removed. It leaves the knowledge base at the next rebuild.">source removed</span></>}</div>
           <div className="stats">
             <span><b>{doc.blocks}</b> blocks</span>
             <label className="push meta" style={{ display: 'inline-flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>

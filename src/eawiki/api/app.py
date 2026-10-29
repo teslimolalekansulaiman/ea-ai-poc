@@ -287,9 +287,13 @@ def docs():
                     "file": Path(d.get("source_file") or "").name or None,
                     "blocks": len(blocks), "kind": kind,
                     "counts": d.get("counts", {})})
+    have = sources_mod.sources(SAMPLES)
     built = {d["doc_id"] for d in out}
-    waiting = [{"doc_id": p.stem, "file": p.name, "kind": sources_mod.kind_of(p)} for p in sources_mod.sources(SAMPLES) if p.stem not in built]
-    return {"docs": out, "waiting": waiting, "kinds": sources_mod.KINDS, "limits": sources_mod.LIMITS}
+    waiting = [{"doc_id": p.stem, "file": p.name, "kind": sources_mod.kind_of(p)} for p in have if p.stem not in built]
+    stems = {p.stem for p in have}
+    for d in out:
+        d["source_removed"] = d["doc_id"] not in stems          # built, but its source file is gone: it leaves the knowledge base at the next rebuild
+    return {"docs": out, "waiting": waiting, "source_count": len(have), "kinds": sources_mod.KINDS, "limits": sources_mod.LIMITS}
 
 
 def _no_ingest_running():
@@ -314,6 +318,7 @@ async def docs_upload(file: UploadFile = File(...), kind: str = Form(sources_mod
 class ApplyReq(BaseModel):
     remove: list[str] = []          # doc_ids to take out of the ingest set (their files are archived, not deleted)
     added: int = 0                  # files the caller has saved with /api/docs/upload in this batch
+    allow_empty: bool = False       # remove EVERY document: nothing is rebuilt now (there is nothing to build from); add documents and apply later
 
 
 @app.post("/api/docs/apply")
@@ -324,11 +329,19 @@ def docs_apply(req: ApplyReq):
     if not req.remove and req.added < 1:
         raise HTTPException(400, "Nothing to apply.")
     try:
-        archived = sources_mod.archive(SAMPLES, ARCHIVE, req.remove, req.added) if req.remove else []
+        archived = sources_mod.archive(SAMPLES, ARCHIVE, req.remove, req.added, req.allow_empty) if req.remove else []
     except LookupError as e:
         raise HTTPException(404, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
+    if not sources_mod.sources(SAMPLES):          # emptied on purpose: no rebuild (it would fail at parse after clearing what is built)
+        from eawiki import sync
+        try:
+            sync.push_sources()                   # make the removal durable now: the next rebuild would otherwise never run to do it
+            durable = True
+        except Exception:
+            durable = False
+        return {"ok": True, "archived": archived, "added": 0, "reingest": None, "emptied": True, "durable": durable}
     return {"ok": True, "archived": archived, "added": req.added, "reingest": pipeline.run_async()}
 
 
@@ -653,6 +666,8 @@ def reingest_status():
 def reingest_run():
     _require_writable()
     from eawiki import pipeline
+    if not sources_mod.sources(SAMPLES):
+        raise HTTPException(400, "There are no source documents to build from; add some first.")
     return pipeline.run_async()
 
 

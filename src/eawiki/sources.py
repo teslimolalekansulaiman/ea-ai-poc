@@ -83,16 +83,17 @@ def save(samples: Path, name: str, data: bytes, kind: str = DEFAULT_KIND, max_by
             "reason": "Replaces the file of the same name." if replaced else ""}
 
 
-def archive(samples: Path, archive_dir: Path, doc_ids: list[str], adding: int = 0) -> list[str]:
+def archive(samples: Path, archive_dir: Path, doc_ids: list[str], adding: int = 0, allow_empty: bool = False) -> list[str]:
     """Move the sources of these documents out of the ingest set. Raises LookupError for an unknown document and ValueError when
-    nothing would be left (`adding` files just saved count as left)."""
+    nothing would be left (`adding` files just saved count as left) unless `allow_empty`: emptying the set is allowed only when the caller
+    does not rebuild from it (a rebuild with no documents fails at the parse step, after it has already cleared the built blocks and pages)."""
     have = sources(samples)
     ids = [Path(d).name for d in doc_ids]
     unknown = [d for d in ids if not any(p.stem == d for p in have)]
     if unknown:
         raise LookupError(f"no source document '{unknown[0]}'")
     going = [p for p in have if p.stem in ids]
-    if len(have) - len(going) + max(adding, 0) < 1:
+    if len(have) - len(going) + max(adding, 0) < 1 and not allow_empty:
         raise ValueError("Cannot remove the last document — the knowledge base would be empty.")
     Path(archive_dir).mkdir(parents=True, exist_ok=True)
     for p in going:

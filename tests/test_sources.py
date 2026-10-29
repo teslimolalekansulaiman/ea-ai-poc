@@ -83,6 +83,7 @@ def test_the_knowledge_base_is_never_emptied_and_an_empty_batch_is_refused(env):
     root, starts, c = env
     up(c, "a.docx", office("a"))
     assert c.post("/api/docs/apply", json={"remove": ["a"], "added": 0}).status_code == 400
+    up(c, "b.docx", office("b"))
     assert c.post("/api/docs/apply", json={"remove": ["a"], "added": 1}).status_code == 200        # a file added in the same batch counts
     assert c.post("/api/docs/apply", json={"remove": [], "added": 0}).status_code == 400
     assert c.post("/api/docs/apply", json={"remove": ["zz"], "added": 1}).status_code == 404
@@ -123,3 +124,29 @@ def test_saved_files_that_are_not_built_yet_are_listed_as_waiting(env, monkeypat
     up(c, "fresh.docx", office("f"), "governance")
     got = c.get("/api/docs").json()
     assert [d["doc_id"] for d in got["docs"]] == ["built"] and got["waiting"] == [{"doc_id": "fresh", "file": "fresh.docx", "kind": "governance"}]
+
+
+def test_every_document_can_be_removed_without_a_rebuild_and_a_rebuild_with_none_is_refused(env, monkeypatch):
+    root, starts, c = env
+    for n in "ab":
+        up(c, f"{n}.docx", office(n))
+    monkeypatch.setattr("eawiki.sync.push_sources", lambda: starts.append("pushed"))
+    assert c.post("/api/docs/apply", json={"remove": ["a", "b"], "added": 0}).status_code == 400          # still refused unless asked for
+    r = c.post("/api/docs/apply", json={"remove": ["a", "b"], "added": 0, "allow_empty": True})
+    assert r.status_code == 200 and r.json()["emptied"] and r.json()["reingest"] is None and r.json()["durable"]
+    assert starts == ["pushed"]                                                                         # no rebuild; the removal was pushed
+    assert (root / "archive/a.docx").exists() and not list((root / "samples").rglob("*.docx"))
+    assert c.post("/api/reingest").status_code == 400                                                   # nothing to build from: refused before anything is cleared
+    up(c, "new.docx", office("new"))
+    assert c.post("/api/docs/apply", json={"remove": [], "added": 1}).status_code == 200 and starts[-1] == 1     # adding then applying rebuilds from the new set
+
+
+def test_a_built_document_whose_source_is_gone_is_flagged(env, monkeypatch):
+    root, _, c = env
+    monkeypatch.setattr(appmod, "_block_files", lambda: ["k1"])
+    class FS:
+        def read_text(self, k):
+            return '{"doc_id": "old", "source_file": "old.docx", "blocks": []}'
+    monkeypatch.setattr(appmod, "filestore", lambda: FS())
+    got = c.get("/api/docs").json()
+    assert got["docs"][0]["source_removed"] is True and got["source_count"] == 0
