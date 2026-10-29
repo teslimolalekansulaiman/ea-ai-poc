@@ -13,7 +13,7 @@ const post = (url, body) =>
   J(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 export const api = {
-  ask: (question, history) => post('/api/ask', { question, history }),
+  ask: (question, history, deep) => post('/api/ask', { question, history, deep: !!deep }),
   pages: () => J('/api/pages'),
   page: (slug) => J('/api/pages/' + encodeURIComponent(slug)),
   landscape: () => J('/api/landscape'),

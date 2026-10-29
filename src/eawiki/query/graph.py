@@ -16,15 +16,19 @@ Guards short-circuit via conditional edges. Model calls go through BackendLLM
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from typing import Any, Optional, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from eawiki import lanes as lanes_mod
+from eawiki.cases import figureread
 from eawiki.cases import passages as psg
 from eawiki.cases.tools import RealKB
 from eawiki.query import answer as ans
 from eawiki.query import wikisearch as ws
+from eawiki.retrieval import merge as retmerge
 from eawiki.query import executor as ew
 from eawiki.query import graphquery as gq
 from eawiki.query import guardrails as det
@@ -76,6 +80,9 @@ class QAState(TypedDict, total=False):
     page: str
     wiki_pages: list         # wiki pages picked by title and summary and read for the question
     wiki_search: dict
+    deep: bool               # deep mode: the retrieval merge (lanes searched on their own, tables completed, labelled sections, figure images read)
+    _merged: object          # the retrieval merge's result (deep mode)
+    evidence: list           # the merge's sections, for the screen: [{lane, heading, complete}]
     context: str
     answer: str
     citation_check: dict
@@ -214,10 +221,95 @@ def _graphquery(s: QAState) -> dict:
     return {}
 
 
+def _figure_reader():
+    """The vision reader for figure blocks (Ask's deep mode); a function so a test can replace it."""
+    from eawiki.cases.tools import image_reader
+    return image_reader(filestore(), os.environ.get("EAWIKI_API_BACKEND", "openrouter"))
+
+
+def _to_item(b: dict) -> retmerge.Item:
+    meta = {k: b[k] for k in ("via", "run_to", "captioned") if b.get(k)}
+    if b.get("run_to"):
+        meta["run"] = True
+    meta["distance"] = b.get("distance")
+    meta["block"] = b
+    return retmerge.Item(lanes_mod.lane_of(b.get("btype") or ""), b["block_id"], b.get("text") or "", part=int(b.get("part") or 1),
+                         parts=int(b.get("parts") or 1), rows_from=b.get("rows_from"), rows_to=b.get("rows_to"), rows_total=b.get("rows_total"), meta=meta)
+
+
+def _deep(s: QAState, r, q: str, wiki: dict) -> dict:
+    """Deep mode: the retrieval merge over tables, wiki, graph, figures and text (docs/RETRIEVAL_MERGE_SPEC.md), each searched on its own."""
+    from eawiki.cases.gather import _render_wiki
+    kinds = s.get("kinds")
+    tabs = r.lane_search(q, "tables", 3, kinds=kinds)
+    figs = r.lane_search(q, "figures", 3, kinds=kinds)
+    hits = r.vector_search(q, k=5 * psg.FETCH_FACTOR, kinds=kinds, types=list(lanes_mod.types_of("text")))
+    text, labels, _ = psg.reshape(hits, 5, r.expand, q)         # a caption that is a hit brings its figure or table: sorted into its own lane below
+    lnk, gqr = s.get("link"), s.get("graph_result")
+    evid: list = []
+    if lnk:
+        evid += r.blocks_by_ids(lk.evidence_block_ids(lnk, gq._load()))
+    if gqr and gqr.get("block_ids"):
+        evid += r.blocks_by_ids(gqr["block_ids"])
+    by_lane: dict = {"tables": [], "figures": [], "text": []}
+    seen: set = set()
+    for b in tabs + figs + text + evid:                        # nearest first within a lane; the blocks the graph rests on after the searches
+        key = (b["block_id"], b.get("part", 1))
+        if key not in seen:
+            seen.add(key)
+            by_lane[lanes_mod.lane_of(b.get("btype") or "")].append(b)
+    items = {lane: [_to_item(b) for b in bl] for lane, bl in by_lane.items()}
+    if s.get("use_llm", True) and items["figures"]:
+        try:                                         # the image of the first diagrams, read for this question (the description was written once, for search)
+            reads = figureread.read([{"block_id": it.id, "text": it.text} for it in items["figures"]], {it.id: s["question"] for it in items["figures"]},
+                                    "", _figure_reader(), {})
+            for it in items["figures"]:
+                got = reads.get(it.id) or {}
+                if got.get("state") == "read":
+                    it.text += "\n(Read from the image of this diagram, for the question, by a vision model: " + "; ".join(got["text"].splitlines()) + ")"
+                elif got.get("state") == "none":
+                    it.text += "\n(The image of this diagram was read for the question: nothing in it bears on it.)"
+        except Exception:
+            pass                                      # the description alone is shown
+    wiki_items = [retmerge.Item("wiki", w["id"], _render_wiki(w)) for w in wiki.get("pages", [])]
+    wiki_state = ("found" if wiki_items else ("error" if wiki.get("state") == "unread" else "none")) if wiki else "not_searched"
+    verified = bool(gqr) and gqr.get("authoritative", True) and bool(gqr.get("facts"))
+    graph_items = [retmerge.Item("graph", "graph:query", str(gqr["facts"]), cites=tuple(gqr.get("block_ids", [])))] if verified else []
+
+    def lane(name):
+        return retmerge.LaneResult(name, items[name], "found" if items[name] else "none")
+    text_lane = lane("text")
+    text_lane.extra = {"labels_set_aside": labels}
+    lanes_in = [lane("tables"), retmerge.LaneResult("wiki", wiki_items, wiki_state),
+                retmerge.LaneResult("graph", graph_items, "found" if graph_items else ("none" if lnk or gqr else "not_searched")),
+                lane("figures"), text_lane]
+
+    def fetch(block_id, want):
+        return [retmerge.Item("tables", x["block_id"], x.get("text", ""), part=int(x.get("part") or 1), parts=int(x.get("parts") or 1),
+                              rows_from=x.get("rows_from"), rows_to=x.get("rows_to"), rows_total=x.get("rows_total"))
+                for x in r.blocks_by_ids([block_id]) if int(x.get("part") or 1) in set(want)]
+
+    merged = retmerge.merge(lanes_in, None, fetch)
+    shown = [it.meta.get("block") or {"block_id": it.id, "text": it.text} for sec in merged.sections if sec.lane in ("tables", "figures", "text") for it in sec.items]
+    page = (ew._community_summaries() or (ew._all_wiki() if ew._wiki_fits() else "")) if s["route"]["strategy"] == "global" else ""
+    return {"_block_objs": shown, "blocks": list(dict.fromkeys(b["block_id"] for b in shown)), "subgraph": None, "page": page,
+            "wiki_pages": wiki.get("pages", []), "_merged": merged,
+            "wiki_search": {k_: wiki[k_] for k_ in ("state", "offered", "picked") if k_ in wiki},
+            "evidence": [{"lane": x.lane, "heading": x.heading, "complete": x.complete} for x in merged.sections]}
+
+
 def n_retrieve(s: QAState) -> dict:
     r = _retriever()
     q = s.get("search_question") or s["question"]
     k = s.get("k", 8)
+    if s.get("deep"):
+        wiki: dict = {}
+        if s.get("use_llm", True) and s["route"]["strategy"] != "global":
+            try:
+                wiki = ws.pages_for(q, lambda p: llm_text(p, s.get("backend", "cli"), s.get("model")), _kb())
+            except Exception:
+                wiki = {}
+        return _deep(s, r, q, wiki)
     blocks = _passages(r, r.vector_search(q, k=k * psg.FETCH_FACTOR, kinds=s.get("kinds")), k, q)
     lnk = s.get("link")
     if lnk:
@@ -262,18 +354,23 @@ def n_relevance(s: QAState) -> dict:
     if (gqr is None and s.get("subgraph") is None and not s.get("page") and not s.get("case_context") and not s.get("wiki_pages")
             and not det.relevance_ok(s.get("_block_objs", []), max_distance=s.get("max_distance", 0.95))):
         return {"status": "abstained", "answer": det.ABSTAIN}
-    context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"), s.get("search_question") or s["question"])
+    if s.get("_merged") is not None:
+        context = retmerge.render(s["_merged"]) + "\n\n(Cite a source by the id in brackets, a wiki page as wiki:<slug>. A section that says none found or could not be searched says so: nothing is concluded from it.)"
+    else:
+        context = ans.assemble_context(s.get("_block_objs", []), s.get("subgraph"), s.get("search_question") or s["question"])
     if s.get("case_context"):
         context = ("CASE RESULTS (what this case decided so far; authoritative for questions about its demands; "
                    "cite a source block only where a property names one):\n" + s["case_context"] + "\n\n" + context)
-    if s.get("wiki_pages"):
+    if s.get("wiki_pages") and s.get("_merged") is None:
         from eawiki.cases.gather import _render_wiki
         context = ("WIKI PAGES (picked by title and summary and read for the question; cite one by its id, like [wiki:slug]):\n"
                    + "\n".join(_render_wiki(w) for w in s["wiki_pages"]) + "\n\n" + context)
     if s.get("page"):
         context = ("WIKI (synthesized, connected context — cite the block ids it references, "
                    "not the page):\n" + s["page"] + "\n\n" + context)
-    if gqr and gqr.get("authoritative", True):
+    if s.get("_merged") is not None and not (gqr and not gqr.get("authoritative", True)):
+        pass                                          # the graph query is the graph section of the merge
+    elif gqr and gqr.get("authoritative", True):
         # Templates (and VERIFIED generated queries) are the authoritative answer; put first.
         context = (f"GRAPH QUERY RESULT ({gqr.get('template')}, authoritative — this is the "
                    f"structural answer; use the source blocks below for wording and citations):\n"
@@ -299,6 +396,8 @@ def n_output_guard(s: QAState) -> dict:
     if s.get("status") == "retrieved":      # no answer generated
         return {}
     allowed_ids = {b["block_id"] for b in s.get("_block_objs", [])} | {w["id"] for w in s.get("wiki_pages", [])}
+    if s.get("_merged") is not None:
+        allowed_ids = set(s["_merged"].allowed)
     cite = det.verify_citations(s.get("answer", ""), allowed_ids)
     out = {"citation_check": cite, "status": "answered"}
     if s.get("safety", True) and s.get("use_llm", True):
@@ -347,13 +446,14 @@ def build_app():
 
 def run(question: str, backend: str = "cli", model=None, k: int = 8,
         kinds=None, use_llm: bool = True, safety: bool = True,
-        max_distance: float = 0.95, history=None, case_context: str = "") -> dict:
+        max_distance: float = 0.95, history=None, case_context: str = "", deep: bool = False) -> dict:
     state: QAState = {"question": question, "history": history or [], "case_context": case_context,
-                      "backend": backend, "model": model,
+                      "backend": backend, "model": model, "deep": deep,
                       "k": k, "kinds": kinds, "use_llm": use_llm, "safety": safety,
                       "max_distance": max_distance}
     out = dict(build_app().invoke(state))
     out.pop("_block_objs", None)
+    out.pop("_merged", None)                          # the merge's own object stays inside the run; `evidence` is its summary
     out["wiki_pages"] = [{"id": w["id"], "name": w["name"]} for w in out.get("wiki_pages") or []]      # the digests stay inside the run
     out.setdefault("status", "answered")
     return out

@@ -1,6 +1,6 @@
 # Retrieval merge — specification (draft for review, nothing built yet)
 
-Status: draft, numbers agreed by the owner. **Steps 1 to 4 of section 10 are built** (step 4: the case runs use the merge when the use case has `merge: true`; off by default) (step 3: `eawiki/retrieval/merge.py`, not yet called by the case runs or Ask) (step 2: `eawiki/lanes.py` and a `types` filter on the vector search, `Retriever.lane_search`). Step 1 (the tags): embedding units, the loaded vertex and the search results carry
+Status: draft, numbers agreed by the owner. **Steps 1 to 5 of section 10 are built** (step 5: Ask uses the merge when the request says `deep`, an Ask-screen setting, "Deep thinking", per request and off by default; `EAWIKI_ASK_DEEP_MODEL` names a stronger model for it, falling back to `EAWIKI_ASK_MODEL`; the fast path is unchanged) (step 4: the case runs use the merge when the use case has `merge: true`; off by default) (step 3: `eawiki/retrieval/merge.py`, not yet called by the case runs or Ask) (step 2: `eawiki/lanes.py` and a `types` filter on the vector search, `Retriever.lane_search`). Step 1 (the tags): embedding units, the loaded vertex and the search results carry
 `part`, `parts` and the row range; an index loaded before them reads as part 1 of 1. The rest is not built.
 
 ## 1. Purpose
@@ -147,7 +147,7 @@ End to end:
 2. The `btype` filter and the returned tags in the vector search.
 3. The merge module and its unit tests.
 4. Wire the case runs behind `merge: true`; compare on the sample sheet.
-5. Wire Ask behind the same flag.
+5. Wire Ask behind a per-request setting ("Deep thinking" on the Ask screen) — built.
 6. The result screen shows lane and part.
 7. Measure with real embeddings; tune the numbers; make it the default.
 

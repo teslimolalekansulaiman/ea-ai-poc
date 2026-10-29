@@ -102,6 +102,26 @@ class RealKB:
         return wiki_page_from(self.fs, slug)
 
 
+def image_reader(fs, backend: str):
+    """read_image(block_id, prompt): a vision model's answer to `prompt` about the image of a figure block (None when the block has no image file).
+    Used by the case runs and by Ask's deep mode."""
+    def read_image(block_id, prompt):
+        import tempfile
+        from eawiki.storage import rel_key
+        from eawiki.subjects import llm_vision
+        raw = fs.read_text(f"blocks/{block_id.rsplit(':', 1)[0]}.blocks.json")
+        block = next((b for b in (json.loads(raw)["blocks"] if raw else []) if b.get("block_id") == block_id), None)
+        ip = ((block or {}).get("figure") or {}).get("image_path")
+        data = fs.read_bytes(rel_key(ip)) if ip else None
+        if not data:
+            return None
+        with tempfile.NamedTemporaryFile(suffix=Path(ip).suffix or ".png", delete=True) as f:
+            f.write(data)
+            f.flush()
+            return llm_vision(prompt, f.name, backend, None)
+    return read_image
+
+
 def real_tools() -> Tools:
     from eawiki.query import graph as qgraph
     from eawiki.query import graphquery as gq
@@ -138,22 +158,7 @@ def real_tools() -> Tools:
             out.append(Path(key).name.replace(".blocks.json", ""))
         return sorted(out)
 
-    def read_image(block_id, prompt):
-        """A vision model's answer to `prompt` about the image of a figure block; None when the block has no image file."""
-        import tempfile
-        from eawiki.storage import rel_key
-        from eawiki.subjects import llm_vision
-        fs = filestore()
-        raw = fs.read_text(f"blocks/{block_id.rsplit(':', 1)[0]}.blocks.json")
-        block = next((b for b in (json.loads(raw)["blocks"] if raw else []) if b.get("block_id") == block_id), None)
-        ip = ((block or {}).get("figure") or {}).get("image_path")
-        data = fs.read_bytes(rel_key(ip)) if ip else None
-        if not data:
-            return None
-        with tempfile.NamedTemporaryFile(suffix=Path(ip).suffix or ".png", delete=True) as f:
-            f.write(data)
-            f.flush()
-            return llm_vision(prompt, f.name, backend, None)
+    read_image = image_reader(filestore(), backend)
 
     return Tools(search=search, blocks_by_ids=r.blocks_by_ids, link=link, graph_facts=graph_facts,
                  llm_json=lambda prompt: llm_json(prompt, backend, model), doc_ids=doc_ids,

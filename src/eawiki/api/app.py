@@ -36,6 +36,7 @@ API_BACKEND = os.environ.get("EAWIKI_API_BACKEND", "openrouter")
 # Model for answering (Ask, use-case runs). Unset -> VLM_MODEL, the same model the ingest
 # pipeline uses; set it to answer with a different model than the one that builds the wiki.
 ASK_MODEL = os.environ.get("EAWIKI_ASK_MODEL") or None
+ASK_DEEP_MODEL = os.environ.get("EAWIKI_ASK_DEEP_MODEL") or ASK_MODEL        # a more powerful model for deep thinking, when one is configured
 
 @asynccontextmanager
 async def _lifespan(_app):
@@ -93,13 +94,14 @@ class AskReq(BaseModel):
     kinds: Optional[list[str]] = None
     safety: bool = True
     history: Optional[list[dict]] = None   # prior [{role, content}] turns for follow-ups
+    deep: bool = False                     # deep thinking: the retrieval merge, figure images read, and the deep model when one is set
 
 
 # --- endpoints -----------------------------------------------------------
 @app.get("/api/health")
 def health():
     from eawiki import sync
-    return {"ok": True, "backend": API_BACKEND, "ask_model": ASK_MODEL or os.environ.get("VLM_MODEL"),
+    return {"ok": True, "backend": API_BACKEND, "ask_model": ASK_MODEL or os.environ.get("VLM_MODEL"), "ask_deep_model": ASK_DEEP_MODEL or os.environ.get("VLM_MODEL"),
             "safety_llm": _safety_llm(),
             "sync": sync.status(),
             "pages": len(filestore().list(PAGES_KEY, ".md"))}
@@ -116,8 +118,8 @@ def _safety_llm() -> bool:
 def ask(req: AskReq):
     """The guarded AI layer: route -> retrieve -> answer, with NeMo + deterministic guards."""
     from eawiki.query.ask import ask as run
-    out = run(req.question, k=req.k, backend=API_BACKEND, model=ASK_MODEL, kinds=req.kinds,
-              use_llm=True, safety_llm=req.safety and _safety_llm(), history=req.history)
+    out = run(req.question, k=req.k, backend=API_BACKEND, model=ASK_DEEP_MODEL if req.deep else ASK_MODEL, kinds=req.kinds,
+              use_llm=True, safety_llm=req.safety and _safety_llm(), history=req.history, deep=req.deep)
     # One graph for display, from the SAME result the answer was grounded in (the graph
     # query engine), so the picture and the answer can never disagree. Surface provenance
     # (which template / generated), the query + facts (so a human can verify), and whether

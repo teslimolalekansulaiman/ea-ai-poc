@@ -20,6 +20,8 @@ export default function Ask() {
   const [q, setQ] = useState('')
   const [msgs, setMsgs] = useState([])
   const [loading, setLoading] = useState(false)
+  const [deep, setDeep] = useState(() => { try { return localStorage.getItem('ask.deep') === '1' } catch { return false } })
+  function chooseDeep(on) { setDeep(on); try { localStorage.setItem('ask.deep', on ? '1' : '0') } catch { /* remembered only when the browser lets it */ } }
   const endRef = useRef(null)
   const loadedRef = useRef(undefined)                  // guards the load effect
   // --- use-case mode ---
@@ -66,7 +68,7 @@ export default function Ask() {
     const withUser = [...base, { role: 'user', content: text }]
     setMsgs(withUser); setQ(''); setLoading(true)
     try {
-      const res = await api.ask(text, history)
+      const res = await api.ask(text, history, deep)
       const withBot = [...withUser, { role: 'bot', content: res.answer, meta: { ...res, answer: res.answer } }]
       setMsgs(withBot); saveChat(withBot)
     } catch (e) {
@@ -147,6 +149,7 @@ export default function Ask() {
                   <span className={'pill ' + (PILL[m.meta.status] || 'neutral')}>{m.meta.status}</span>
                   {m.meta.route && <span className="route">via <b>{m.meta.route.strategy}</b></span>}
                   {m.meta.citation_check && <span className="route">grounded <b>{String(m.meta.citation_check.grounded)}</b></span>}
+                  {m.meta.evidence && <span className="route" title={m.meta.evidence.map(e => `${e.heading}${e.complete ? '' : ' (not complete)'}`).join('\n')}>deep · <b>{m.meta.evidence.filter(e => e.complete).length}</b> of {m.meta.evidence.length} sections complete</span>}
                   {m.meta.context_info && <span className="route" title={m.meta.context_info.blocks.map(b => `${b.block_id} (${b.type}) ${b.chars} chars`).join('\n')}>context <b>{Math.round(m.meta.context_info.chars / 1000)} KB</b> · {m.meta.context_info.blocks.length} blocks</span>}
                 </div>
               )}
@@ -195,6 +198,9 @@ export default function Ask() {
         <textarea className="ta" value={q} onChange={e => setQ(e.target.value)} onKeyDown={onKey}
           placeholder={msgs.length ? 'Ask a follow-up…' : 'Ask about the architecture…'} />
         <div className="composer-row">
+          <label className="deep-toggle" title="Searches tables, wiki pages, the graph, diagrams and text each on its own, completes a long table, reads the image of a diagram for your question, and says what each search found. Slower.">
+            <input type="checkbox" checked={deep} onChange={e => chooseDeep(e.target.checked)} /> Deep thinking
+          </label>
           <button className="btn primary push" onClick={send} disabled={loading}>
             {loading ? 'Thinking…' : (msgs.length ? 'Send' : 'Ask')}
           </button>
