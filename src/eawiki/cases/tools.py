@@ -115,8 +115,8 @@ def real_tools() -> Tools:
     model = os.environ.get("EAWIKI_ASK_MODEL") or None
     r = qgraph._retriever()
 
-    def search(q, k, docs):
-        return r.vector_search(q, k=k, docs=docs) if docs else r.vector_search(q, k=k)
+    def search(q, k, docs, types=None):
+        return r.vector_search(q, k=k, docs=docs, types=types) if (docs or types) else r.vector_search(q, k=k)
 
     def link(text):
         res = lk.link(text, backend, model, embed=r.embed_query)

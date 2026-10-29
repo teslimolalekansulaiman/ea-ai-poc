@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 from eawiki import embed as embmod
+from eawiki import lanes
 from eawiki.store import ArcadeDBStore
 
 
@@ -54,17 +55,24 @@ class Retriever:
 
     def vector_search(self, q: str, k: int = 8,
                       kinds: Optional[list[str]] = None,
-                      docs: Optional[list[str]] = None) -> list[dict]:
+                      docs: Optional[list[str]] = None,
+                      types: Optional[list[str]] = None) -> list[dict]:
         """k nearest blocks to the question, nearest first. If `kinds` is given,
         restrict to those document classes (e.g. ['architecture']) — over-fetch
-        then filter, so a governance block isn't returned as an architecture fact."""
-        # `docs` restricts to named documents (a use-case property says where to look). The index
-        # cannot filter, so over-fetch much more and keep only those documents' blocks.
+        then filter, so a governance block isn't returned as an architecture fact.
+        `types` restricts to block types (['table'], see eawiki.lanes): the search of one lane."""
+        # `docs` restricts to named documents (a use-case property says where to look); `types` to kinds of block. The index
+        # cannot filter, so over-fetch much more and keep only those.
         fetch = k * 25 if docs else (k * 4 if kinds else k)
+        if types:
+            fetch = max(fetch, k * lanes.TYPE_FETCH_FACTOR)
         rows = self.store.vector_search(self.embed_query(q), k=fetch)
         want = {d.lower() for d in docs} if docs else None
+        want_types = set(types) if types else None
         out = []
         for r in rows:
+            if want_types and r.get("btype", "") not in want_types:
+                continue
             if kinds and r.get("kind", "architecture") not in kinds:
                 continue
             if want and str(r.get("doc_id", "")).lower() not in want:
@@ -77,6 +85,11 @@ class Retriever:
             if len(out) >= k:
                 break
         return out
+
+    def lane_search(self, q: str, lane: str, k: int = 5, kinds: Optional[list[str]] = None,
+                    docs: Optional[list[str]] = None) -> list[dict]:
+        """The k nearest blocks of ONE lane (tables, figures or text): its own top k, whatever else is nearer in the index."""
+        return self.vector_search(q, k=k, kinds=kinds, docs=docs, types=list(lanes.types_of(lane)))
 
     def expand(self, block_id: str, window: int = 1) -> list[dict]:
         """Small->big: the block's immediate neighbours in the same doc (by ordinal)."""

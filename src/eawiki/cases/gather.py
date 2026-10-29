@@ -41,7 +41,7 @@ HEAD_CHARS = 80             # an entry's name is at the start of its passage
 
 @dataclass
 class Tools:
-    search: Callable[[str, int, Optional[list]], list]          # (query, k, docs) -> blocks
+    search: Callable[..., list]                                 # (query, k, docs, types=None) -> blocks; `types` limits the search to block types (a lane)
     blocks_by_ids: Callable[[list], list]
     link: Callable[[str], Optional[dict]]                       # item text -> linked entities
     graph_facts: Callable[[list], dict]                         # entity ids -> {facts, block_ids}
