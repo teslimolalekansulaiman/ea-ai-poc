@@ -24,6 +24,8 @@ export const api = {
   kb: (q, k = 8) => J('/api/kb?q=' + encodeURIComponent(q) + '&k=' + k),
   docs: () => J('/api/docs'),
   addDoc: (file) => { const fd = new FormData(); fd.append('file', file); return J('/api/docs/add', { method: 'POST', body: fd }) },
+  uploadDoc: (file, kind) => { const fd = new FormData(); fd.append('file', file); fd.append('kind', kind || 'architecture'); return J('/api/docs/upload', { method: 'POST', body: fd }) },
+  applyDocs: (remove, added) => J('/api/docs/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ remove, added }) }),
   removeDoc: (docId) => J('/api/docs/' + encodeURIComponent(docId), { method: 'DELETE' }),
   block: (id) => J('/api/block/' + encodeURIComponent(id)),
 

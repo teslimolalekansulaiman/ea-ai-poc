@@ -401,3 +401,11 @@ svg .edge{stroke:var(--border-strong);stroke-width:1.5}
 .eanode .nm{font-weight:600;font-size:12px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
 .eanode .ty{font-size:10px;color:var(--fg-faint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .react-flow__node.selected .eanode{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+
+.dropzone{padding:14px;margin-bottom:14px;border:1px dashed var(--border-strong);background:var(--surface-2);color:var(--fg-muted);font-size:12.5px;text-align:center}
+.dropzone.over{border-color:var(--accent);color:var(--fg)}
+.changes{padding:14px;margin-bottom:14px}
+.changes-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;font-size:13px}
+.changes-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.kb-doc.marked{opacity:.6;border-style:dashed}
+.kb-doc.marked .nm{text-decoration:line-through}
