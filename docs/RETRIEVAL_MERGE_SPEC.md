@@ -1,6 +1,6 @@
 # Retrieval merge — specification (draft for review, nothing built yet)
 
-Status: draft, numbers agreed by the owner. **Steps 1 and 2 of section 10 are built** (step 2: `eawiki/lanes.py` and a `types` filter on the vector search, `Retriever.lane_search`). Step 1 (the tags): embedding units, the loaded vertex and the search results carry
+Status: draft, numbers agreed by the owner. **Steps 1, 2 and 3 of section 10 are built** (step 3: `eawiki/retrieval/merge.py`, not yet called by the case runs or Ask) (step 2: `eawiki/lanes.py` and a `types` filter on the vector search, `Retriever.lane_search`). Step 1 (the tags): embedding units, the loaded vertex and the search results carry
 `part`, `parts` and the row range; an index loaded before them reads as part 1 of 1. The rest is not built.
 
 ## 1. Purpose
