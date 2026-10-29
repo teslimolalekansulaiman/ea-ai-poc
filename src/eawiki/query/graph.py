@@ -452,7 +452,8 @@ def run(question: str, backend: str = "cli", model=None, k: int = 8,
                       "k": k, "kinds": kinds, "use_llm": use_llm, "safety": safety,
                       "max_distance": max_distance}
     out = dict(build_app().invoke(state))
-    out.pop("_block_objs", None)
+    out["context_blocks"] = [{"block_id": b.get("block_id"), "type": b.get("btype"), "chars": len(b.get("text") or "")}
+                             for b in out.pop("_block_objs", None) or []]      # what the model was given, block by block (the texts stay inside the run)
     out.pop("_merged", None)                          # the merge's own object stays inside the run; `evidence` is its summary
     out["wiki_pages"] = [{"id": w["id"], "name": w["name"]} for w in out.get("wiki_pages") or []]      # the digests stay inside the run
     out.setdefault("status", "answered")

@@ -135,3 +135,9 @@ def test_run_returns_the_evidence_summary_and_not_the_merge_object(monkeypatch):
     setup(monkeypatch, DeepRetriever())
     out = qg.run("Who owns Gamma?", use_llm=False, safety=False, deep=True)
     assert "_merged" not in out and [e["lane"] for e in out["evidence"]][0] == "tables" and "D:50" in out["blocks"]
+
+
+def test_run_reports_what_the_model_was_given_block_by_block(monkeypatch):
+    setup(monkeypatch, DeepRetriever())
+    out = qg.run("Who owns Gamma?", use_llm=False, safety=False, deep=True)
+    assert {b["block_id"] for b in out["context_blocks"]} >= {"D:50", "D:52"} and all(b["chars"] > 0 for b in out["context_blocks"])
