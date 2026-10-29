@@ -86,7 +86,7 @@ def default_plan(col: dict, docs: Optional[list[str]] = None) -> dict:
     docs = docs or []
     lks = [x for x in (_lookup(l, docs) for l in col.get("lookups") or []) if x] or default_lookups(col)
     pref = list(dict.fromkeys(list(col.get("look_in") or []) + [d for l in lks for d in l["docs"]]))
-    return {"sources": sources_for(lks, ["demand", "documents", "graph"]), "queries": ["{__text__}"], "lookups": lks,
+    return {"sources": sources_for(lks, ["demand", "documents", "graph"]), "queries": ["{__text__}"], "lookups": lks, "whole_tables": bool(col.get("whole_tables")),
             "documents": pref, "origin": "default"}
 
 
@@ -132,7 +132,7 @@ def validate(raw, col: dict, fields: list[str], docs: list[str]) -> Optional[dic
     named = list(dict.fromkeys(list(col.get("look_in") or []) + [d for l in lks for d in l["docs"]] + named))
     if lks and "documents" not in sources and any(l["from"] != "other_demands" for l in lks):
         sources.append("documents")
-    return {"sources": list(dict.fromkeys(sources_for(lks, sources))), "queries": ["{__text__}"], "lookups": lks or default_lookups(col),
+    return {"sources": list(dict.fromkeys(sources_for(lks, sources))), "queries": ["{__text__}"], "lookups": lks or default_lookups(col), "whole_tables": bool(col.get("whole_tables")),
             "documents": named, "origin": "model"}
 
 

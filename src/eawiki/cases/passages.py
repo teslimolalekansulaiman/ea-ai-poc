@@ -25,6 +25,7 @@ import math
 import re
 from typing import Callable, Optional
 
+from eawiki import lanes as lanes_mod
 from eawiki.cases import namelookup as nl
 from eawiki.cases import tableview
 
@@ -292,24 +293,28 @@ def mark(blocks: list[dict], mention: str, candidate_names: Optional[list] = Non
     return {"entry": entry, "mentioned": mentioned, "closest": closest}
 
 
-def search(search_fn: Callable, query: str, k: int, docs: list, strict: bool = False) -> list[dict]:
+def search(search_fn: Callable, query: str, k: int, docs: list, strict: bool = False, types: Optional[list] = None) -> list[dict]:
     """The named documents first; then, unless `strict`, a short search of everything. A passage found only by the
-    second search carries outside=True."""
+    second search carries outside=True. `types` limits the search to block types (a lane). A hit is told apart by its block AND its part:
+    parts 2 and 3 of one table are two hits."""
     out, seen = [], set()
-    for b in (search_fn(query, k, docs) if docs else search_fn(query, k, None)) or []:
-        if b["block_id"] not in seen:
-            seen.add(b["block_id"])
+    ask = (lambda q, n, d: search_fn(q, n, d, types)) if types else search_fn
+    for b in (ask(query, k, docs) if docs else ask(query, k, None)) or []:
+        key = (b["block_id"], b.get("part", 1))
+        if key not in seen:
+            seen.add(key)
             out.append(dict(b))
     if docs and not strict:
-        for b in search_fn(query, GLOBAL_EXTRA, None) or []:
-            if b["block_id"] not in seen:
-                seen.add(b["block_id"])
+        for b in ask(query, GLOBAL_EXTRA, None) or []:
+            key = (b["block_id"], b.get("part", 1))
+            if key not in seen:
+                seen.add(key)
                 out.append(dict(b, outside=True))
     return out
 
 
 def read(lookup: dict, mentions: list, demand_text: str, search_fn: Callable, candidates: Optional[dict] = None,
-         strict: bool = False, expand_fn: Optional[Callable] = None) -> dict:
+         strict: bool = False, expand_fn: Optional[Callable] = None, lanes_k: Optional[dict] = None) -> dict:
     """Run one lookup's search. `mentions`: the names to look up ([None] for the demand as a whole; [] when the demand names nothing of this kind: no search); `candidates`:
     {mention: [candidate dicts with 'name'] } from steps 1 to 3. Returns {'items': [per mention], 'blocks': [...]}.
     item: {'mention', 'query', 'queries' (every question asked), 'by' ('name'|'meaning'), 'state' ('found'|'none'|'error'),
@@ -325,10 +330,22 @@ def read(lookup: dict, mentions: list, demand_text: str, search_fn: Callable, ca
         extra = [n for n in dict.fromkeys(official) if nl.norm(n) != nl.norm(m or "")][:MAX_OFFICIAL] if by == "name" else []
         try:
             k = PER_MENTION if m else PER_NEED
-            hits = search(search_fn, q, k * FETCH_FACTOR, docs, strict)
             fragments = added = 0
-            if by == "meaning":
-                hits, fragments, added = reshape(hits, k, expand_fn, q)
+            if lanes_k and by == "meaning":
+                # the retrieval merge: tables, figures and text are searched each on its own, so a label cannot push a table or a diagram out
+                text_hits = search(search_fn, q, lanes_k.get("text", k) * FETCH_FACTOR, docs, strict, list(lanes_mod.types_of("text")))
+                text_hits, fragments, added = reshape(text_hits, lanes_k.get("text", k), expand_fn, q)
+                seen_keys = {(b["block_id"], b.get("part", 1)) for b in text_hits}
+                hits = list(text_hits)
+                for lane in ("tables", "figures"):
+                    for b in search(search_fn, q, lanes_k.get(lane, 2), docs, strict, list(lanes_mod.types_of(lane))):
+                        if (b["block_id"], b.get("part", 1)) not in seen_keys:
+                            seen_keys.add((b["block_id"], b.get("part", 1)))
+                            hits.append(b)
+            else:
+                hits = search(search_fn, q, k * FETCH_FACTOR, docs, strict)
+                if by == "meaning":
+                    hits, fragments, added = reshape(hits, k, expand_fn, q)
             for n in extra:
                 have = {b["block_id"] for b in hits}
                 hits += [b for b in search(search_fn, passage_query(lookup, n, demand_text), PER_MENTION, docs, strict) if b["block_id"] not in have]
@@ -348,7 +365,8 @@ def read(lookup: dict, mentions: list, demand_text: str, search_fn: Callable, ca
         items.append({"mention": m, "query": q, "queries": [q] + [passage_query(lookup, n, demand_text) for n in extra], "by": by,
                       "state": "found" if hits else "none", "fragments": fragments, "expanded": added, **marks})
         for b in hits:
-            if b["block_id"] not in seen:
-                seen.add(b["block_id"])
+            key = (b["block_id"], b.get("part", 1))
+            if key not in seen:
+                seen.add(key)
                 blocks.append(b)
     return {"items": items, "blocks": blocks}

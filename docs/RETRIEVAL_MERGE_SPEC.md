@@ -1,6 +1,6 @@
 # Retrieval merge — specification (draft for review, nothing built yet)
 
-Status: draft, numbers agreed by the owner. **Steps 1, 2 and 3 of section 10 are built** (step 3: `eawiki/retrieval/merge.py`, not yet called by the case runs or Ask) (step 2: `eawiki/lanes.py` and a `types` filter on the vector search, `Retriever.lane_search`). Step 1 (the tags): embedding units, the loaded vertex and the search results carry
+Status: draft, numbers agreed by the owner. **Steps 1 to 4 of section 10 are built** (step 4: the case runs use the merge when the use case has `merge: true`; off by default) (step 3: `eawiki/retrieval/merge.py`, not yet called by the case runs or Ask) (step 2: `eawiki/lanes.py` and a `types` filter on the vector search, `Retriever.lane_search`). Step 1 (the tags): embedding units, the loaded vertex and the search results carry
 `part`, `parts` and the row range; an index loaded before them reads as part 1 of 1. The rest is not built.
 
 ## 1. Purpose
@@ -89,6 +89,10 @@ is named in the section's completeness line ("2 text passages not shown").
 
 **Priority for room**, by lane: 1 tables, 2 wiki, 3 graph, 4 text, with figures taking their 3 results before text. Figures sit with
 tables because both carry the facts a label search misses.
+
+**Case runs.** A property runs several lookups, each choosing its own pages and passages, so the results per lane are scaled for it: tables 4,
+wiki 6, graph 30, figures 4, text 10 (the single-question numbers above are for Ask). Each lookup searches its own lanes with 2 tables, 2 figures
+and 5 text passages; the merge then keeps the best across the lookups, nearest first. The totals (6,000 characters of tables, 20,000 in all) are as above.
 
 ## 7. What the model is shown
 

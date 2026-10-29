@@ -24,7 +24,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from eawiki import lanes as lanes_mod
 from eawiki.cases import compare, figureread, lookup as lkmod, plan as pmod, tableview
+from eawiki.retrieval import merge as retmerge
 from eawiki.cases import namelookup as nl
 from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 
@@ -32,6 +34,12 @@ BLOCK_CHARS = 1100          # a table row or paragraph is read whole, not cut to
 FIGURE_CHARS = 2500         # a diagram's description names every box and its rating: it is read whole
 MAX_BLOCKS = 20
 MAX_WIKI = 10               # wiki pages shown to the answer step
+# With the retrieval merge the caps below only bound what is COLLECTED; the merge decides what is shown (docs/RETRIEVAL_MERGE_SPEC.md).
+MERGE_COLLECT_BLOCKS = 80
+MERGE_COLLECT_WIKI = 14
+MERGE_LANES_K = {"tables": 2, "figures": 2, "text": 5}      # results of one lookup's search, per lane
+# What a property is shown: the spec's per-lane numbers, scaled for a property that runs several lookups (each picks its own pages and passages).
+MERGE_BUDGET = retmerge.Budget(results={"tables": 4, "wiki": 6, "graph": 30, "figures": 4, "text": 10})
 MAX_MENTIONS = 6            # mentions searched per lookup
 PER_MENTION = 3             # passages kept per mention
 GLOBAL_EXTRA = 2            # passages of ANY document added after the named kinds
@@ -50,6 +58,7 @@ class Tools:
     llm_text: Optional[Callable[[str], str]] = None             # the model's plain-text answer (comparison of demands, page finder)
     kb: Optional[object] = None                                 # entities(), graph(), page(slug), wiki_entries(): what the six steps read
     expand: Optional[Callable] = None                           # (block id, window) -> the blocks next to it in its document
+    fetch_parts: Optional[Callable] = None                      # (block id, [part numbers]) -> those parts of a long table, as search results
     read_image: Optional[Callable] = None                       # (block id, prompt) -> a vision model's text about the block's image, None if it has none
 
 
@@ -160,11 +169,14 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             ev["demand"][name] = (label, v)
             ev["allowed"].add(f"demand:{name}")
         ev["used"].append("the demand's own fields")
-    known = {b["block_id"] for b in ev["blocks"]}
+    merge_on = bool(spec.get("merge"))
+    cap_blocks, cap_wiki = (MERGE_COLLECT_BLOCKS, MERGE_COLLECT_WIKI) if merge_on else (MAX_BLOCKS, MAX_WIKI)
+    known = {(b["block_id"], b.get("part", 1)) for b in ev["blocks"]}
 
     def keep(b: dict) -> None:
-        if b["block_id"] not in known and len(ev["blocks"]) < MAX_BLOCKS:
-            known.add(b["block_id"])
+        key = (b["block_id"], b.get("part", 1))
+        if key not in known and len(ev["blocks"]) < cap_blocks:
+            known.add(key)
             ev["blocks"].append(b)
             ev["allowed"].add(b["block_id"])
 
@@ -190,13 +202,13 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             if tools.kb is not None:
                 lk = {**lk, "pages": lk["pages"] if lk.get("pages") is not None else bool(spec.get("wiki_pages"))}
                 res = lkmod.run(lk, ms, text, tools.kb, tools.search, tools.llm_text, link_cache if link_cache is not None else {},
-                                lk["from"] if lk["from"] in PROFILE_GROUPS else "systems", strict, tools.expand)
+                                lk["from"] if lk["from"] in PROFILE_GROUPS else "systems", strict, tools.expand, MERGE_LANES_K if merge_on else None)
                 for b in res["blocks"]:
                     keep(b)
                     if b.get("btype") == "figure":
                         ev["figure_questions"].setdefault(b["block_id"], lk["find"])
                 for pg in res["wiki"]:
-                    if pg["slug"] not in {w["slug"] for w in ev["wiki"]} and len(ev["wiki"]) < MAX_WIKI:
+                    if pg["slug"] not in {w["slug"] for w in ev["wiki"]} and len(ev["wiki"]) < cap_wiki:
                         ev["wiki"].append(pg)
                         ev["allowed"].add(pg["id"])
                 for cid, facts in res["graph"]["facts"].items():
@@ -314,8 +326,72 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             ev["allowed"].add(f"demand:{o.get('_id')}")
         if ev["others"]:
             ev["used"].append(f"the {len(ev['others'])} most similar demands in the sheet")
+    if merge_on:
+        _merge_evidence(ev, plan, tools)
     ev["looked"] = looked_in(ev, plan, tools)
     return ev
+
+
+def _by_distance(items: list) -> list:
+    """Nearest first; what has no distance (a run read after a label, a diagram brought by its caption) keeps its place at the end."""
+    return sorted(items, key=lambda x: (x[1] is None, x[1] if x[1] is not None else 0))
+
+
+def _merge_evidence(ev: dict, plan: dict, tools: Tools) -> None:
+    """The retrieval merge over what the lookups collected: tables, wiki, graph, figures, text, each with its own count; a table found as one
+    part completed or said to be partial; the whole within a budget; every section saying how complete it is."""
+    searched_docs = "documents" in plan["sources"]
+    errors = any(it.get("state") == "error" for rec in ev["lookups"] for it in rec["items"])
+    tab, fig, txt = [], [], []
+    for b in ev["blocks"]:
+        tags = {"part": int(b.get("part") or 1), "parts": int(b.get("parts") or 1), "rows_from": b.get("rows_from"), "rows_to": b.get("rows_to"),
+                "rows_total": b.get("rows_total")}
+        lane = lanes_mod.lane_of(b.get("btype") or "")
+        body = b.get("text") or ""
+        if lane == "figures":
+            r = (ev.get("figure_reads") or {}).get(b["block_id"])
+            if r and r["state"] == "read":
+                body += "\n(Read from the image of this diagram, for the question, by a vision model: " + "; ".join(r["text"].splitlines()) + ")"
+            elif r and r["state"] == "none":
+                body += "\n(The image of this diagram was read for the question: nothing in it bears on it.)"
+        meta = {k: b[k] for k in ("via", "run_to", "captioned") if b.get(k)}
+        if b.get("run_to"):
+            meta["run"] = True
+        item = (retmerge.Item(lane, b["block_id"], body, meta=meta, **tags), b.get("distance"))
+        {"tables": tab, "figures": fig}.get(lane, txt).append(item)
+
+    def lane_result(lane: str, items: list) -> retmerge.LaneResult:
+        if not searched_docs:
+            return retmerge.LaneResult(lane, [], "not_searched")
+        if items:
+            return retmerge.LaneResult(lane, [i for i, _ in _by_distance(items)])
+        return retmerge.LaneResult(lane, [], "error" if errors else "none")
+
+    wiki = [retmerge.Item("wiki", w["id"], _render_wiki(w)) for w in ev.get("wiki") or []]
+    graph = [retmerge.Item("graph", f"graph:{g['name']}", "; ".join(g["facts"]) + (f"; and {g['more']} more not shown" if g.get("more") else ""))
+             for g in ev.get("graph_reads") or []]
+    kb_used = tools.kb is not None
+    wiki_failed = any((rec.get("page_search") or {}).get("state") == "unread" for rec in ev["lookups"])
+    ran_graph = any(lk.get("relations") for lk in plan.get("lookups") or [])
+    lanes_in = [lane_result("tables", tab), lane_result("figures", fig),
+                retmerge.LaneResult("wiki", wiki, "found" if wiki else ("error" if wiki_failed else ("none" if kb_used else "not_searched"))),
+                retmerge.LaneResult("graph", graph, "found" if graph else ("none" if kb_used and ran_graph else "not_searched")),
+                lane_result("text", txt)]
+    lanes_in[4].extra = {"labels_set_aside": sum(it.get("fragments", 0) for rec in ev["lookups"] for it in rec["items"])}
+
+    def fetch(block_id, want):
+        rows = tools.fetch_parts(block_id, want) if tools.fetch_parts else None
+        if rows is None:
+            raise RuntimeError("no way to fetch the parts")
+        return [retmerge.Item("tables", r["block_id"], r.get("text", ""), part=int(r.get("part") or 1), parts=int(r.get("parts") or 1),
+                              rows_from=r.get("rows_from"), rows_to=r.get("rows_to"), rows_total=r.get("rows_total")) for r in rows]
+
+    merged = retmerge.merge(lanes_in, MERGE_BUDGET, fetch if tools.fetch_parts else None, bool(plan.get("whole_tables")))
+    ev["merged"] = merged
+    # only what the merge shows may be cited (the demand's own fields and earlier decisions are not part of it)
+    ev["allowed"] = {a for a in ev["allowed"] if str(a).startswith(("demand:", "decided:"))} | merged.allowed
+    for sec in merged.sections:
+        ev["searched"].append("evidence shown: " + sec.heading.lower())
 
 
 def looked_in(ev: dict, plan: dict, tools: Tools) -> str:
@@ -507,12 +583,15 @@ def render(ev: dict) -> str:
                     near = (" Closest, not a confirmed match: " + ", ".join(f"[{b}]" for b in it["closest"])) if it["closest"] else ""
                     lines.append(f"     \"{it['mention']}\": NO passage names it.{near}")
         out.append("LOOKUPS (what was searched for, and what came back; the passages are below):\n" + "\n".join(lines))
-    if ev.get("wiki"):
+    if ev.get("merged"):
+        out.append(retmerge.render(ev["merged"], _asked(ev)).replace("\n\nQUESTION: " + _asked(ev), "")
+                   + "\n\n(Cite a source by the id in brackets, a wiki page as wiki:<slug>. A section that says none found or could not be searched is stated, not omitted.)")
+    if ev.get("wiki") and not ev.get("merged"):
         out.append("WIKI PAGES (what the knowledge base's own page says each entity is; cite one as its id):\n" + "\n".join(_render_wiki(w) for w in ev["wiki"]))
-    if ev.get("graph_reads"):
+    if ev.get("graph_reads") and not ev.get("merged"):
         out.append("WHAT THE GRAPH LINKS THEM TO (only the relationships this property asks about; a link is evidence of a connection, not of impact):\n" + "\n".join(
             f"  {g['name']}: " + "; ".join(g["facts"]) + (f"; and {g['more']} more not shown" if g.get("more") else "") for g in ev["graph_reads"]))
-    if ev["blocks"]:
+    if ev["blocks"] and not ev.get("merged"):
         asked = _asked(ev)
         out.append("SOURCE BLOCKS:\n" + "\n".join(
             f"  [{b['block_id']}] " + (("(the diagram that the caption [" + b['via'] + "] belongs to; this is its description) " if b.get("figure") else "(the table that the caption [" + b['via'] + "] belongs to) " if b.get("captioned") else f"(what follows [{b['via']}] in its document, which was only a label" + (f"; read in order up to [{b['run_to']}]" if b.get("run_to") else "") + ") ") if b.get("via") else "") + (tableview.render(b.get("text") or "", asked) if tableview.is_table(b) else (b.get("text") or "")[:FIGURE_CHARS if b.get("btype") == "figure" else BLOCK_CHARS])

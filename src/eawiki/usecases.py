@@ -53,7 +53,7 @@ def validate(spec: dict, relation_names=None) -> list[str]:
     errs: list[str] = []
     if not (spec.get("name") or "").strip():
         errs.append("Name is required.")
-    for flag in ("wiki_pages", "read_images"):
+    for flag in ("wiki_pages", "read_images", "merge"):
         if spec.get(flag) is not None and not isinstance(spec[flag], bool):
             errs.append(f"{flag} must be true or false.")
     stages = spec.get("stages") or []
@@ -118,8 +118,9 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -
         errs.append(f"{where}: look in must be a list of at most {MAX_LOOK_IN} document names.")
     if c.get("evidence_required") is not None and not isinstance(c["evidence_required"], bool):
         errs.append(f"{where}: evidence required must be true or false.")
-    if c.get("blank_ok") is not None and not isinstance(c["blank_ok"], bool):
-        errs.append(f"{where}: blank_ok must be true or false.")
+    for flag in ("blank_ok", "whole_tables"):
+        if c.get(flag) is not None and not isinstance(c[flag], bool):
+            errs.append(f"{where}: {flag} must be true or false.")
     a = c.get("activity")
     if a is not None and (not isinstance(a, str) or len(a.strip()) > MAX_ACTIVITY):
         errs.append(f"{where}: activity must be text of at most {MAX_ACTIVITY} characters.")
@@ -231,8 +232,9 @@ def _tidy_descriptions(spec: dict) -> None:
             it.pop("look_in", None)
         if it.get("evidence_required") is not False:
             it.pop("evidence_required", None)          # on by default: only an explicit "no" is stored
-        if not it.get("blank_ok"):
-            it.pop("blank_ok", None)
+        for flag in ("blank_ok", "whole_tables"):
+            if not it.get(flag):
+                it.pop(flag, None)
         if not it.get("uses"):
             it.pop("uses", None)
         if not it.get("lookups"):

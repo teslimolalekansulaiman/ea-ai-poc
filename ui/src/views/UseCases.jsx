@@ -322,6 +322,10 @@ export default function UseCases() {
               onChange={e => set(col => { const v = parseInt(e.target.value, 10); if (v) col.min_sources = v; else delete col.min_sources })} />
             <span className="meta">(1 for a fact copied from a register, 2 for a judgment)</span>
           </div>
+          <label style={{ display: 'flex', gap: 7, alignItems: 'flex-start', fontSize: 13, marginTop: 8 }}>
+            <input type="checkbox" checked={!!c.whole_tables} onChange={e => set(col => { if (e.target.checked) col.whole_tables = true; else delete col.whole_tables })} />
+            <span>Read whole tables: when a table is found, all of it is shown (up to the table budget), not only the part found and its neighbours. Needs the retrieval merge.</span>
+          </label>
           <label className="meta" style={lab}>When the INPUT is missing: what to ask the requester</label>
           <input style={inp} maxLength={300} value={c.info_needed || ''} onChange={e => set(col => { col.info_needed = e.target.value })} />
           <label className="meta" style={lab}>When a SOURCE is missing: what to say and whom to ask</label>
@@ -362,6 +366,10 @@ export default function UseCases() {
         <label style={{ display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 10, fontSize: 13 }}>
           <input type="checkbox" checked={!!uc.wiki_pages} onChange={e => patch(d => { if (e.target.checked) d.wiki_pages = true; else delete d.wiki_pages })} />
           <span>Search the wiki pages for every lookup (a model picks pages from their titles and first sentences). A lookup can still turn it off for itself.</span>
+        </label>
+        <label style={{ display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 10, fontSize: 13 }}>
+          <input type="checkbox" checked={!!uc.merge} onChange={e => patch(d => { if (e.target.checked) d.merge = true; else delete d.merge })} />
+          <span>Use the retrieval merge: tables, figures and text are searched each on its own; a table found as one part is completed or said to be partial; every kind of evidence is shown in its own labelled section with how complete it is. Off: the evidence is built as before. Turn it on to compare.</span>
         </label>
         <label style={{ display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 10, fontSize: 13 }}>
           <input type="checkbox" checked={uc.read_images !== false} onChange={e => patch(d => { if (e.target.checked) delete d.read_images; else d.read_images = false })} />

@@ -125,6 +125,15 @@ def _passage_lines(ev: dict) -> list[str]:
     """What the model was given, one line per passage: 'Passage [id] · document · type · N characters [· what follows / belongs to [id]]: its start'.
     So what the model did and did not see is on the screen, not guessed at."""
     out = []
+    if ev.get("merged"):
+        # what the merge showed, by lane and part: 'Passage [id] · lane · part 2 of 4, rows 21 to 40 of 80 · N characters: its start'
+        shown = [it for sec in ev["merged"].sections if sec.lane in ("tables", "figures", "text") for it in sec.items]
+        for it in shown[:MAX_PASSAGE_LINES]:
+            body = " ".join((it.text.splitlines()[1:] if it.text.splitlines() and " > " in it.text.splitlines()[0] else it.text.splitlines()))
+            where = f" · part {it.part} of {it.parts}" + (f", rows {it.rows_from} to {it.rows_to} of {it.rows_total}" if it.rows_from is not None else "") if it.parts > 1 else ""
+            via = f" · {'belongs to' if it.meta.get('captioned') else 'follows'} [{it.meta['via']}]" if it.meta.get("via") else ""
+            out.append(f"Passage [{it.id}] · {it.lane}{where}{via} · {len(it.text)} characters: {' '.join(body.split())[:220]}")
+        return out
     for b in (ev.get("blocks") or [])[:MAX_PASSAGE_LINES]:
         text = str(b.get("text") or "")
         lines = text.strip().splitlines()
