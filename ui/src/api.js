@@ -5,6 +5,9 @@ async function J(url, opts) {
   if (!r.ok) {
     let detail = ''
     try { const j = await r.json(); detail = j.detail || '' } catch { /* non-json */ }
+    if (!detail && (r.status === 401 || r.status === 403)) {       // not the app (it always answers with a detail): the layer in front of it
+      throw new Error(`The service refused the request (${r.status} ${url}). If you reach it through 'gcloud run services proxy', its login lasts about an hour: restart the proxy and reload this page. Files already uploaded are kept.`)
+    }
     throw new Error(detail || `${r.status} ${url}`)
   }
   return r.json()

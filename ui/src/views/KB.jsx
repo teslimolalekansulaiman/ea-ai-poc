@@ -22,6 +22,7 @@ export default function KB() {
   const [reing, setReing] = useState(null)      // null = idle, else the reingest status
   const [busy, setBusy] = useState(false)       // during the add/remove request itself
   const [err, setErr] = useState('')
+  const [waiting, setWaiting] = useState([])    // saved on the server but not built into the knowledge base yet
   const [kinds, setKinds] = useState({})        // kind -> what it means, from the server
   const [limits, setLimits] = useState({ max_file_mb: 25, max_batch_files: 20, max_batch_mb: 100 })
   const [staged, setStaged] = useState([])       // files chosen but not yet uploaded: [{id, file, kind}]
@@ -32,7 +33,7 @@ export default function KB() {
   const fileRef = useRef(null)
   const { open } = useCite()
 
-  const loadDocs = () => api.docs().then(d => { setDocs(d.docs); if (d.kinds) setKinds(d.kinds); if (d.limits) setLimits(d.limits) }).catch(() => {})
+  const loadDocs = () => api.docs().then(d => { setDocs(d.docs); setWaiting(d.waiting || []); if (d.kinds) setKinds(d.kinds); if (d.limits) setLimits(d.limits) }).catch(() => {})
 
   useEffect(() => { loadDocs() }, [])
   // On mount, pick up a rebuild that may already be running (e.g. from the Model tab).
@@ -279,6 +280,17 @@ export default function KB() {
           </table></div>
         </div>
       )}
+      {waiting.length > 0 && (
+        <div className="card changes">
+          <div className="changes-head">
+            <div><b>{waiting.length}</b> saved document{waiting.length === 1 ? ' is' : 's are'} waiting to be built into the knowledge base
+              <span className="meta"> · {waiting.map(w => `${w.file} (${w.kind})`).join(', ')}</span></div>
+            <button className="btn primary" disabled={running || busy} onClick={onRebuild}>Build now</button>
+          </div>
+          <div className="meta">They are on the server but no rebuild has used them yet (for example because an Apply failed). If the server restarted since, they are gone: add them again.</div>
+        </div>
+      )}
+
       {docs.length > 1 && (
         <div className="meta" style={{ marginBottom: 8 }}>
           <button className="btn sm" disabled={running || busy} onClick={() => setMarked(marked.length === docs.length ? [] : docs.map(d => d.doc_id))}>

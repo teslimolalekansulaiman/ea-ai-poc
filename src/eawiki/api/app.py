@@ -287,7 +287,9 @@ def docs():
                     "file": Path(d.get("source_file") or "").name or None,
                     "blocks": len(blocks), "kind": kind,
                     "counts": d.get("counts", {})})
-    return {"docs": out, "kinds": sources_mod.KINDS, "limits": sources_mod.LIMITS}
+    built = {d["doc_id"] for d in out}
+    waiting = [{"doc_id": p.stem, "file": p.name, "kind": sources_mod.kind_of(p)} for p in sources_mod.sources(SAMPLES) if p.stem not in built]
+    return {"docs": out, "waiting": waiting, "kinds": sources_mod.KINDS, "limits": sources_mod.LIMITS}
 
 
 def _no_ingest_running():

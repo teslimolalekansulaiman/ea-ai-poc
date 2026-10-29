@@ -110,3 +110,16 @@ def test_the_kinds_and_limits_are_offered_to_the_screen(env, monkeypatch):
     monkeypatch.setattr(appmod, "_block_files", lambda: [])
     got = c.get("/api/docs").json()
     assert set(got["kinds"]) == {"architecture", "motivation", "governance", "reference"} and got["limits"]["max_batch_files"] == 20
+
+
+def test_saved_files_that_are_not_built_yet_are_listed_as_waiting(env, monkeypatch):
+    root, _, c = env
+    monkeypatch.setattr(appmod, "_block_files", lambda: ["k1"])
+    class FS:
+        def read_text(self, k):
+            return '{"doc_id": "built", "source_file": "built.docx", "blocks": []}'
+    monkeypatch.setattr(appmod, "filestore", lambda: FS())
+    up(c, "built.docx", office("b"))
+    up(c, "fresh.docx", office("f"), "governance")
+    got = c.get("/api/docs").json()
+    assert [d["doc_id"] for d in got["docs"]] == ["built"] and got["waiting"] == [{"doc_id": "fresh", "file": "fresh.docx", "kind": "governance"}]
