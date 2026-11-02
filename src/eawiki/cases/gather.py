@@ -33,6 +33,7 @@ from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
 BLOCK_CHARS = 1100          # a table row or paragraph is read whole, not cut to a sentence
 FIGURE_CHARS = 2500         # a diagram's description names every box and its rating: it is read whole
 MAX_BLOCKS = 20
+MAX_CARRIED = 8            # passages an earlier stage cited, brought forward first (the rest are named, not read)
 MAX_WIKI = 10               # wiki pages shown to the answer step
 # With the retrieval merge the caps below only bound what is COLLECTED; the merge decides what is shown (docs/RETRIEVAL_MERGE_SPEC.md).
 MERGE_COLLECT_BLOCKS = 80
@@ -156,7 +157,7 @@ def _rank_others(spec: dict, item: dict, others: list[dict]) -> list[dict]:
 
 def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
            link_cache: Optional[dict] = None, hint: Optional[dict] = None, profile: Optional[dict] = None,
-           decided: Optional[dict] = None, profiles: Optional[dict] = None) -> dict:
+           decided: Optional[dict] = None, profiles: Optional[dict] = None, carried: Optional[list] = None) -> dict:
     text = item_text(spec, item)
     ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "allowed": set(), "used": [], "hint": hint,
           "lookups": [], "searched": [], "wiki": [], "graph_reads": [], "figure_questions": {}, "figure_reads": {}}
@@ -180,6 +181,21 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
             ev["blocks"].append(b)
             ev["allowed"].add(b["block_id"])
 
+    if carried:
+        # the passages the earlier stages cited for this demand: read again here, first, so this stage stands on what that one found
+        try:
+            got = tools.blocks_by_ids(list(carried)[:MAX_CARRIED]) or []
+        except Exception:
+            got = []
+        for b in got:
+            keep(b)
+            if b.get("btype") == "figure":
+                ev["figure_questions"].setdefault(b["block_id"], item_text(spec, item)[:200])
+        ev["searched"].append(f"the earlier stages' cited passages: {len(got)} of {len(carried)} read again"
+                              + (f" (the other {len(carried) - len(got)} could not be read; only the first {MAX_CARRIED} are brought forward)" if len(carried) > len(got) and len(carried) > MAX_CARRIED else
+                                 f" ({len(carried) - len(got)} could not be read)" if len(carried) > len(got) else ""))
+        if got:
+            ev["used"].append(f"{len(got)} passages cited by the earlier stages")
     if "documents" in plan["sources"]:
         usable = profile if profile and profile.get("origin") == "model" else None
         for lk in plan.get("lookups") or []:
@@ -361,10 +377,10 @@ def _merge_evidence(ev: dict, plan: dict, tools: Tools) -> None:
         {"tables": tab, "figures": fig}.get(lane, txt).append(item)
 
     def lane_result(lane: str, items: list) -> retmerge.LaneResult:
+        if items:                                    # passages in hand are found, whether or not this property searched the documents
+            return retmerge.LaneResult(lane, [i for i, _ in _by_distance(items)])
         if not searched_docs:
             return retmerge.LaneResult(lane, [], "not_searched")
-        if items:
-            return retmerge.LaneResult(lane, [i for i, _ in _by_distance(items)])
         return retmerge.LaneResult(lane, [], "error" if errors else "none")
 
     wiki = [retmerge.Item("wiki", w["id"], _render_wiki(w)) for w in ev.get("wiki") or []]

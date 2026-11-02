@@ -316,6 +316,12 @@ export default function UseCases() {
             <input type="checkbox" checked={!!c.blank_ok} onChange={e => set(col => { if (e.target.checked) col.blank_ok = true; else delete col.blank_ok })} />
             <span>No result is a valid answer: when nothing is found the property is “None” and the architect is not asked (for example, the number of a duplicate demand when there is no duplicate). A text property only.</span>
           </label>
+          {c.type === 'enum' && (
+            <label style={{ display: 'flex', gap: 7, alignItems: 'flex-start', fontSize: 13, marginTop: 8 }}>
+              <input type="checkbox" checked={!!c.graded} onChange={e => set(col => { if (e.target.checked) col.graded = true; else delete col.graded })} />
+              <span>Graded in code, not by the model: the word (High, Medium or Low) is worked out from the stage’s headline answer: is it decided, does it cite a source, is anything it rests on still open. The pick list must hold High, Medium and Low.</span>
+            </label>
+          )}
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
             <span className="meta">Minimum cited sources</span>
             <input type="number" min={1} max={5} style={{ ...inp, width: 70 }} value={c.min_sources || ''}

@@ -80,11 +80,15 @@ def validate(spec: dict, relation_names=None) -> list[str]:
     if il is not None and not blank and (not isinstance(il, dict) or any(not isinstance(il.get(k), str) or not il[k].strip() or len(il[k]) > 40
                                                           for k in ("singular", "plural"))):
         errs.append("Input: the item label needs a singular and a plural word of at most 40 characters.")
+    earlier: list = []
     for i, s in enumerate(stages, 1):
         cols = ((s.get("output") or {}).get("columns")) or []
         names = [c.get("name") for c in cols]
         for c in cols:
-            errs += _column_errors(f"Stage {i}: column '{c.get('name', '?')}'", c, names, relation_names)
+            errs += _column_errors(f"Stage {i}: column '{c.get('name', '?')}'", c, names, relation_names, earlier)
+            if c.get("graded") and (not (s.get("result") or {}).get("row_tag") or (s.get("result") or {}).get("row_tag") not in names):
+                errs.append(f"Stage {i}: column '{c.get('name', '?')}' is graded from the stage's headline answer, so the stage's result needs a row tag that is one of its columns.")
+        earlier = earlier + [n for n in names if n not in earlier]
     v = spec.get("validation") or {}
     if v.get("enabled") and not (v.get("questions") or []):
         errs.append("Validation is enabled but has no intake questions.")
@@ -102,7 +106,7 @@ def _description_errors(where: str, item: dict) -> list[str]:
     return []
 
 
-def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -> list[str]:
+def _column_errors(where: str, c: dict, names: list[str], relation_names=None, earlier: Optional[list] = None) -> list[str]:
     """The guidance fields of an output column: how to resolve it, where to look, whether a
     cited source is needed, what to ask for when it is missing, and what it builds on."""
     errs = _description_errors(where, c)
@@ -118,9 +122,13 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -
         errs.append(f"{where}: look in must be a list of at most {MAX_LOOK_IN} document names.")
     if c.get("evidence_required") is not None and not isinstance(c["evidence_required"], bool):
         errs.append(f"{where}: evidence required must be true or false.")
-    for flag in ("blank_ok", "whole_tables"):
+    for flag in ("blank_ok", "whole_tables", "graded"):
         if c.get(flag) is not None and not isinstance(c[flag], bool):
             errs.append(f"{where}: {flag} must be true or false.")
+    if c.get("graded") is True:
+        from eawiki.cases import grade
+        if c.get("type") != "enum" or grade.scale(c) is None:
+            errs.append(f"{where}: a graded property is worked out in code, so it must be a pick list holding High, Medium and Low.")
     a = c.get("activity")
     if a is not None and (not isinstance(a, str) or len(a.strip()) > MAX_ACTIVITY):
         errs.append(f"{where}: activity must be text of at most {MAX_ACTIVITY} characters.")
@@ -134,7 +142,7 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -
     ms = c.get("min_sources")
     if ms is not None and (isinstance(ms, bool) or not isinstance(ms, int) or not 1 <= ms <= 5):
         errs.append(f"{where}: minimum sources must be a whole number from 1 to 5.")
-    errs += _lookup_errors(where, c.get("lookups"), relation_names, c, names)
+    errs += _lookup_errors(where, c.get("lookups"), relation_names, c, names, earlier)
     uses = c.get("uses")
     if uses is not None:
         if not isinstance(uses, list):
@@ -146,7 +154,8 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None) -
     return errs
 
 
-def _lookup_errors(where: str, lookups, relation_names=None, col: Optional[dict] = None, names: Optional[list] = None) -> list[str]:
+def _lookup_errors(where: str, lookups, relation_names=None, col: Optional[dict] = None, names: Optional[list] = None,
+                   earlier: Optional[list] = None) -> list[str]:
     """A property's lookups: what to find, from which mention, in which kinds of source, how to match."""
     if lookups is None:
         return []
@@ -160,8 +169,10 @@ def _lookup_errors(where: str, lookups, relation_names=None, col: Optional[dict]
         frm = lk.get("from")
         if isinstance(frm, str) and frm.startswith(RESULT_PREFIX):
             prop = frm[len(RESULT_PREFIX):]
-            if names is not None and (prop not in names or prop == (col or {}).get("name")):
-                errs.append(f"{where}: lookup {i}: 'from' {frm} names a property that is not another column of this stage.")
+            if names is not None and prop in (earlier or []) and prop not in names:
+                pass                                    # a property of an earlier stage: already decided before this stage starts
+            elif names is not None and (prop not in names or prop == (col or {}).get("name")):
+                errs.append(f"{where}: lookup {i}: 'from' {frm} names a property that is not another column of this stage, or of an earlier one.")
             elif col is not None and prop not in (col.get("uses") or []):
                 errs.append(f"{where}: lookup {i}: 'from' {frm} needs '{prop}' in this column's 'builds on' list, so it is decided first.")
         elif frm not in LOOKUP_FROM:
@@ -232,7 +243,7 @@ def _tidy_descriptions(spec: dict) -> None:
             it.pop("look_in", None)
         if it.get("evidence_required") is not False:
             it.pop("evidence_required", None)          # on by default: only an explicit "no" is stored
-        for flag in ("blank_ok", "whole_tables"):
+        for flag in ("blank_ok", "whole_tables", "graded"):
             if not it.get(flag):
                 it.pop(flag, None)
         if not it.get("uses"):

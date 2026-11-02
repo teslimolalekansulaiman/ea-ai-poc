@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
 from eawiki.cases import gather as gmod
+from eawiki.cases import grade as grademod
 from eawiki.cases import plan as pmod
 from eawiki.cases import profile as profmod
 from eawiki.cases import solve as smod
@@ -189,7 +190,7 @@ class Engine:
                 or (s.get("resume") and c["status"] in ("answered", "not_assessed", "needs_source"))}
         skip = {gate_column(spec)} if idx == 0 else set()
         summary = set(summary_columns(stage))
-        main = [c for c in cols if c["name"] not in skip | summary and c.get("type") != "citations"]
+        main = [c for c in cols if c["name"] not in skip | summary and c.get("type") != "citations" and not c.get("graded")]
         if only_cols is not None:
             main = [c for c in main if c["name"] in only_cols]
         run.update(spec=spec, stage=stage, idx=idx, cols=cols, rows=rows, passing=rows, tools=tools, plans=plans,
@@ -240,6 +241,9 @@ class Engine:
 
     def _n_citations(self, s) -> dict:
         run = s["run"]
+        for c in run["cols"]:                                              # graded properties: worked out in code, never said by a model
+            if c.get("graded"):
+                self._grades(s["cid"], s["pid"], c, run["rows"], run["spec"], run["stage"])
         for c in run["cols"]:                                              # citations: a union, in code
             if c.get("type") == "citations":
                 self._citations(s["cid"], s["pid"], c, run["rows"])
@@ -332,18 +336,64 @@ class Engine:
                                      how=["Skipped: the demand did not pass the gate."])
 
     # ---- one round of properties -----------------------------------------------------
-    def _decided(self, cid: str, pid: str, item_id: str) -> dict:
+    def _prior(self, cid: str, spec: Optional[dict], pid: str, item_id: str) -> list[tuple]:
+        """(stage name, column, cell) for everything this demand was given in the stages BEFORE this one, in order. The first
+        stage is read by the second: a recommendation that ignored what the screening found would be a second opinion, not a
+        next step. Citation columns are left out (they only repeat the sources the other cells cite)."""
+        out = []
+        for st in (spec or {}).get("stages") or []:
+            ph = phase_id(st)
+            if ph == pid:
+                break
+            cols = {c["name"]: c for c in st["output"]["columns"]}
+            for c in self.store.cells(cid, ph):
+                col = cols.get(c["column"])
+                if c["item_id"] == item_id and col is not None and col.get("type") != "citations":
+                    out.append((st.get("name") or ph, col, c))
+        return out
+
+    def _decided(self, cid: str, pid: str, item_id: str, spec: Optional[dict] = None) -> dict:
         out = {}
+        for stage_name, _col, c in self._prior(cid, spec, pid, item_id):
+            if c["status"] == "not_assessed":
+                continue
+            key = f"{stage_name} / {c['column']}"
+            if c["status"] in ("needs_input", "needs_source"):
+                out[key] = "(unknown: asked the architect)"
+            else:
+                out[key] = _show(c["value"]) + (" (given by the architect)" if c["source"] == "user" or c["status"] == "user" else "")
         for c in self.store.cells(cid, pid):
             if c["item_id"] != item_id:
                 continue
             out[c["column"]] = "(unknown: asked the architect)" if c["status"] == "needs_input" else _show(c["value"])
         return out
 
-    def _decided_values(self, cid: str, pid: str, item_id: str) -> dict:
-        """What this demand's answered properties hold, as stored: a lookup that starts from an earlier answer reads these."""
-        return {c["column"]: c["value"] for c in self.store.cells(cid, pid)
-                if c["item_id"] == item_id and c["status"] == "answered"}
+    def _decided_values(self, cid: str, pid: str, item_id: str, spec: Optional[dict] = None) -> dict:
+        """What this demand's answered properties hold, as stored: a lookup that starts from an earlier answer reads these. An
+        answer from an earlier stage is read under its plain name, unless this stage has a property of the same name."""
+        out = {c["column"]: c["value"] for c in self.store.cells(cid, pid)
+               if c["item_id"] == item_id and c["status"] == "answered"}
+        for _stage, _col, c in self._prior(cid, spec, pid, item_id):
+            if c["status"] in ("answered", "user"):
+                out.setdefault(c["column"], c["value"])
+        return out
+
+    def _carried(self, cid: str, spec: Optional[dict], pid: str, item_id: str) -> list[str]:
+        """The source passages the earlier stages cited for this demand, once each: the evidence the screening stood on, so this
+        stage can read the same sources instead of finding them again (or finding different ones)."""
+        ids = []
+        for _stage, _col, c in self._prior(cid, spec, pid, item_id):
+            ids += [e for e in c.get("evidence") or [] if isinstance(e, str) and not e.startswith(("demand:", "decided:", "wiki:", "graph:"))]
+        return list(dict.fromkeys(ids))
+
+    @staticmethod
+    def _stage_rules(spec: dict, pid: str) -> str:
+        """What the owner wrote for a stage after the first. The first stage's words describe the gate (what is a demand, what to
+        write when it is not), which the gate enforces in code; a later stage's are the guidance for each of its properties."""
+        for i, st in enumerate(spec.get("stages") or []):
+            if phase_id(st) == pid:
+                return (st.get("instructions") or "").strip() if i > 0 else ""
+        return ""
 
     def _run_level(self, cid, pid, level, run) -> None:
         names = ", ".join(c["name"] for c in level)
@@ -366,7 +416,8 @@ class Engine:
     def _c_gather(self, s) -> dict:
         try:
             ev = gmod.gather(s["tools"], s["plan"], s["spec"], s["item"], s["others"], s["link_cache"], s.get("hint"),
-                             s.get("profile"), self._decided_values(s["cid"], s["pid"], s["item"]["_id"]), s.get("profiles"))
+                             s.get("profile"), self._decided_values(s["cid"], s["pid"], s["item"]["_id"], s["spec"]), s.get("profiles"),
+                             self._carried(s["cid"], s["spec"], s["pid"], s["item"]["_id"]))
             return {"ev": ev, "failed": False}
         except Exception as e:                                   # one property failing never stops the sheet
             return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}
@@ -375,8 +426,8 @@ class Engine:
         if s.get("failed"):
             return {}
         try:
-            cell = smod.solve(s["col"], s["item"], s["spec"], s["ev"], self._decided(s["cid"], s["pid"], s["item"]["_id"]),
-                              s["tools"].llm_json)
+            cell = smod.solve(s["col"], s["item"], s["spec"], s["ev"], self._decided(s["cid"], s["pid"], s["item"]["_id"], s["spec"]),
+                              s["tools"].llm_json, self._stage_rules(s["spec"], s["pid"]))
         except Exception as e:
             cell = self._failed_cell(s["col"], e)
         return {"cell": cell}
@@ -424,6 +475,33 @@ class Engine:
                                                       "Point somewhere else, or give the value.")
         self.store.add_event(s["cid"], "question", {"phase": s["pid"], "item": s["item"]["_id"], "column": s["col"]["name"], "retry": True})
         return {}
+
+    def _grades(self, cid, pid, col, rows, spec, stage) -> None:
+        """Grade each demand's headline answer (the stage's row tag) from the cells it rests on: this stage's and the stages before it.
+        A grade the architect typed in is left alone."""
+        levels = grademod.scale(col)
+        tag = (stage.get("result") or {}).get("row_tag")
+        cells = self.store.cells(cid, pid)
+        for it in rows:
+            mine = {c["column"]: c for c in cells if c["item_id"] == it["_id"]}
+            if (mine.get(col["name"]) or {}).get("source") == "user":
+                continue
+            if levels is None or not tag:
+                self.store.save_cell(cid, it["_id"], pid, col["name"], value="", status="needs_input", source="rule",
+                                     need=(f"'{col['name']}' is graded in code, and its pick list needs High, Medium and Low." if levels is None
+                                           else f"'{col['name']}' is graded from the stage's headline answer, and the stage's result sets no row tag."),
+                                     how=["Not graded: the use case's settings are incomplete."])
+                continue
+            own = {x["name"] for x in stage["output"]["columns"]}
+            rests = [(f"{st} / {cell['column']}" if cell["column"] in own else cell["column"], cell)
+                     for st, _c, cell in self._prior(cid, spec, pid, it["_id"]) if cell["status"] != "not_assessed"]
+            rests += [(name, c) for name, c in mine.items()
+                      if name != col["name"] and c["status"] != "not_assessed"
+                      and next((x.get("type") for x in stage["output"]["columns"] if x["name"] == name), None) != "citations"]
+            g = grademod.grade(mine.get(tag), rests)
+            self.store.save_cell(cid, it["_id"], pid, col["name"], value=levels[g["level"]], status="answered", source="rule",
+                                 how=["Graded in code from the cells this recommendation rests on; no model gave this word."] + g["why"])
+            self.store.add_event(cid, "cell", {"phase": pid, "item": it["_id"], "column": col["name"], "status": "answered"})
 
     def _citations(self, cid, pid, col, rows) -> None:
         by_item: dict = {}

@@ -777,7 +777,8 @@
               "High",
               "Medium",
               "Low"
-            ]
+            ],
+            "graded": true
           },
           {
             "name": "Evidence",
