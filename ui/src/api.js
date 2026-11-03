@@ -77,6 +77,9 @@ export const api = {
   requestFill: (rid, body) => post('/api/requests/' + encodeURIComponent(rid) + '/fill', body),
   requestGapsUrl: (rid) => '/api/requests/' + encodeURIComponent(rid) + '/gaps',
   requestSubmit: (rid, allowIncomplete) => post('/api/requests/' + encodeURIComponent(rid) + '/submit', { allow_incomplete: !!allowIncomplete }),
+  requestFromSources: (ucId, text, files) => { const fd = new FormData(); fd.append('use_case_id', ucId); fd.append('text', text || ''); (files || []).forEach(f => fd.append('files', f)); return J('/api/requests/from-sources', { method: 'POST', body: fd }) },
+  requestSources: (rid, text, files) => { const fd = new FormData(); fd.append('text', text || ''); (files || []).forEach(f => fd.append('files', f)); return J('/api/requests/' + encodeURIComponent(rid) + '/sources', { method: 'POST', body: fd }) },
+  requestMessage: (rid, body) => post('/api/requests/' + encodeURIComponent(rid) + '/messages', body || {}),
   // a phase shown as documents: one draft recommendation per demand
   caseDrafts: (cid, pid) => J('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents'),
   caseDraftSave: (cid, pid, item, doc) => J('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item),

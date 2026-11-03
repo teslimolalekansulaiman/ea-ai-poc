@@ -558,6 +558,10 @@ def turn(store, rid: str, llm: Optional[Callable], *, text: Optional[str] = None
         if answer.get("decline"):
             r = rq.fill(store, rid, pending["field"], ids, decline=True)
             declined = [{"id": i, "field": pending["field"], "label": label} for i in r["changed"]]
+        elif pending.get("carry") and not str(answer.get("value") or "").strip():       # "which demands?": the value the person already gave, for the ones they pick
+            c = pending["carry"]
+            changes = rq.apply_read(store, rid, [{"id": i, "field": pending["field"], "value": c["value"], "quote": c["quote"]} for i in ids], [])["changed"]
+            user_text = user_text or "The same for " + _names(ids)
         else:
             r = rq.fill(store, rid, pending["field"], ids, value=answer.get("value"))
             saved = {i["id"]: i["values"].get(pending["field"], "") for i in r["items"]}

@@ -42,6 +42,30 @@ function Group({ g, field, ids, titles, busy, run }) {
   )
 }
 
+// where a value the agent or the person put in came from, and the exact words behind it
+const tagOf = (p) => (p.by === 'file' ? `From ${p.source}` : 'From your message') + (p.chosen ? ' · chosen from your words' : '')
+
+function Filled({ it, byName }) {
+  const [open, setOpen] = useState(null)
+  const rows = [...Object.entries(it.from || {}).map(([k, p]) => ({ k, tag: tagOf(p), quote: p.quote })),
+    ...Object.keys(it.set || {}).map(k => ({ k, tag: 'You entered', quote: '' }))]
+  if (!rows.length) return null
+  return (
+    <div className="rq-filled">
+      <div className="rq-sub">Filled in</div>
+      {rows.map(r => (
+        <div key={r.k} className="rq-frow">
+          <span className="rq-fl">{(byName[r.k] && byName[r.k].label) || r.k}</span>
+          <span className="rq-fv">{it.values[r.k]}</span>
+          {r.quote
+            ? <button className="cs-pill info rq-tag" aria-expanded={open === r.k} onClick={() => setOpen(open === r.k ? null : r.k)}>{r.tag}</button>
+            : <span className="cs-pill user">{r.tag}</span>}
+          {open === r.k && r.quote && <blockquote className="rq-quote">{r.quote}</blockquote>}
+        </div>))}
+    </div>
+  )
+}
+
 function Demand({ req, it, fields, busy, run }) {
   const [vals, setVals] = useState({})
   const [decl, setDecl] = useState(() => new Set(it.declined))
@@ -54,7 +78,7 @@ function Demand({ req, it, fields, busy, run }) {
   }))
   const toggleDecl = (name) => setDecl(d => { const n = new Set(d); if (n.has(name)) n.delete(name); else n.add(name); return n })
   return (
-    <details className="rq-item" open={incomplete && it.missing.length <= 4}>
+    <details className="rq-item" open={(incomplete && it.missing.length <= 4) || Object.keys(it.from || {}).length > 0}>
       <summary>
         <span className="rq-id">{it.id}</span><span className="rq-title">{it.title}</span>
         {it.problems.length > 0 ? <span className="cs-pill crit">ID problem</span>
@@ -62,6 +86,7 @@ function Demand({ req, it, fields, busy, run }) {
             : <span className="cs-pill warn">Missing {it.missing.length}</span>}
       </summary>
       <div className="rq-body">
+        <Filled it={it} byName={byName} />
         {it.problems.map(p => <div key={p} className="cs-need">{p}</div>)}
         {it.missing.length === 0 && it.problems.length === 0 && <div className="cs-muted">Everything required is filled in.</div>}
         {it.missing.map(m => (

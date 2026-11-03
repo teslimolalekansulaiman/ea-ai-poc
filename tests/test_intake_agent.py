@@ -220,6 +220,23 @@ def test_one_value_that_does_not_say_which_demands_is_not_applied_to_several():
     assert ag.turn(store(), rid1, Fake({"value": "COO", "quote": "COO", "applies_to": "unclear"}), text="COO")["changes"][0]["id"] == "D-1"
 
 
+def test_the_which_demands_question_can_be_answered_with_buttons_and_applies_the_value_already_given():
+    rid = _sponsor_request()
+    ag.turn(store(), rid, Fake({"value": "COO", "quote": "COO", "applies_to": "unclear"}), text="COO")           # now the scope question is open
+    out = ag.turn(store(), rid, None, answer={"scope": ["D-1"]})
+    by = _by(out)
+    assert out["calls"] == 0 and by["D-1"]["values"]["sponsor"] == "COO" and by["D-1"]["from"]["sponsor"]["quote"] == "COO" and by["D-2"]["values"]["sponsor"] == ""
+    assert out["question"]["kind"] == "ask" and out["question"]["items"] == ["D-2"] and out["reply"].startswith("I added Business sponsor: COO for D-1.")
+    assert out["request"]["messages"][-2]["text"] == "The same for D-1"
+    rid2 = _sponsor_request()
+    ag.turn(store(), rid2, Fake({"value": "COO", "quote": "COO", "applies_to": "unclear"}), text="COO")
+    assert sorted(c["id"] for c in ag.turn(store(), rid2, None, answer={"scope": "all"})["changes"]) == ["D-1", "D-2"]
+    rid3 = _sponsor_request()
+    ag.turn(store(), rid3, Fake({"value": "COO", "quote": "COO", "applies_to": "unclear"}), text="COO")
+    out3 = ag.turn(store(), rid3, None, answer={"decline": True, "scope": "all"})                              # or ask the requesters instead
+    assert [d["id"] for d in out3["declined"]] == ["D-1", "D-2"] and out3["changes"] == []
+
+
 def test_what_cannot_be_checked_is_dropped_and_said():
     rid = _sponsor_request()
     out = ag.turn(store(), rid, Fake({"value": "Chief Operating Officer", "quote": "the COO of the group", "applies_to": "all"}), text="Somebody senior")

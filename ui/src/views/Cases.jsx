@@ -4,7 +4,7 @@ import { api } from '../api'
 import { Markdown, useCite } from '../cite'
 import '../cases.css'
 import { Recommendations } from '../components/Recommendations'
-import { RequestPanel } from '../components/RequestPanel'
+import { RequestIntake } from '../components/RequestIntake'
 import { AnsweredCard, AskCard, ErrorCard, FinCard, FullTable, LiveCard, PhaseTrack, ResultCard, Workspace, count } from '../components/CasesParts'
 
 // A sheet or a typed demand becomes a case: read it, create it, and the run starts at once.
@@ -20,75 +20,11 @@ function download(url) { window.location.assign(url) }
 
 // ---- no case yet: attach a sheet or type one demand; Enter starts the run -------------------------
 function Intake({ ucs }) {
-  const [text, setText] = useState('')
-  const [file, setFile] = useState(null)
-  const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState('')
-  const [req, setReq] = useState(null)
-  const nav = useNavigate()
-  const fileRef = useRef(null)
   const uc = ucs.find(u => u.enabled !== false)                // chosen automatically; changed from the case card
   const L = (uc && uc.input && uc.input.item_label) || { singular: 'item', plural: 'items' }
-
-  const start = async () => {
-    if (busy || !uc || (!file && !text.trim())) return
-    setErr(''); setBusy(true)
-    try {
-      if (file) {                              // a sheet: say what each demand is missing before anything runs
-        const r = await api.requestFromFile(uc.id, file)
-        if (r.ready) { const out = await api.requestSubmit(r.id, false); nav('/cases/' + out.case_id, { state: { unmatched: r.unmatched } }); return }
-        setReq(r); setBusy(false); return
-      }
-      const r = await beginCase(uc.id, file, text)
-      nav('/cases/' + r.id, { state: { unmatched: r.unmatched } })
-    } catch (e) { setErr(String(e.message || e)); setBusy(false) }
-  }
-  const run = async (fn) => { setErr(''); setBusy(true); try { setReq(await fn()) } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) } }
-  const go = async (allow) => {
-    setErr(''); setBusy(true)
-    try { const out = await api.requestSubmit(req.id, allow); nav('/cases/' + out.case_id, { state: { unmatched: req.unmatched } }) }
-    catch (e) { setErr(String(e.message || e)); setBusy(false) }
-  }
-
   if (!uc) return <div className="cs-scroll"><div className="cs-col cs-empty"><h1>No use case yet</h1>
     <p className="cs-muted">Create one under <b>Config</b>, then come back to run demands through it.</p></div></div>
-
-  if (req) return (
-    <div className="cs-scroll"><div className="cs-col">
-      <RequestPanel req={req} busy={busy} run={run} onStart={go} onBack={() => { setReq(null); setFile(null); setErr('') }} />
-      {err && <div className="cs-need">{err}</div>}
-    </div></div>
-  )
-
-  return (
-    <>
-      <div className="cs-scroll"><div className="cs-col cs-empty">
-        <div><div className="eyebrow">{uc.name}</div><h1 style={{ marginTop: 6 }}>Start a new case</h1></div>
-        <p className="cs-muted" style={{ maxWidth: '58ch' }}>Attach a spreadsheet, or enter a single {L.singular}. The agents apply the {uc.name} procedure to each {L.singular} and fill in the table. Questions you ask afterwards refer to this case until you start another.</p>
-        <div className="cs-how">
-          <div><b>1. Provide the input</b><span>A spreadsheet (Excel or CSV), or one {L.singular} entered here.</span></div>
-          <div><b>2. Follow the progress</b><span>A live card shows what the agents are doing, how many {L.plural} they have reached, and where they need an answer from you.</span></div>
-          <div><b>3. Review and ask</b><span>Why a {L.singular} got its result, which {L.plural} overlap, what to ask the requester.</span></div>
-        </div>
-        <div className="cs-actions"><button className="btn" onClick={() => fileRef.current.click()}>Attach a file</button></div>
-        {err && <div className="cs-need">{err}</div>}
-      </div></div>
-
-      <div className="cs-composer-wrap"><div className="cs-composer">
-        <textarea rows={1} value={text} disabled={busy} onChange={e => setText(e.target.value)}
-          placeholder={file ? 'Press Enter to start with this sheet' : `Type or paste a ${L.singular}, or attach a sheet of ${L.plural}...`}
-          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); start() } }} />
-        <div className="cs-crow">
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xlsm" hidden onChange={e => { setFile(e.target.files[0] || null); e.target.value = '' }} />
-          <button className="cs-icon" onClick={() => fileRef.current.click()} aria-label="Attach a demand sheet" title="Attach a demand sheet (.xlsx, .csv)">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m21 11-9 9a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8" /></svg></button>
-          {file && <span className="cs-file">{file.name}<button aria-label="Remove file" onClick={() => setFile(null)}>✕</button></span>}
-          <span className="cs-faint" style={{ fontSize: 12 }}>Enter to send, Shift+Enter for a new line</span>
-          <span className="sp" />
-          <button className="btn primary" disabled={busy || (!file && !text.trim())} onClick={start}>{busy ? 'Starting…' : 'Send'}</button>
-        </div></div></div>
-    </>
-  )
+  return <RequestIntake uc={uc} L={L} beginCase={beginCase} />
 }
 
 // ---- a case ----------------------------------------------------------------------------------------
