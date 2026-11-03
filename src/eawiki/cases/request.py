@@ -71,7 +71,7 @@ def start(store, spec: dict, *, name: str, items: list[dict], files=(), unmatche
     for i, it in enumerate(items):
         it = dict(it)
         it["_id"] = str(it.get("_id") or executor._item_id(it, i, spec))
-        it["_intake"] = {"declined": [], "set": {}}
+        it["_intake"] = {"declined": [], "set": {}, "from": {}, **(it.get("_intake") or {})}
         out.append(it)
     return store.create_request(spec.get("id", ""), name, out, {"files": list(files), "unmatched": list(unmatched)})
 
@@ -94,7 +94,7 @@ def view(store, rid: str) -> dict:
         items.append({"id": it["_id"], "title": str(it.get(title_field) or it["_id"]),
                       "values": {f["name"]: str(it.get(f["name"]) or "") for f in fields},
                       "missing": miss, "declined": [m["name"] for m in miss if m["name"] in (meta.get("declined") or [])],
-                      "set": dict(meta.get("set") or {}), "problems": problems})
+                      "set": dict(meta.get("set") or {}), "from": dict(meta.get("from") or {}), "problems": problems})
     groups = []
     for f in fields:
         ids = [i["id"] for i in items if any(m["name"] == f["name"] for m in i["missing"])]
@@ -106,7 +106,7 @@ def view(store, rid: str) -> dict:
             "files": rq["meta"].get("files") or [], "unmatched": rq["meta"].get("unmatched") or [], "item_label": label,
             "fields": [{"name": f["name"], "label": f.get("label") or f["name"], "description": f.get("description") or "",
                         "type": f.get("type") or "text", "values": list(f.get("values") or []), "required": bool(f.get("required"))} for f in fields],
-            "items": items, "groups": groups,
+            "items": items, "groups": groups, "messages": rq["meta"].get("messages") or [], "pending": rq["meta"].get("pending"),
             "summary": {"total": len(items), "complete": complete, "incomplete": len(items) - complete,
                         "problems": sum(1 for i in items if i["problems"])},
             "ready": bool(items) and complete == len(items)}
@@ -129,11 +129,22 @@ def _fields(spec: dict) -> dict:
     return {f["name"]: f for f in completeness.input_fields(spec)}
 
 
-def _apply(it: dict, field: str, value: str) -> None:
-    meta = it.setdefault("_intake", {"declined": [], "set": {}})
+def _follow_id(spec: dict, it: dict, field: str, value: str) -> None:
+    """A demand's id follows its id field."""
+    if value and field == (spec.get("input") or {}).get("id_field"):
+        it["_id"] = value
+
+
+def _apply(it: dict, field: str, value: str, by: str = "you", quote: str = "") -> None:
+    """Put a value in a field and record where it came from: "you" typed it, or "message" with the words it came from."""
+    meta = it.setdefault("_intake", {"declined": [], "set": {}, "from": {}})
     it[field] = value
+    meta.setdefault("from", {}).pop(field, None)
     if value:
         meta.setdefault("set", {})[field] = "you"
+        if by != "you":
+            meta["set"].pop(field, None)
+            meta["from"][field] = {"by": by, "quote": quote}
         meta["declined"] = [d for d in meta.get("declined") or [] if d != field]
     else:
         meta.setdefault("set", {}).pop(field, None)
@@ -163,9 +174,8 @@ def set_values(store, rid: str, item_id: str, values: Optional[dict], declined: 
     meta = it.setdefault("_intake", {"declined": [], "set": {}})
     if declined is not None:
         meta["declined"] = [d for d in dict.fromkeys(declined) if completeness.is_empty(it.get(d))]
-    idf = (spec.get("input") or {}).get("id_field")
-    if idf and idf in clean and clean[idf]:
-        it["_id"] = clean[idf]                      # the demand's id follows its id field
+    for name, v in clean.items():
+        _follow_id(spec, it, name, v)
     store.save_request(rid, items=rq["items"])
     return view(store, rid)
 
@@ -198,9 +208,45 @@ def fill(store, rid: str, field: str, items: list, value: Optional[str] = None, 
             meta["declined"] = list(dict.fromkeys((meta.get("declined") or []) + [field]))
         else:
             _apply(it, field, v)
+            _follow_id(spec, it, field, v)
         done.append(it["_id"])
     store.save_request(rid, items=rq["items"])
     return dict(view(store, rid), changed=done, skipped=skipped)
+
+
+def apply_read(store, rid: str, assignments: list[dict], declines: Optional[list] = None) -> dict:
+    """Put what the agent read into the demands. Each assignment is {id, field, value, quote}. Only an empty field is filled: a value
+    from the sheet or typed by the person is never overwritten. `declines` is [(id, field)] to ask the requester for."""
+    rq = _open(store, rid)
+    spec = _spec(rq)
+    by = _fields(spec)
+    items = {x["_id"]: x for x in rq["items"]}
+    changed, skipped = [], []
+    for a in assignments:
+        it, f = items.get(a["id"]), by.get(a["field"])
+        if it is None or f is None:
+            skipped.append(a)
+            continue
+        v = _value(f, a["value"])
+        if not v or not completeness.is_empty(it.get(a["field"])):
+            skipped.append(a)
+            continue
+        _apply(it, a["field"], v, by="message", quote=a.get("quote") or "")
+        _follow_id(spec, it, a["field"], v)
+        changed.append({"id": a["id"], "field": a["field"], "label": f.get("label") or f["name"], "value": v, "quote": a.get("quote") or ""})
+    declined = []
+    for iid, field in declines or []:
+        it = items.get(iid)
+        if it is not None and field in by and completeness.is_empty(it.get(field)):
+            meta = it.setdefault("_intake", {"declined": [], "set": {}, "from": {}})
+            meta["declined"] = list(dict.fromkeys((meta.get("declined") or []) + [field]))
+            declined.append({"id": iid, "field": field, "label": by[field].get("label") or field})
+    store.save_request(rid, items=rq["items"])
+    return {"changed": changed, "skipped": skipped, "declined": declined}
+
+
+def save_meta(store, rid: str, **kv) -> None:
+    store.save_request(rid, meta=kv)
 
 
 def submit(store, create: Callable, rid: str, allow_incomplete: bool = False) -> dict:

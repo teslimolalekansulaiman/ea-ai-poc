@@ -11,7 +11,7 @@ from fastapi import APIRouter, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from eawiki import usecases
-from eawiki.cases import intake
+from eawiki.cases import intake, intake_agent
 from eawiki.cases import request as rq
 from eawiki.cases.store import store
 
@@ -25,9 +25,21 @@ def _spec(uc_id: str) -> dict:
     return spec
 
 
+def llm_factory():
+    """The model the agent reads with: the same adapter, backend and model the engine uses (set in the environment)."""
+    import os
+
+    from eawiki.subjects import llm_json
+    backend = os.environ.get("EAWIKI_API_BACKEND", "openrouter")
+    model = os.environ.get("EAWIKI_ASK_MODEL") or None
+    return lambda prompt: llm_json(prompt, backend, model)
+
+
 def _call(fn, *args, **kw):
     try:
         return fn(*args, **kw)
+    except intake_agent.AgentError as e:
+        raise HTTPException(400, str(e))
     except rq.RequestMissing as e:
         raise HTTPException(404, str(e))
     except (rq.RequestLocked, rq.RequestIncomplete) as e:
@@ -115,3 +127,26 @@ def _create(spec: dict, items: list, name: str) -> str:
 @router.post("/requests/{rid}/submit")
 def submit(rid: str, body: SubmitBody):
     return _call(rq.submit, store(), _create, rid, body.allow_incomplete)
+
+
+class MessageBody(BaseModel):
+    use_case_id: str
+    text: str
+
+
+@router.post("/requests/from-message")
+def from_message(body: MessageBody):
+    """A request from what a person wrote. With no demand in it no request is made, and the reply says so."""
+    spec = _spec(body.use_case_id)
+    return _call(intake_agent.start_from_message, store(), spec, llm_factory(), body.text)
+
+
+class TurnBody(BaseModel):
+    text: Optional[str] = None
+    answer: Optional[dict] = None          # a button: {value, scope: "all" | [ids]} or {decline: true, scope}
+
+
+@router.post("/requests/{rid}/messages")
+def message(rid: str, body: TurnBody):
+    """One step with the agent: what the person typed (or the button they pressed), what changed, and the next question."""
+    return _call(intake_agent.turn, store(), rid, llm_factory(), text=body.text, answer=body.answer)

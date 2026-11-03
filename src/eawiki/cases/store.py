@@ -140,8 +140,18 @@ class CaseStore(history._Store):
                 "case_id": r["case_id"] or "", "created_at": r["created_at"], "updated_at": r["updated_at"]}
 
     def save_request(self, rid: str, *, items: Optional[list] = None, status: Optional[str] = None,
-                     case_id: Optional[str] = None) -> None:
+                     case_id: Optional[str] = None, meta: Optional[dict] = None) -> None:
+        """`meta`, when given, is merged into the request's meta (a key set to None is removed)."""
         sets, vals = ["updated_at=?"], [time.time()]
+        if meta is not None:
+            cur = (self.get_request(rid) or {}).get("meta") or {}
+            for k, v in meta.items():
+                if v is None:
+                    cur.pop(k, None)
+                else:
+                    cur[k] = v
+            sets.append("meta_json=?")
+            vals.append(json.dumps(cur, ensure_ascii=False))
         if items is not None:
             sets.append("items_json=?")
             vals.append(json.dumps(items, ensure_ascii=False))
