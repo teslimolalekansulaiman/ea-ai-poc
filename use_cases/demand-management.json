@@ -733,7 +733,7 @@
       "name": "Recommendation",
       "instructions": "Check overlap with existing solutions (components, platforms, applications, APIs, prior/running initiatives) and with other demands (consolidate). Check the contract register for licences/renewals that could cover it. Confirm security fit before recommending reuse. Recommend the way forward and the demand owner, and justify by what it overlaps with. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it doesn't, say what is needed.",
       "output": {
-        "mode": "table",
+        "mode": "document",
         "columns": [
           {
             "name": "Recommendation",
@@ -744,6 +744,19 @@
               "Merge/CR",
               "Link new artefacts",
               "Onboard new requirement"
+            ]
+          },
+          {
+            "name": "Recommended action",
+            "type": "text",
+            "description": "What the architecture team recommends doing with this demand, in one or two plain sentences addressed to the requester.",
+            "how_to_resolve": "State the way forward in words, using what is already decided for this demand: the Recommendation, what it overlaps with, any demand to consolidate with, the contract and the security fit. If another demand covers the same need, say not to raise a new demand and name that one. If an existing solution covers it, name it and say what to extend. Do not recommend new business capabilities. Say only what the sources support; if they do not settle it, say what is needed.",
+            "uses": [
+              "Recommendation",
+              "Overlaps with",
+              "Consolidate with demand(s)",
+              "Contract / licence match",
+              "Security fit"
             ]
           },
           {
@@ -784,7 +797,14 @@
             "name": "Evidence",
             "type": "citations"
           }
-        ]
+        ],
+        "document": {
+          "statement": "Recommended action",
+          "facts": [
+            "Recommended owner",
+            "Consolidate with demand(s)"
+          ]
+        }
       },
       "summary_columns": [
         "Justification"

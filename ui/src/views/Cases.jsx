@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { Markdown, useCite } from '../cite'
 import '../cases.css'
+import { Recommendations } from '../components/Recommendations'
 import { AnsweredCard, AskCard, ErrorCard, FinCard, FullTable, LiveCard, PhaseTrack, ResultCard, Workspace, count } from '../components/CasesParts'
 
 // A sheet or a typed demand becomes a case: read it, create it, and the run starts at once.
@@ -231,7 +232,8 @@ function Case({ id }) {
           {openQs.length > shownQs.length && <div className="cs-msg"><div className="cs-av" style={{ visibility: 'hidden' }}>AA</div><div className="cs-body">
             <button className="btn sm" onClick={() => setShowAllQs(true)}>Show the other {openQs.length - shownQs.length} question{openQs.length - shownQs.length === 1 ? '' : 's'}</button></div></div>}
 
-          {finished && <ResultCard phase={phase} next={next} L={L} busy={busy || runningHere}
+          {finished && phase.mode === 'document' && <Recommendations caseId={id} phase={phase} onOpenTable={() => setTable(true)} onExport={exportXlsx} onChanged={poke} />}
+          {finished && phase.mode !== 'document' && <ResultCard phase={phase} next={next} L={L} busy={busy || runningHere}
             onApprove={() => act(async () => { await api.caseApprove(id, phase.id); if (next) setViewed(next.id) })}
             onOpenTable={() => setTable(true)} onExport={exportXlsx}
             onPickItem={(iid) => { setWsOpen(true); setTab('demands'); setOpenItem(iid); setOpenCol(null); focusOn(iid) }} />}

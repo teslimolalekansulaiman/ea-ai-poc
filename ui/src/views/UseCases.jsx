@@ -444,6 +444,31 @@ export default function UseCases() {
         <input style={inp} value={s.name} onChange={e => patch(d => { d.stages[sel.si].name = e.target.value })} />
         <label className="meta" style={lab}>Instructions (what the agent should do)</label>
         <textarea style={{ ...inp, minHeight: 70 }} value={s.instructions} onChange={e => patch(d => { d.stages[sel.si].instructions = e.target.value })} />
+        <label className="meta" style={lab}>How the results are shown</label>
+        <select style={inp} value={s.output.mode === 'document' ? 'document' : 'table'}
+          onChange={e => patch(d => { const o = d.stages[sel.si].output; if (e.target.value === 'document') o.mode = 'document'; else { o.mode = 'table'; delete o.document } })}>
+          <option value="table">A table: one row per item</option>
+          <option value="document">A document per item: a draft to read, edit and approve</option>
+        </select>
+        {s.output.mode === 'document' && (<>
+          <div className="meta" style={{ margin: '6px 0' }}>The draft opens with the headline text, then the key lines; every other property becomes a section, in the order below. What is still unconfirmed and the sources are added at the end. A property graded in code is left out of the draft.</div>
+          <label className="meta" style={lab}>Headline text (the sentence or two the draft opens with)</label>
+          <select style={inp} value={(s.output.document || {}).statement || ''}
+            onChange={e => patch(d => { const o = d.stages[sel.si].output; o.document = { ...o.document, statement: e.target.value || undefined } })}>
+            <option value="">None: open with the stage’s summary property</option>
+            {s.output.columns.filter(c => c.type === 'text' && c.name).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+          </select>
+          <label className="meta" style={lab}>Key lines (shown under the headline, after the tag)</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+            {s.output.columns.filter(c => c.name && c.name !== (s.output.document || {}).statement && c.type !== 'citations').map(c => (
+              <label key={c.name} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+                <input type="checkbox" checked={((s.output.document || {}).facts || []).includes(c.name)}
+                  onChange={e => patch(d => { const o = d.stages[sel.si].output; const cur = (o.document || {}).facts || []
+                    o.document = { ...o.document, facts: e.target.checked ? [...cur, c.name] : cur.filter(x => x !== c.name) } })} />
+                {c.name}
+              </label>))}
+          </div>
+        </>)}
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <button className="btn" onClick={() => { patch(d => { d.stages[sel.si].output.columns.push({ name: '', type: 'text', values: [] }) }); setPage({ k: 'prop', si: sel.si, ci: s.output.columns.length }) }}>+ property</button>
           {uc.stages.length > 1 && <button className="btn" style={{ color: 'var(--crit)' }} onClick={() => { if (confirm(`Remove stage ${sel.si + 1} and its properties?`)) { patch(d => { d.stages.splice(sel.si, 1) }); setPage({ k: 'basics' }) } }}>Remove this stage</button>}

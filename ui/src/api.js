@@ -69,6 +69,12 @@ export const api = {
   caseCancel: (cid) => post('/api/cases/' + encodeURIComponent(cid) + '/cancel', {}),
   caseAsk: (cid, question, history, focus) => post('/api/cases/' + encodeURIComponent(cid) + '/ask', { question, history, focus }),
   caseExportUrl: (cid, phase) => '/api/cases/' + encodeURIComponent(cid) + '/export?phase=' + encodeURIComponent(phase || ''),
+  // a phase shown as documents: one draft recommendation per demand
+  caseDrafts: (cid, pid) => J('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents'),
+  caseDraftSave: (cid, pid, item, doc) => J('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item),
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ doc }) }),
+  caseDraftDecide: (cid, pid, item, action, note) => post('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item) + '/decision', { action, note: note || '' }),
+  caseDraftExportUrl: (cid, pid, item) => '/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item) + '/export',
   readiness: (ucId, body) => post('/api/usecases/' + encodeURIComponent(ucId) + '/readiness', body),
 
   // history (chats + runs)

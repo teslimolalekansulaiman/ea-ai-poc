@@ -65,6 +65,7 @@ def validate(spec: dict, relation_names=None) -> list[str]:
         cols = ((s.get("output") or {}).get("columns")) or []
         if not cols:
             errs.append(f"Stage {i}: at least one output column is required.")
+        errs += _document_errors(f"Stage {i}", s.get("output") or {}, cols)
         for c in cols:
             if c.get("type") not in COLUMN_TYPES:
                 errs.append(f"Stage {i}: column '{c.get('name','?')}' has invalid type '{c.get('type')}'.")
@@ -92,6 +93,27 @@ def validate(spec: dict, relation_names=None) -> list[str]:
     v = spec.get("validation") or {}
     if v.get("enabled") and not (v.get("questions") or []):
         errs.append("Validation is enabled but has no intake questions.")
+    return errs
+
+
+def _document_errors(where: str, output: dict, cols: list) -> list[str]:
+    """How a stage's results are shown: a table, or one document per demand (see cases/document.py)."""
+    mode = output.get("mode")
+    if mode not in (None, "table", "document"):
+        return [f"{where}: the results are shown as a table or as documents, not '{mode}'."]
+    cfg = output.get("document")
+    if cfg is None:
+        return []
+    names = {c.get("name"): c for c in cols}
+    errs = []
+    if not isinstance(cfg, dict):
+        return [f"{where}: the document settings must be an object."]
+    st = cfg.get("statement")
+    if st is not None and (st not in names or names[st].get("type") not in ("text", "textarea")):
+        errs.append(f"{where}: the document's headline text must be a text property of this stage.")
+    facts = cfg.get("facts")
+    if facts is not None and (not isinstance(facts, list) or any(f not in names for f in facts)):
+        errs.append(f"{where}: the document's key lines must be properties of this stage.")
     return errs
 
 

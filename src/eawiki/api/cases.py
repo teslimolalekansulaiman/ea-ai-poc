@@ -134,6 +134,7 @@ def get_case(cid: str, after: int = 0):
     for si, stage in enumerate(spec["stages"]):
         pid = phase_id(stage)
         phases.append({"id": pid, "name": stage.get("name"), "instructions": stage.get("instructions", ""),
+                       "mode": (stage.get("output") or {}).get("mode") or "table",
                        "columns": [_column_view(c) for c in stage["output"]["columns"]],
                        "state": case["state"].get("phases", {}).get(pid, {"status": "waiting"}),
                        "progress": progress.get(pid, {}), "steps": steps(spec, stage, si == 0),
@@ -192,6 +193,63 @@ def resume(cid: str, pid: str):
         raise HTTPException(409, str(e))
     except ValueError as e:
         raise HTTPException(404, str(e))
+
+
+class DocBody(BaseModel):
+    doc: dict
+
+
+class DecisionBody(BaseModel):
+    action: str
+    note: str = ""
+
+
+def _doc_case(cid: str) -> dict:
+    case = store().get_case(cid)
+    if not case:
+        raise HTTPException(404, "no such case")
+    return case
+
+
+def _doc_call(fn, *args):
+    try:
+        return fn(*args)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except PermissionError as e:
+        raise HTTPException(409, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@router.get("/cases/{cid}/phases/{pid}/documents")
+def documents_of(cid: str, pid: str):
+    """A phase shown as documents: one draft per demand, as it stands (composed from the results, or the architect's own text)."""
+    from eawiki.cases import document
+    case = _doc_case(cid)
+    return {"documents": _doc_call(document.listing, store(), case, pid)}
+
+
+@router.put("/cases/{cid}/phases/{pid}/documents/{item}")
+def edit_document(cid: str, pid: str, item: str, body: DocBody):
+    from eawiki.cases import document
+    return _doc_call(document.edit, store(), _doc_case(cid), pid, item, body.doc)
+
+
+@router.post("/cases/{cid}/phases/{pid}/documents/{item}/decision")
+def decide_document(cid: str, pid: str, item: str, body: DecisionBody):
+    """approve, return (with a note saying what should change) or reopen a returned one."""
+    from eawiki.cases import document
+    return _doc_call(document.decide, store(), _doc_case(cid), pid, item, body.action, body.note)
+
+
+@router.get("/cases/{cid}/phases/{pid}/documents/{item}/export")
+def export_document(cid: str, pid: str, item: str):
+    from eawiki.cases import document
+    entry = _doc_call(lambda c, p, i: document._entry(store(), c, p, i), _doc_case(cid), pid, item)
+    name = "".join(ch if ch.isalnum() or ch in " -_" else "_" for ch in f"{item} - {entry['doc']['title']}")[:90]
+    return Response(document.render_html(entry), media_type="text/html; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{name}.html"'})
 
 
 @router.get("/cases/{cid}/score")

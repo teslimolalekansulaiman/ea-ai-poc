@@ -48,6 +48,9 @@ class CaseStore(history._Store):
             c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS questions(
                 id TEXT PRIMARY KEY, case_id TEXT, item_id TEXT, phase_id TEXT, col TEXT,
                 text TEXT, status TEXT, answer TEXT, created_at {r})"""))
+            c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS documents(
+                case_id TEXT, item_id TEXT, phase_id TEXT, status TEXT, doc_json TEXT, original_json TEXT,
+                note TEXT, decided_at {r}, updated_at {r}, PRIMARY KEY(case_id, item_id, phase_id))"""))
             c.execute(self._sql("CREATE INDEX IF NOT EXISTS cases_uc ON cases(use_case_id, updated_at)"))
         self._add_column("questions", "meta_json", "TEXT")          # a store made before suggestions existed
 
@@ -108,10 +111,35 @@ class CaseStore(history._Store):
 
     def delete_case(self, cid: str) -> bool:
         with self._conn() as c:
-            for t in ("cells", "case_events", "questions"):
+            for t in ("cells", "case_events", "questions", "documents"):
                 c.execute(self._sql(f"DELETE FROM {t} WHERE case_id=?"), (cid,))
             cur = c.execute(self._sql("DELETE FROM cases WHERE id=?"), (cid,))
         return cur.rowcount > 0
+
+    # --- documents: a stage shown as one draft per demand, which an architect edits and approves ----------
+    @staticmethod
+    def _doc_row(r) -> dict:
+        return {"item_id": r["item_id"], "phase_id": r["phase_id"], "status": r["status"], "doc": json.loads(r["doc_json"]),
+                "original": json.loads(r["original_json"]), "note": r["note"] or "", "decided_at": r["decided_at"],
+                "updated_at": r["updated_at"]}
+
+    def documents(self, cid: str, phase_id: str) -> dict:
+        """{item id: the saved document}. A demand with no row has an unedited draft, composed from its cells."""
+        with self._conn() as c:
+            rows = c.execute(self._sql("SELECT * FROM documents WHERE case_id=? AND phase_id=?"), (cid, phase_id)).fetchall()
+        return {r["item_id"]: self._doc_row(r) for r in rows}
+
+    def save_document(self, cid: str, item_id: str, phase_id: str, *, status: str, doc: dict, original: dict,
+                      note: str = "", decided_at: Optional[float] = None) -> None:
+        now = time.time()
+        with self._conn() as c:
+            c.execute(self._sql(
+                "INSERT INTO documents(case_id,item_id,phase_id,status,doc_json,original_json,note,decided_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(case_id,item_id,phase_id) DO UPDATE SET status=excluded.status,"
+                "doc_json=excluded.doc_json,original_json=excluded.original_json,note=excluded.note,"
+                "decided_at=excluded.decided_at,updated_at=excluded.updated_at"),
+                (cid, item_id, phase_id, status, json.dumps(doc, ensure_ascii=False), json.dumps(original, ensure_ascii=False),
+                 note, decided_at, now))
 
     # --- cells --------------------------------------------------------------
     def save_cell(self, cid: str, item_id: str, phase_id: str, col: str, *, value, status: str,
