@@ -25,6 +25,7 @@ from typing import Callable, Optional
 from eawiki import completeness, usecases
 
 MAX_VALUE = 4000
+STEP_MAX = 5                  # up to this many open questions are asked one at a time; more are listed, and the person chooses how to go on
 DRAFTING, SUBMITTED = "drafting", "submitted"
 
 
@@ -102,15 +103,28 @@ def view(store, rid: str) -> dict:
             groups.append({"field": f["name"], "label": f.get("label") or f["name"], "type": f.get("type") or "text",
                            "values": list(f.get("values") or []), "description": f.get("description") or "", "items": ids})
     complete = sum(1 for i in items if not i["missing"] and not i["problems"])
+    questions = open_questions(fields, items)
     return {"id": rq["id"], "use_case_id": rq["use_case_id"], "name": rq["name"], "status": rq["status"], "case_id": rq["case_id"],
             "files": rq["meta"].get("files") or [], "unmatched": rq["meta"].get("unmatched") or [], "item_label": label,
             "fields": [{"name": f["name"], "label": f.get("label") or f["name"], "description": f.get("description") or "",
                         "type": f.get("type") or "text", "values": list(f.get("values") or []), "required": bool(f.get("required"))} for f in fields],
-            "items": items, "groups": groups, "messages": rq["meta"].get("messages") or [], "pending": rq["meta"].get("pending"),
+            "items": items, "groups": groups, "questions": questions, "stepwise": len(questions) <= STEP_MAX, "messages": rq["meta"].get("messages") or [], "pending": rq["meta"].get("pending"),
             "sources": [{k: x.get(k) for k in ("name", "kind", "chars", "truncated", "notes")} for x in rq["meta"].get("sources") or []],
             "summary": {"total": len(items), "complete": complete, "incomplete": len(items) - complete,
                         "problems": sum(1 for i in items if i["problems"])},
             "ready": bool(items) and complete == len(items)}
+
+
+def open_questions(fields: list, items: list) -> list:
+    """What is still to be asked, one entry per required field that is empty for some demand and not yet given up on for it, in the use
+    case's field order: {field, label, description, type, options, items}. Pure code; the person decides how to go through them."""
+    out = []
+    for f in fields:
+        ids = [i["id"] for i in items if any(m["name"] == f["name"] for m in i["missing"]) and f["name"] not in i["declined"]]
+        if ids:
+            out.append({"field": f["name"], "label": f.get("label") or f["name"], "description": f.get("description") or "",
+                        "type": f.get("type") or "text", "options": list(f.get("values") or []) if f.get("type") == "enum" else [], "items": ids})
+    return out
 
 
 def _value(field: dict, raw) -> str:

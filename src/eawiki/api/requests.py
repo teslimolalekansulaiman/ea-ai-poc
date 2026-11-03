@@ -143,13 +143,14 @@ def from_message(body: MessageBody):
 
 class TurnBody(BaseModel):
     text: Optional[str] = None
-    answer: Optional[dict] = None          # a button: {value, scope: "all" | [ids]} or {decline: true, scope}
+    answer: Optional[dict] = None          # a button: {value, scope: "all" | [ids]}, {decline: true, scope} or {decline_all: true}
+    field: Optional[str] = None            # the open question the person is looking at, when it is not the first
 
 
 @router.post("/requests/{rid}/messages")
 def message(rid: str, body: TurnBody):
     """One step with the agent: what the person typed (or the button they pressed), what changed, and the next question."""
-    return _call(intake_agent.turn, store(), rid, llm_factory(), text=body.text, answer=body.answer)
+    return _call(intake_agent.turn, store(), rid, llm_factory(), text=body.text, answer=body.answer, field=body.field)
 
 
 MAX_FILES = 5

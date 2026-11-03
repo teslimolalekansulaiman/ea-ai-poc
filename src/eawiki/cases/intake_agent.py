@@ -309,16 +309,36 @@ JSON: {{"question": "..."}}""")
     return q
 
 
-def plan_question(spec: dict, v: dict, model: Callable) -> Optional[dict]:
-    """The next thing to ask: the first required field, in the use case's order, that is empty and not yet given up on for some
-    demand. Chosen in code; the model only words it, and the pick list is the field's own."""
+def _ask(spec: dict, v: dict, q: dict, model: Callable) -> dict:
+    """One open question (see request.open_questions) as something to ask: the model only words it, and the pick list is the field's own."""
+    f = next(x for x in v["fields"] if x["name"] == q["field"])
     titles = {i["id"]: i["title"] for i in v["items"]}
-    for f in v["fields"]:
-        ids = [i["id"] for i in v["items"] if any(m["name"] == f["name"] for m in i["missing"]) and f["name"] not in i["declined"]]
-        if ids:
-            return {"kind": "ask", "field": f["name"], "label": f["label"], "items": ids, "text": _worded(spec, f, ids, titles, model),
-                    "options": [{"value": x, "label": x} for x in f["values"]] if f["type"] == "enum" else [], "can_decline": True}
-    return None
+    return {"kind": "ask", "field": q["field"], "label": q["label"], "items": q["items"], "text": _worded(spec, f, q["items"], titles, model),
+            "options": [{"value": x, "label": x} for x in q["options"]], "can_decline": True}
+
+
+def plan_question(spec: dict, v: dict, model: Callable) -> Optional[dict]:
+    """The next thing to ask: the first open question, chosen in code."""
+    return _ask(spec, v, v["questions"][0], model) if v["questions"] else None
+
+
+def _tail(question: Optional[dict], v: dict, brief: bool = False) -> str:
+    """What the agent ends its message with. One question is asked as itself; several are named together, and the person is told
+    how they can go on, so the reply reads as a conversation and not as a form. `brief`: the person has just answered something, so
+    the list is not said again, only how many are left."""
+    qs = v["questions"]
+    if question is None:
+        return _ready_text(v)
+    if question.get("kind") == "scope" or len(qs) <= 1:
+        return question["text"]
+    if brief:
+        return f"{len(qs)} left."
+    if len(qs) > rq.STEP_MAX:                           # too many to name in a sentence: the screen lists them (`questions`), and the message says how to go on
+        return (f"{len(qs)} required details are still missing. Tell me what you know in one message, attach a file that holds it, "
+                "go through them one by one, or ask the requesters for all of these.")
+    plural = v["item_label"]["plural"]
+    one = lambda q: q["label"] + (f" (for {_names(q['items'])})" if len(q["items"]) <= 2 else f" ({len(q['items'])} {plural})")      # noqa: E731
+    return f"{len(qs)} required details are still missing: {'; '.join(one(q) for q in qs)}. Tell me what you know in your own words, or answer them below."
 
 
 # ---- one turn ---------------------------------------------------------------------------------------------------------
@@ -346,13 +366,13 @@ def _ready_text(v: dict) -> str:
     n = v["summary"]["incomplete"]
     label = v["item_label"]
     if v["ready"]:
-        return "Everything required is filled in. You can start the case."
+        return "Everything required is filled in. Start the case when you are ready."
     held = sum(1 for i in v["items"] if i["missing"] and all(m["name"] in i["declined"] for m in i["missing"]))
     if n and held == n:
         return (f"Everything you can give is in. {n} {label['singular'] if n == 1 else label['plural']} still {'misses' if n == 1 else 'miss'} information only the "
                 f"{'requester' if n == 1 else 'requesters'} can give. You can start anyway and {'it is' if n == 1 else 'they are'} held and returned for information, "
-                "or download the gaps sheet to send back.")
-    return "A required field is still missing. Fix it in the panel, or tell me."
+                "or take the gaps sheet to send back.")
+    return "A required field is still missing. Tell me what it is."
 
 
 def _save(store, rid: str, v_before: dict, user_text: str, reply: str, pending: Optional[dict]) -> None:
@@ -417,7 +437,7 @@ def start_from_sources(store, spec: dict, llm: Optional[Callable], text: str, fi
     found = ", ".join(f"{i['id']} ({i['title']})" for i in v["items"])
     reply = (f"I read {read}. " if files else "") + f"I found {len(v['items'])} {_singular(spec) if len(v['items']) == 1 else plural}: {found}. "
     reply += _summary([], [], ex["dropped"], False, fields)
-    reply = " ".join(x for x in (reply.strip(), shown, pending["text"] if pending else _ready_text(v)) if x)
+    reply = " ".join(x for x in (reply.strip(), shown, _tail(pending, v)) if x)
     mine = text or ("Attached: " + ", ".join(f["name"] for f in files))
     _save(store, rid, v, mine if not (text and files) else text + "\n(Attached: " + ", ".join(f["name"] for f in files) + ")", reply, pending)
     return {"request": rq.view(store, rid), "reply": reply, "question": pending, "changes": changes, "dropped": ex["dropped"], "calls": model.calls}
@@ -513,8 +533,7 @@ def add_sources(store, rid: str, llm: Optional[Callable], text: str = "", files=
         said = _summary(applied["changed"], [], r["dropped"], not r["ok"], {f["name"]: f["label"] for f in v2["fields"]})
         head += said if said else "I found nothing in it for what is missing. "
     question = plan_question(spec, v2, model)
-    tail = question["text"] if question else _ready_text(v2)
-    reply = " ".join(x for x in (head.strip(), " ".join(notes), tail) if x)
+    reply = " ".join(x for x in (head.strip(), " ".join(notes), _tail(question, v2)) if x)
     mine = text or ("Attached: " + ", ".join(f["name"] for f in files))
     _save(store, rid, v, mine if not (text and files) else text + "\n(Attached: " + ", ".join(f["name"] for f in files) + ")", reply, question)
     return {"reply": reply, "question": question, "changes": applied["changed"], "declined": [], "dropped": r["dropped"], "ready": v2["ready"],
@@ -529,9 +548,11 @@ def _scope(scope, items: list) -> list:
     raise AgentError("Say which: all of them, or a list of ids.")
 
 
-def turn(store, rid: str, llm: Optional[Callable], *, text: Optional[str] = None, answer: Optional[dict] = None) -> dict:
-    """One step. `answer` is a button: {value, scope} or {decline: true, scope}; `text` is what the person typed. With neither, the
-    agent just asks the next question. Returns {reply, question, changes, declined, dropped, ready, request, calls}."""
+def turn(store, rid: str, llm: Optional[Callable], *, text: Optional[str] = None, answer: Optional[dict] = None, field: Optional[str] = None) -> dict:
+    """One step. `answer` is a button: {value, scope}, {decline: true, scope} or {decline_all: true}; `text` is what the person typed.
+    `field` names the question the person is looking at, when it is not the first (they may step through the open ones in any order);
+    the answer or the words are then read for that one. With neither text nor answer, the agent just asks the next question.
+    Returns {reply, question, changes, declined, dropped, ready, request, calls}."""
     v = rq.view(store, rid)
     if v["status"] != rq.DRAFTING:
         raise rq.RequestLocked("This request was already submitted.")
@@ -546,9 +567,19 @@ def turn(store, rid: str, llm: Optional[Callable], *, text: Optional[str] = None
     stored = pending
     if pending is None:                                                               # what is being asked, for reading a reply: plain wording, no model call
         pending = plan_question(spec, v, Model(None))
+    if field and not (pending and pending.get("kind") == "scope"):
+        asked = next((q for q in v["questions"] if q["field"] == field), None)
+        if asked is None and not (answer or {}).get("decline_all"):
+            raise AgentError("That is not being asked about any more.")
+        pending = _ask(spec, v, asked, Model(None)) if asked else pending
     user_text = (text or "").strip()
     changes, declined, dropped, failed, carry = [], [], [], False, None
-    if answer is not None:
+    if answer is not None and answer.get("decline_all"):                              # "ask the requesters for all of these": every open question, for the demands it is open for
+        for q in v["questions"]:
+            r = rq.fill(store, rid, q["field"], q["items"], decline=True)
+            declined += [{"id": i, "field": q["field"], "label": q["label"]} for i in r["changed"]]
+        user_text = user_text or "Ask the requesters for all of these"
+    elif answer is not None:
         if pending is None:
             raise AgentError("There is nothing to answer right now.")
         ids = _scope(answer.get("scope"), pending["items"])
@@ -588,7 +619,7 @@ def turn(store, rid: str, llm: Optional[Callable], *, text: Optional[str] = None
     head = _summary(changes, declined, dropped, failed, {f["name"]: f["label"] for f in v2["fields"]})
     if user_text == "" and answer is None and not changes:
         head = ""
-    tail = question["text"] if question else _ready_text(v2)
+    tail = _tail(question, v2, brief=bool(changes or declined))
     probs = [p for i in v2["items"] for p in i["problems"]]
     reply = " ".join(x for x in (head, tail, " ".join(dict.fromkeys(probs))) if x)
     _save(store, rid, v, user_text, reply, question)

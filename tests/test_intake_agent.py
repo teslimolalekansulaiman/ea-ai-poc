@@ -156,7 +156,7 @@ def test_the_order_follows_the_use_case_and_a_given_up_field_is_not_asked_again(
 
 def test_a_complete_request_is_told_it_can_start():
     out = ag.turn(store(), _request([_item("D-1")]), None)
-    assert out["ready"] is True and out["reply"] == "Everything required is filled in. You can start the case." and out["calls"] == 0
+    assert out["ready"] is True and out["reply"] == "Everything required is filled in. Start the case when you are ready." and out["calls"] == 0
 
 
 def test_buttons_need_no_model_and_the_person_picks_the_scope():
@@ -345,3 +345,68 @@ def test_the_routes_refuse_what_cannot_be_done(client, monkeypatch):
     assert client.post(f"/api/requests/{rid}/messages", json={}).json()["ready"] is True
     client.post(f"/api/requests/{rid}/submit", json={})
     assert client.post(f"/api/requests/{rid}/messages", json={}).status_code == 409
+
+
+# ---- going through the open questions in the chat ---------------------------------------------------------------------
+
+def test_the_request_lists_every_open_question_in_the_use_cases_order_and_says_whether_to_step_through_them():
+    rid = _request([_item("D-1", sponsor="", department=""), _item("D-2", sponsor="")])
+    v = rq.view(store(), rid)
+    assert [q["field"] for q in v["questions"]] == ["department", "sponsor"]                        # the use case's field order
+    by = {q["field"]: q for q in v["questions"]}
+    assert by["sponsor"]["items"] == ["D-1", "D-2"] and by["department"]["items"] == ["D-1"] and by["sponsor"]["label"] and by["sponsor"]["options"] == []
+    assert v["stepwise"] is True
+    # a field given up on (ask the requester) is no longer a question; a pick list brings its options
+    rq.fill(store(), rid, "sponsor", ["D-1", "D-2"], decline=True)
+    assert [q["field"] for q in rq.view(store(), rid)["questions"]] == ["department"]
+    many = _request([_item(f"D-{i}", **{k: "" for k in ("sponsor", "department", "requester_role", "title", "business_need", "expected_outcome")}) for i in range(2)])
+    assert len(rq.view(store(), many)["questions"]) > rq.STEP_MAX and rq.view(store(), many)["stepwise"] is False
+
+
+def test_several_open_questions_are_named_together_and_the_person_is_told_how_to_go_on():
+    rid = _request([_item("D-1", sponsor="", department=""), _item("D-2", sponsor="")])
+    out = ag.turn(store(), rid, None)
+    assert out["reply"] == ("2 required details are still missing: Requesting department (for D-1); Business sponsor (for D-1 and D-2). "
+                            "Tell me what you know in your own words, or answer them below.")
+    # one open question is just asked
+    one = ag.turn(store(), _request([_item("D-1", sponsor="")]), None)
+    assert "still missing" not in one["reply"] and one["reply"] == one["question"]["text"]
+    # too many to step through: say so, and offer the other routes
+    many = _request([_item(f"D-{i}", **{k: "" for k in ("sponsor", "department", "requester_role", "title", "business_need", "expected_outcome")}) for i in range(3)])
+    text = ag.turn(store(), many, None)["reply"]
+    assert text == ("6 required details are still missing. Tell me what you know in one message, attach a file that holds it, "
+                    "go through them one by one, or ask the requesters for all of these.")        # named on the screen, not in a sentence
+
+
+def test_an_answer_can_name_the_question_it_is_for_and_need_not_be_the_first():
+    rid = _request([_item("D-1", sponsor="", department="")])
+    assert [q["field"] for q in rq.view(store(), rid)["questions"]] == ["department", "sponsor"]
+    out = ag.turn(store(), rid, None, answer={"value": "Chief Financial Officer", "scope": "all"}, field="sponsor")          # the second question, answered first
+    assert out["request"]["items"][0]["values"]["sponsor"] == "Chief Financial Officer" and [q["field"] for q in out["request"]["questions"]] == ["department"]
+    with pytest.raises(ag.AgentError):
+        ag.turn(store(), rid, None, answer={"value": "x", "scope": "all"}, field="sponsor")                 # settled now: not asked about any more
+    # typed words are read for the question the person is looking at
+    rid2 = _request([_item("D-1", sponsor="", department="")])
+    fake = Fake({"value": "Finance", "quote": "Finance", "applies_to": "all"})
+    ag.turn(store(), rid2, fake, text="Finance", field="department")
+    assert "FIELD: Requesting department." in fake.prompts[0]
+    assert rq.view(store(), rid2)["items"][0]["values"]["department"] == "Finance"
+
+
+def test_ask_the_requesters_for_all_of_these_gives_up_on_every_open_question_and_needs_no_model():
+    rid = _request([_item("D-1", sponsor="", department=""), _item("D-2", sponsor="")])
+    out = ag.turn(store(), rid, None, answer={"decline_all": True})
+    assert out["calls"] == 0 and out["question"] is None and out["request"]["questions"] == []
+    assert {d["id"] for d in out["declined"]} == {"D-1", "D-2"} and out["request"]["ready"] is False
+    assert out["request"]["messages"][-2]["text"] == "Ask the requesters for all of these"
+    assert "information only the requesters can give" in out["reply"]
+    assert out["request"]["items"][0]["declined"] and out["request"]["items"][1]["declined"] == ["sponsor"]
+
+
+def test_after_an_answer_the_agent_says_what_it_added_and_how_many_are_left_not_the_whole_list_again():
+    rid = _request([_item("D-1", sponsor="", department="", requester_role="")])
+    first = ag.turn(store(), rid, None)["reply"]
+    assert first.startswith("3 required details are still missing: ")
+    out = ag.turn(store(), rid, None, answer={"value": "Finance", "scope": "all"}, field="department")
+    assert out["reply"] == "I added Requesting department: Finance for D-1. 2 left."
+    assert ag.turn(store(), rid, None)["reply"].startswith("2 required details are still missing: ")        # asked again with no change: the list is named

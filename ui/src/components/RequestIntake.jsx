@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { RequestPanel } from './RequestPanel'
+import { Gaps, Ready, ScopeQuestion, Steps } from './RequestAsk'
+import { RequestSummary } from './RequestSummary'
 
 // The front of a case: say what is needed, or attach what it came in, and the agent fills in what it says and asks only for
 // what is missing. The request lives on the server and the page address names it (?request=...), so a reload or a link
-// continues the same conversation. Starting hands the demands to the engine, and the case screen takes over.
+// continues the same conversation. The whole exchange is in the chat: the agent says what it found, asks what is missing (one
+// question at a time, or as a list when there are too many), and offers to start the case when nothing is left to ask. Starting
+// hands the demands to the engine, and the case screen takes over.
 
 const SHEET = /\.(csv|xlsx|xlsm)$/i
 const ACCEPT = '.csv,.xlsx,.xlsm,.txt,.md,.eml,.docx,.pptx,.pdf'
@@ -18,30 +21,6 @@ function Message({ m }) {
   return m.role === 'user'
     ? <div className="cs-msg u"><div className="cs-bubble">{m.text}</div></div>
     : <div className="cs-msg"><div className="cs-av">AA</div><div className="rc-agent">{m.text}</div></div>
-}
-
-// The open question: its answers as buttons, and which demands the answer is for (the person's choice, never assumed).
-function Question({ q, busy, onAnswer }) {
-  const [picked, setPicked] = useState(() => new Set(q.items))
-  const toggle = (id) => setPicked(p => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n })
-  const chosen = q.items.filter(i => picked.has(i))
-  const scope = chosen.length === q.items.length ? 'all' : chosen
-  const none = chosen.length === 0
-  return (
-    <div className="rc-q">
-      {q.items.length > 1 && (
-        <div className="rc-scope"><span>Applies to:</span>
-          {q.items.map(i => <label key={i}><input type="checkbox" checked={picked.has(i)} onChange={() => toggle(i)} />{i}</label>)}
-        </div>)}
-      <div className="rc-opts">
-        {q.kind === 'scope'
-          ? <button className="btn sm primary" disabled={busy || none} onClick={() => onAnswer({ scope })}>{scope === 'all' ? `All ${q.items.length}` : `Only the ${chosen.length} chosen`}</button>
-          : q.options.map(o => <button key={o.value} className="btn sm" disabled={busy || none} onClick={() => onAnswer({ value: o.value, scope })}>{o.label}</button>)}
-        {q.can_decline !== false && <button className="btn sm" disabled={busy || none} onClick={() => onAnswer({ decline: true, scope })}>Ask the requester{chosen.length > 1 ? 's' : ''}</button>}
-      </div>
-      {q.kind === 'ask' && q.options.length === 0 && <div className="cs-faint" style={{ fontSize: 12.5 }}>Type your answer below.</div>}
-    </div>
-  )
 }
 
 function Composer({ text, setText, files, setFiles, busy, onSend, placeholder, fileRef, hint }) {
@@ -73,6 +52,8 @@ export function RequestIntake({ uc, L, beginCase }) {
   const [err, setErr] = useState('')
   const [notice, setNotice] = useState('')           // what the agent said when it found nothing to start a request from
   const [sending, setSending] = useState(null)       // what the person just sent, shown while the agent reads it
+  const [qi, setQi] = useState(0)                     // the open question being shown, when stepping through them
+  const [choice, setChoice] = useState(null)         // 'one' (question by question) or 'all' (one message), once the person has chosen; else by how many are open
   const fileRef = useRef(null)
   const scroller = useRef(null)
   const count = req ? req.messages.length : 0
@@ -94,8 +75,8 @@ export function RequestIntake({ uc, L, beginCase }) {
 
   useEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight }, [count, sending, busy])
 
-  const open = (r) => { setSp({ request: r.id }, { replace: true }); setReq(r); setText(''); setFiles([]) }
-  const reset = () => { setReq(null); setFiles([]); setText(''); setErr(''); setNotice(''); setSp({}, { replace: true }) }
+  const open = (r) => { setSp({ request: r.id }, { replace: true }); setReq(r); setText(''); setFiles([]); setQi(0); setChoice(null) }
+  const reset = () => { setReq(null); setFiles([]); setText(''); setErr(''); setNotice(''); setQi(0); setChoice(null); setSp({}, { replace: true }) }
   const guard = async (fn) => { setErr(''); setBusy(true); try { await fn() } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) } }
 
   const start = () => guard(async () => {
@@ -123,44 +104,76 @@ export function RequestIntake({ uc, L, beginCase }) {
     nav('/cases/' + r.id, { state: { unmatched: r.unmatched } })
   })
 
+  // What the person typed goes where it makes sense: to the question they are looking at, to the question about which demands a
+  // value is for, or against everything that is missing (when they chose one message, or there are too many to step through).
+  const ask = (r) => {
+    const qs = r.questions || []
+    const scopeQ = r.pending && r.pending.kind === 'scope' && r.pending.items && r.pending.items.length ? r.pending : null
+    const mode = choice || (r.stepwise ? 'one' : 'all')
+    const focus = !scopeQ && qs.length && mode === 'one' ? qs[Math.min(qi, qs.length - 1)] : null
+    return { qs, scopeQ, mode, focus }
+  }
+  const exchange = async (shown, call) => {
+    setErr(''); setBusy(true); setSending(shown)
+    try { setReq((await call()).request); return true }
+    catch (e) { setErr(String(e.message || e)); return false }
+    finally { setBusy(false); setSending(null) }
+  }
   const send = async () => {
     const t = text.trim()
     if (!t && !files.length) return
     const f = files
-    setErr(''); setBusy(true); setSending(t || 'Attached: ' + f.map(x => x.name).join(', ')); setText(''); setFiles([])
-    try { setReq((f.length ? await api.requestSources(req.id, t, f) : await api.requestMessage(req.id, { text: t })).request) }
-    catch (e) { setErr(String(e.message || e)); setText(t); setFiles(f) }
-    finally { setBusy(false); setSending(null) }
+    const a = ask(req)
+    const wide = f.length > 0 || (!a.scopeQ && a.qs.length > 0 && !a.focus)
+    setText(''); setFiles([])
+    const ok = await exchange(t || 'Attached: ' + f.map(x => x.name).join(', '),
+      () => wide ? api.requestSources(req.id, t, f) : api.requestMessage(req.id, a.focus ? { text: t, field: a.focus.field } : { text: t }))
+    if (!ok) { setText(t); setFiles(f) }
   }
-  const answer = async (body) => {
-    setErr(''); setBusy(true); setSending(body.decline ? 'Ask the requester' : (body.value || 'That one'))
-    try { setReq((await api.requestMessage(req.id, { answer: body })).request) }
-    catch (e) { setErr(String(e.message || e)) }
-    finally { setBusy(false); setSending(null) }
+  const answer = (body, shown) => {                      // a button: the question it is for travels beside it
+    const { field, ...rest } = body
+    return exchange(shown, () => api.requestMessage(req.id, field ? { answer: rest, field } : { answer: rest }))
   }
-  const run = async (fn) => { setErr(''); setBusy(true); try { setReq(await fn()) } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) } }
+  const saveValue = async (itemId, name, value) => {    // the person corrects a value in the summary
+    setErr(''); setBusy(true)
+    try { setReq(await api.requestSet(req.id, itemId, { values: { [name]: value } })); return true }
+    catch (e) { setErr(String(e.message || e)); return false }
+    finally { setBusy(false) }
+  }
   const go = (allow) => guard(async () => { const out = await api.requestSubmit(req.id, allow); nav('/cases/' + out.case_id, { state: { unmatched: req.unmatched } }) })
 
   if (req) {
-    const q = req.pending && req.pending.items && req.pending.items.length ? req.pending : null
+    const a = ask(req)
+    const L = req.item_label
+    const wide = !a.scopeQ && a.qs.length > 0 && a.mode === 'all'
+    const hint = a.scopeQ ? 'Say which, or use the buttons…' : a.focus ? `Answer “${a.focus.label}”, or write anything else you know…`
+      : a.qs.length ? 'Write everything you know about what is missing, or attach a file…' : 'Anything to add or correct?'
     return (
       <div className="rc">
         <section className="rc-chat" aria-label="Conversation with the request agent">
+          <div className="rc-head"><span className="cs-faint">{req.name}</span><span className="sp" /><button className="cs-link" disabled={busy} onClick={reset}>Start over</button></div>
           <div className="rc-msgs" ref={scroller}>
             {req.messages.map((m, i) => <Message key={i} m={m} />)}
             {sending && <Message m={{ role: 'user', text: sending }} />}
             {busy && <div className="rc-working"><span className="cs-spin" />Reading…</div>}
             {!req.messages.length && !busy && <div className="cs-muted">Tell me what you know about the missing information, or attach a file that holds it.</div>}
+            {err && <div className="cs-need">{err}</div>}
           </div>
-          {q && <Question key={q.kind + q.field + q.items.join(',')} q={q} busy={busy} onAnswer={answer} />}
+          <RequestSummary req={req} busy={busy} onSave={saveValue} />
+          {a.scopeQ && <ScopeQuestion key={a.scopeQ.field + a.scopeQ.items.join(',')} q={a.scopeQ} busy={busy} onAnswer={answer} />}
+          {!a.scopeQ && a.qs.length > 0 && !wide &&
+            <Steps qs={a.qs} i={qi} setI={setQi} L={L} busy={busy} onAnswer={answer} onAll={() => setChoice('all')} />}
+          {wide && !req.stepwise &&
+            <Gaps qs={a.qs} L={L} busy={busy} onOne={() => { setChoice('one'); setQi(0) }} onAttach={() => fileRef.current && fileRef.current.click()}
+              onDeclineAll={() => answer({ decline_all: true }, 'Ask the requesters for all of these')} />}
+          {wide && req.stepwise &&
+            <div className="rc-q"><div className="rc-opts"><span className="cs-faint">Write everything you know below.</span><span className="sp" />
+              <button className="btn sm" onClick={() => { setChoice('one'); setQi(0) }}>Answer one at a time</button></div></div>}
+          {!a.scopeQ && a.qs.length === 0 && req.items.length > 0 && <Ready req={req} busy={busy} onStart={go} gapsUrl={api.requestGapsUrl(req.id)} />}
           <div className="rc-comp">
             <Composer text={text} setText={setText} files={files} setFiles={setFiles} busy={busy} onSend={send} fileRef={fileRef}
-              placeholder={q && q.options.length === 0 ? 'Type your answer, or attach a file…' : 'Write, or attach a file…'} hint="Enter to send" />
+              placeholder={hint} hint="Enter to send" />
           </div>
-        </section>
-        <section className="rc-side">
-          <RequestPanel req={req} busy={busy} run={run} onStart={go} onBack={reset} />
-          {err && <div className="cs-need" style={{ marginTop: 10 }}>{err}</div>}
         </section>
       </div>
     )
