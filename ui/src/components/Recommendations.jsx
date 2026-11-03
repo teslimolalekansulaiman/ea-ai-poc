@@ -178,7 +178,7 @@ export function Recommendations({ caseId, phase, onOpenTable, onExport, onChange
               const [cls, label] = STATUS[d.status] || ['', d.status]
               return (
                 <button key={d.item_id} role="tab" aria-selected={d.item_id === sel} className={'rd-item' + (d.item_id === sel ? ' on' : '')} onClick={() => setSel(d.item_id)}>
-                  <span className="id">{d.item_id.slice(-3)}</span><span className="t">{d.title}</span><span className={'cs-pill ' + cls}>{label}</span>
+                  <span className="id">{d.item_id.slice(-3)}</span><span className="t">{d.title}</span>{d.status !== 'draft' && <span className={'cs-pill ' + cls}>{label}</span>}
                 </button>)
             })}
           </div>)}

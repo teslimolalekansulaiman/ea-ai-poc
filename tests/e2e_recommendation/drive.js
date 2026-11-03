@@ -33,6 +33,7 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (
   check(true, 'the draft recommendations appear once the phase is done');
   check(/0 of 3 approved/.test(await page.innerText('.rd h3')), 'the card says how many are approved: ' + (await page.innerText('.rd h3')));
   check((await page.$$('.rd-item')).length === 3, 'one tab per demand');
+  check((await page.$$('.rd-item .cs-pill')).length === 0 && /Draft for review/.test(await page.innerText('.rd-sheet')), 'drafts are not labelled on every tab; the open sheet says it once');
   check(/Extend the existing platform/.test(await page.innerText('.rd-rec .rd-text')), 'the headline statement is the recommended action');
   const heads = await page.$$eval('.rd-sec .rd-h', e => e.map(x => x.textContent));
   check(['Overlaps with', 'Contract / licence match', 'Security fit', 'Justification'].every(h => heads.includes(h)), 'the other properties are sections: ' + heads.join(', '));
