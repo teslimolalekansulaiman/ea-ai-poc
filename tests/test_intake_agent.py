@@ -106,7 +106,7 @@ def test_a_message_becomes_a_request_with_the_words_behind_each_value():
     v = out["request"]
     assert [i["id"] for i in v["items"]] == ["D-2026-070", "item-2"] and v["name"] == "Complaints get lost."
     first = v["items"][0]
-    assert first["from"]["sponsor"] == {"by": "message", "quote": "the CCO", "chosen": False} and first["values"]["sponsor"] == "the CCO"
+    assert first["from"]["sponsor"] == {"by": "message", "quote": "the CCO", "chosen": False, "source": "your message"} and first["values"]["sponsor"] == "the CCO"
     assert first["from"]["title"]["quote"] == "Complaints get lost."                                         # no title stated: the first words of the need, as a typed demand gets
     assert out["reply"].startswith("I found 2 demands: D-2026-070 (Complaints get lost.), item-2 (A new printer contract is needed.).")
     assert {(c["id"], c["field"]) for c in out["changes"]} >= {("D-2026-070", "sponsor"), ("item-2", "business_need")}

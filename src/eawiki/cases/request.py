@@ -107,6 +107,7 @@ def view(store, rid: str) -> dict:
             "fields": [{"name": f["name"], "label": f.get("label") or f["name"], "description": f.get("description") or "",
                         "type": f.get("type") or "text", "values": list(f.get("values") or []), "required": bool(f.get("required"))} for f in fields],
             "items": items, "groups": groups, "messages": rq["meta"].get("messages") or [], "pending": rq["meta"].get("pending"),
+            "sources": [{k: x.get(k) for k in ("name", "kind", "chars", "truncated", "notes")} for x in rq["meta"].get("sources") or []],
             "summary": {"total": len(items), "complete": complete, "incomplete": len(items) - complete,
                         "problems": sum(1 for i in items if i["problems"])},
             "ready": bool(items) and complete == len(items)}
@@ -135,8 +136,8 @@ def _follow_id(spec: dict, it: dict, field: str, value: str) -> None:
         it["_id"] = value
 
 
-def _apply(it: dict, field: str, value: str, by: str = "you", quote: str = "") -> None:
-    """Put a value in a field and record where it came from: "you" typed it, or "message" with the words it came from."""
+def _apply(it: dict, field: str, value: str, by: str = "you", quote: str = "", source: str = "") -> None:
+    """Put a value in a field and record where it came from: "you" typed it, or "message" / "file" with the words it came from."""
     meta = it.setdefault("_intake", {"declined": [], "set": {}, "from": {}})
     it[field] = value
     meta.setdefault("from", {}).pop(field, None)
@@ -144,7 +145,7 @@ def _apply(it: dict, field: str, value: str, by: str = "you", quote: str = "") -
         meta.setdefault("set", {})[field] = "you"
         if by != "you":
             meta["set"].pop(field, None)
-            meta["from"][field] = {"by": by, "quote": quote}
+            meta["from"][field] = {"by": by, "quote": quote, "source": source}
         meta["declined"] = [d for d in meta.get("declined") or [] if d != field]
     else:
         meta.setdefault("set", {}).pop(field, None)
@@ -231,9 +232,10 @@ def apply_read(store, rid: str, assignments: list[dict], declines: Optional[list
         if not v or not completeness.is_empty(it.get(a["field"])):
             skipped.append(a)
             continue
-        _apply(it, a["field"], v, by="message", quote=a.get("quote") or "")
+        src = a.get("source") or ""
+        _apply(it, a["field"], v, by="file" if src and src != "your message" else "message", quote=a.get("quote") or "", source=src)
         _follow_id(spec, it, a["field"], v)
-        changed.append({"id": a["id"], "field": a["field"], "label": f.get("label") or f["name"], "value": v, "quote": a.get("quote") or ""})
+        changed.append({"id": a["id"], "field": a["field"], "label": f.get("label") or f["name"], "value": v, "quote": a.get("quote") or "", "source": src})
     declined = []
     for iid, field in declines or []:
         it = items.get(iid)

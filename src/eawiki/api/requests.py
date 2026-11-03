@@ -7,11 +7,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 
 from eawiki import usecases
-from eawiki.cases import intake, intake_agent
+from eawiki.cases import attachments, intake, intake_agent
 from eawiki.cases import request as rq
 from eawiki.cases.store import store
 
@@ -38,7 +38,7 @@ def llm_factory():
 def _call(fn, *args, **kw):
     try:
         return fn(*args, **kw)
-    except intake_agent.AgentError as e:
+    except (intake_agent.AgentError, attachments.AttachmentError) as e:
         raise HTTPException(400, str(e))
     except rq.RequestMissing as e:
         raise HTTPException(404, str(e))
@@ -150,3 +150,35 @@ class TurnBody(BaseModel):
 def message(rid: str, body: TurnBody):
     """One step with the agent: what the person typed (or the button they pressed), what changed, and the next question."""
     return _call(intake_agent.turn, store(), rid, llm_factory(), text=body.text, answer=body.answer)
+
+
+MAX_FILES = 5
+
+
+def _read_files(files: list[UploadFile]) -> list[dict]:
+    """The attached files, read to text. A sheet is not one of them: it starts a request on its own (see /requests/from-file)."""
+    if len(files) > MAX_FILES:
+        raise HTTPException(400, f"At most {MAX_FILES} files at a time.")
+    out = []
+    for f in files:
+        try:
+            out.append(attachments.read(f.filename or "", f.file.read(attachments.MAX_BYTES + 1)))
+        except attachments.AttachmentError as e:
+            raise HTTPException(400, str(e))
+    return out
+
+
+@router.post("/requests/from-sources")
+def from_sources(use_case_id: str = Form(...), text: str = Form(""), files: list[UploadFile] = File(default=[])):
+    """A request from what a person wrote and the email, Word, PowerPoint, PDF or text files they attached."""
+    spec = _spec(use_case_id)
+    read = _read_files(files)
+    return _call(intake_agent.start_from_sources, store(), spec, llm_factory(), text, read)
+
+
+@router.post("/requests/{rid}/sources")
+def add_sources(rid: str, text: str = Form(""), files: list[UploadFile] = File(default=[])):
+    """Files added to a request that already has demands: what they say about the gaps is read, and the reply says which file each value came from."""
+    _call(rq.get, store(), rid)                                            # a missing request is a 404 before any file is read
+    read = _read_files(files)
+    return _call(intake_agent.add_sources, store(), rid, llm_factory(), text, read)
