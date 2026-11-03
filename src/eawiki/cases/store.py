@@ -51,6 +51,9 @@ class CaseStore(history._Store):
             c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS documents(
                 case_id TEXT, item_id TEXT, phase_id TEXT, status TEXT, doc_json TEXT, original_json TEXT,
                 note TEXT, decided_at {r}, updated_at {r}, PRIMARY KEY(case_id, item_id, phase_id))"""))
+            c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS intake_requests(
+                id TEXT PRIMARY KEY, use_case_id TEXT, name TEXT, status TEXT, items_json TEXT, meta_json TEXT,
+                case_id TEXT, created_at {r}, updated_at {r})"""))
             c.execute(self._sql("CREATE INDEX IF NOT EXISTS cases_uc ON cases(use_case_id, updated_at)"))
         self._add_column("questions", "meta_json", "TEXT")          # a store made before suggestions existed
 
@@ -115,6 +118,41 @@ class CaseStore(history._Store):
                 c.execute(self._sql(f"DELETE FROM {t} WHERE case_id=?"), (cid,))
             cur = c.execute(self._sql("DELETE FROM cases WHERE id=?"), (cid,))
         return cur.rowcount > 0
+
+    # --- requests: what is being gathered before a case exists -------------------------------------------
+    def create_request(self, use_case_id: str, name: str, items: list[dict], meta: Optional[dict] = None) -> str:
+        rid = uuid.uuid4().hex[:12]
+        now = time.time()
+        with self._conn() as c:
+            c.execute(self._sql(
+                "INSERT INTO intake_requests(id,use_case_id,name,status,items_json,meta_json,case_id,created_at,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?)"),
+                (rid, use_case_id, name, "drafting", json.dumps(items, ensure_ascii=False), json.dumps(meta or {}, ensure_ascii=False), "", now, now))
+        return rid
+
+    def get_request(self, rid: str) -> Optional[dict]:
+        with self._conn() as c:
+            r = c.execute(self._sql("SELECT * FROM intake_requests WHERE id=?"), (rid,)).fetchone()
+        if not r:
+            return None
+        return {"id": r["id"], "use_case_id": r["use_case_id"], "name": r["name"], "status": r["status"],
+                "items": json.loads(r["items_json"] or "[]"), "meta": json.loads(r["meta_json"] or "{}"),
+                "case_id": r["case_id"] or "", "created_at": r["created_at"], "updated_at": r["updated_at"]}
+
+    def save_request(self, rid: str, *, items: Optional[list] = None, status: Optional[str] = None,
+                     case_id: Optional[str] = None) -> None:
+        sets, vals = ["updated_at=?"], [time.time()]
+        if items is not None:
+            sets.append("items_json=?")
+            vals.append(json.dumps(items, ensure_ascii=False))
+        if status is not None:
+            sets.append("status=?")
+            vals.append(status)
+        if case_id is not None:
+            sets.append("case_id=?")
+            vals.append(case_id)
+        with self._conn() as c:
+            c.execute(self._sql(f"UPDATE intake_requests SET {','.join(sets)} WHERE id=?"), (*vals, rid))
 
     # --- documents: a stage shown as one draft per demand, which an architect edits and approves ----------
     @staticmethod

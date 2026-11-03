@@ -4,6 +4,7 @@ import { api } from '../api'
 import { Markdown, useCite } from '../cite'
 import '../cases.css'
 import { Recommendations } from '../components/Recommendations'
+import { RequestPanel } from '../components/RequestPanel'
 import { AnsweredCard, AskCard, ErrorCard, FinCard, FullTable, LiveCard, PhaseTrack, ResultCard, Workspace, count } from '../components/CasesParts'
 
 // A sheet or a typed demand becomes a case: read it, create it, and the run starts at once.
@@ -23,6 +24,7 @@ function Intake({ ucs }) {
   const [file, setFile] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
+  const [req, setReq] = useState(null)
   const nav = useNavigate()
   const fileRef = useRef(null)
   const uc = ucs.find(u => u.enabled !== false)                // chosen automatically; changed from the case card
@@ -32,13 +34,31 @@ function Intake({ ucs }) {
     if (busy || !uc || (!file && !text.trim())) return
     setErr(''); setBusy(true)
     try {
+      if (file) {                              // a sheet: say what each demand is missing before anything runs
+        const r = await api.requestFromFile(uc.id, file)
+        if (r.ready) { const out = await api.requestSubmit(r.id, false); nav('/cases/' + out.case_id, { state: { unmatched: r.unmatched } }); return }
+        setReq(r); setBusy(false); return
+      }
       const r = await beginCase(uc.id, file, text)
       nav('/cases/' + r.id, { state: { unmatched: r.unmatched } })
     } catch (e) { setErr(String(e.message || e)); setBusy(false) }
   }
+  const run = async (fn) => { setErr(''); setBusy(true); try { setReq(await fn()) } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) } }
+  const go = async (allow) => {
+    setErr(''); setBusy(true)
+    try { const out = await api.requestSubmit(req.id, allow); nav('/cases/' + out.case_id, { state: { unmatched: req.unmatched } }) }
+    catch (e) { setErr(String(e.message || e)); setBusy(false) }
+  }
 
   if (!uc) return <div className="cs-scroll"><div className="cs-col cs-empty"><h1>No use case yet</h1>
     <p className="cs-muted">Create one under <b>Config</b>, then come back to run demands through it.</p></div></div>
+
+  if (req) return (
+    <div className="cs-scroll"><div className="cs-col">
+      <RequestPanel req={req} busy={busy} run={run} onStart={go} onBack={() => { setReq(null); setFile(null); setErr('') }} />
+      {err && <div className="cs-need">{err}</div>}
+    </div></div>
+  )
 
   return (
     <>

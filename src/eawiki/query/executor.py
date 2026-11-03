@@ -226,8 +226,8 @@ def _missing_required(spec: dict, it: dict) -> list[str]:
     names = {f["name"] for f in fields if f.get("name")}
     if sum(1 for k in it if k in names and str(it[k]).strip()) < 3:
         return []
-    return [f.get("label") or f["name"] for f in fields
-            if f.get("required") and f.get("name") and not str(it.get(f["name"]) or "").strip()]
+    from eawiki import completeness
+    return [m["label"] for m in completeness.missing_fields(spec, it)]
 
 
 def _retriever() -> Retriever:

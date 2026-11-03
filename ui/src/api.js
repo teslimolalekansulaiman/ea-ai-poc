@@ -69,6 +69,14 @@ export const api = {
   caseCancel: (cid) => post('/api/cases/' + encodeURIComponent(cid) + '/cancel', {}),
   caseAsk: (cid, question, history, focus) => post('/api/cases/' + encodeURIComponent(cid) + '/ask', { question, history, focus }),
   caseExportUrl: (cid, phase) => '/api/cases/' + encodeURIComponent(cid) + '/export?phase=' + encodeURIComponent(phase || ''),
+  // a request: the demands gathered before a case exists, and what each is still missing
+  requestFromFile: (ucId, file) => { const fd = new FormData(); fd.append('file', file); return J('/api/requests/from-file?use_case_id=' + encodeURIComponent(ucId), { method: 'POST', body: fd }) },
+  requestGet: (rid) => J('/api/requests/' + encodeURIComponent(rid)),
+  requestSet: (rid, item, body) => J('/api/requests/' + encodeURIComponent(rid) + '/items/' + encodeURIComponent(item),
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  requestFill: (rid, body) => post('/api/requests/' + encodeURIComponent(rid) + '/fill', body),
+  requestGapsUrl: (rid) => '/api/requests/' + encodeURIComponent(rid) + '/gaps',
+  requestSubmit: (rid, allowIncomplete) => post('/api/requests/' + encodeURIComponent(rid) + '/submit', { allow_incomplete: !!allowIncomplete }),
   // a phase shown as documents: one draft recommendation per demand
   caseDrafts: (cid, pid) => J('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents'),
   caseDraftSave: (cid, pid, item, doc) => J('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item),
