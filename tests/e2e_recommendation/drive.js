@@ -44,10 +44,16 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (
   // edit any text; the original is kept
   await page.click('.rd-sheet button:has-text("Edit")');
   await page.fill('.rd-lead', 'Do not raise a new demand. Merge it into the HR platform.');
+  await page.setViewportSize({ width: 1360, height: 2200 });                                                      // a tall window, so the whole sheet shows
+  await page.locator('.rd-sheet').screenshot({ path: path.join(OUT, 'recommendation-2a-editing.png') });         // the whole sheet, in edit mode
+  await page.setViewportSize({ width: 1360, height: 900 });
   await page.click('button:has-text("Save text")');
   await page.waitForSelector('.rd-note:has-text("Edited by the architect")');
   check(/Merge it into the HR platform/.test(await page.innerText('.rd-rec .rd-text')), 'an edit is saved and shown, and marked as edited');
   await shot(page, '2-edited');
+  await page.setViewportSize({ width: 1360, height: 2200 });
+  await page.locator('.rd-sheet').screenshot({ path: path.join(OUT, 'recommendation-2b-saved.png') });
+  await page.setViewportSize({ width: 1360, height: 900 });
 
   // approve: locked
   await page.click('.rd-actions button:has-text("Approve")');
