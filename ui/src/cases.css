@@ -300,3 +300,12 @@
 .rq-fv{min-width:0;flex:1 1 160px;overflow-wrap:anywhere}
 .rq-tag{border:none;cursor:pointer;font-family:inherit}
 .rq-quote{flex:1 1 100%;margin:2px 0 4px;padding:6px 10px;background:var(--surface-2);border-radius:var(--radius-sm);font-size:12.5px;color:var(--fg-muted);font-style:italic}
+
+/* how an answer in the draft was decided: read-only, set apart from the text that is approved */
+.rd-why { display: block; margin-top: 8px; padding: 0; text-align: left; font-size: 12.5px; }
+.rd-trail { margin-top: 8px; padding: 10px 12px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: 6px; background: var(--surface); display: grid; gap: 8px; font-size: 13px; }
+.rd-tr-row { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; }
+.rd-tr-row > b { font-weight: 600; color: var(--fg-muted); }
+.rd-tr-row ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; }
+.rd-unchecked { display: block; font-size: 12px; color: var(--fg-muted); }
+@media (max-width: 640px) { .rd-tr-row { grid-template-columns: minmax(0, 1fr); gap: 2px; } }

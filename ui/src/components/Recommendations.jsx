@@ -14,18 +14,56 @@ function Rows({ text }) {
   return <p className="rd-text">{text}</p>
 }
 
+const NOTE = "Model's note: "
+
+// How one answer in the draft was decided, from what the engine recorded. Read-only, and not part of the text that is approved.
+function Trail({ column, trail }) {
+  const cite = useCite()
+  const c = trail && trail.columns[column]
+  if (!trail) return <div className="rd-trail">Loading…</div>
+  if (!c) return <div className="rd-trail">Nothing was recorded for this answer.</div>
+  const note = c.how.find(h => h.startsWith(NOTE))
+  const steps = c.how.filter(h => !h.startsWith(NOTE))
+  const built = c.evidence.filter(x => x.startsWith('decided:'))
+  const sources = c.evidence.filter(x => !x.startsWith('decided:'))
+  return (
+    <div className="rd-trail">
+      {c.status !== 'answered' && <div className="rd-tr-row"><b>Not settled</b><span>{c.need || 'This answer is still open.'}</span></div>}
+      {steps.length > 0 && <div className="rd-tr-row"><b>What was done</b><ul>{steps.map((h, i) => <li key={i}>{h}</li>)}</ul></div>}
+      {sources.length > 0 && <div className="rd-tr-row"><b>Sources it cites</b><span className="rd-ev">{sources.map(b => <button key={b} className="cs-cite" onClick={() => cite.open(b)}>{b}</button>)}</span></div>}
+      {sources.length === 0 && c.status === 'answered' && <div className="rd-tr-row"><b>Sources it cites</b><span>None. It rests on the demand itself, a definition or a rule.</span></div>}
+      {built.length > 0 && <div className="rd-tr-row"><b>Built on earlier answers</b><ul>{built.map(b => <li key={b}>{b.slice('decided:'.length)}{trail.built_on[b] ? <>: <i>{trail.built_on[b]}</i></> : null}</li>)}</ul></div>}
+      {note && <div className="rd-tr-row"><b>The model&apos;s note</b><span>{note.slice(NOTE.length)} <em className="rd-unchecked">The model&apos;s own words, not checked by the engine.</em></span></div>}
+    </div>
+  )
+}
+
 function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setErr }) {
   const cite = useCite()
   const [draft, setDraft] = useState(null)        // the text being edited; null while reading
   const [asking, setAsking] = useState(false)
   const [note, setNote] = useState('')
+  const [trail, setTrail] = useState(null)        // how the answers were decided; loaded the first time one is opened
+  const [open, setOpen] = useState('')            // the property whose trail is showing
   const e = entry
   const editing = draft !== null
   const locked = e.status === 'approved'
   const [cls, label] = STATUS[e.status] || ['', e.status]
   const doc = editing ? draft : e.doc
 
-  useEffect(() => { setDraft(null); setAsking(false); setNote('') }, [e.item_id])
+  useEffect(() => { setDraft(null); setAsking(false); setNote(''); setTrail(null); setOpen('') }, [e.item_id])
+  const why = (column) => {
+    if (!column) return null
+    const on = open === column
+    return (
+      <>
+        <button className="cs-link rd-why" aria-expanded={on} onClick={() => {
+          setOpen(on ? '' : column)
+          if (!trail) api.caseDraftTrail(caseId, phaseId, e.item_id).then(setTrail).catch(x => { setTrail({ columns: {}, built_on: {} }); setErr(String(x.message || x)) })
+        }}>{on ? 'Hide how it was decided' : 'How was this decided?'}</button>
+        {on && <Trail column={column} trail={trail} />}
+      </>)
+  }
 
   const run = async (fn) => { setBusy(true); setErr(''); try { await fn() } catch (x) { setErr(String(x.message || x)) } finally { setBusy(false) } }
   const save = () => run(async () => { const r = await api.caseDraftSave(caseId, phaseId, e.item_id, draft); setDraft(null); onSaved(r) })
@@ -62,6 +100,7 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
                 </div>))}</>
           : <><h3 className="rd-h">{doc.rec.title}</h3>
               <Rows text={doc.rec.body || 'No recommendation text yet.'} />
+              {why(doc.rec.column)}
               {doc.facts.map((f, i) => <div className="rd-fact" key={i}><span>{f.label}:</span> <b>{f.value}</b></div>)}</>}
       </div>
 
@@ -74,7 +113,8 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
             : <><h3 className="rd-h">{s.title}</h3>
                 {s.title === 'Evidence'
                   ? <div className="rd-ev">{s.body.split('\n').filter(Boolean).map(b => <button key={b} className="cs-cite" onClick={() => cite.open(b)}>{b}</button>)}</div>
-                  : <Rows text={s.body} />}</>}
+                  : <Rows text={s.body} />}
+                {why(s.column)}</>}
         </section>))}
       {editing && <div><button className="btn sm" onClick={() => set(n => { n.sections.push({ title: 'New section', body: '' }) })}>Add a section</button></div>}
 

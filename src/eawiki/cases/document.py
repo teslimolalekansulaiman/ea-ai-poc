@@ -29,6 +29,7 @@ OPEN = ("needs_input", "needs_source")
 TO_CONFIRM = "To confirm before approval"
 EVIDENCE = "Evidence"
 MAX_SECTIONS, MAX_FACTS, MAX_TEXT = 40, 12, 8000
+COMPACT_ABOVE = 3             # more open items than this are listed by name, not one line of guidance each
 STATUSES = ("draft", "approved", "returned")
 
 
@@ -44,6 +45,19 @@ def _text(v) -> str:
     if isinstance(v, list):
         return "\n".join(str(x) for x in v if str(x).strip())
     return "" if v is None else str(v).strip()
+
+
+def to_confirm_lines(here: list, earlier: list) -> list:
+    """What is still open, as lines starting with "?". A few open items get a line each with what is needed; many are listed by name,
+    so the list does not become a wall of guidance. [(name, need)] for this stage and for the stages before it."""
+    one = lambda n, need: f"? {n}" + (f": {need}" if need else "")                      # noqa: E731
+    if len(here) + len(earlier) <= COMPACT_ABOVE:
+        return [one(n, need) for n, need in here + earlier]
+    out = [one(n, need) for n, need in here] if len(here) <= COMPACT_ABOVE else \
+        ([f"? Not settled in this phase ({len(here)}): " + "; ".join(n for n, _ in here)] if here else [])
+    if earlier:
+        out.append(f"? Still open from the earlier phases ({len(earlier)}): " + "; ".join(n for n, _ in earlier))
+    return out
 
 
 def compose(spec: dict, stage: dict, item: dict, cells: dict, earlier_open: Optional[list] = None) -> dict:
@@ -73,15 +87,15 @@ def compose(spec: dict, stage: dict, item: dict, cells: dict, earlier_open: Opti
             continue
         v = has(c["name"])
         if v and (cells.get(c["name"]) or {}).get("status") not in OPEN:
-            sections.append({"title": c["name"], "body": v})
-    open_ = [(c["name"], (cells.get(c["name"]) or {}).get("need", "")) for c in cols
-             if (cells.get(c["name"]) or {}).get("status") in OPEN] + list(earlier_open or [])
-    if open_:
-        sections.append({"title": TO_CONFIRM, "body": "\n".join(f"? {n}" + (f": {need}" if need else "") for n, need in open_)})
+            sections.append({"title": c["name"], "body": v, "column": c["name"]})      # the column is what "how it was decided" is read from
+    here = [(c["name"], (cells.get(c["name"]) or {}).get("need", "")) for c in cols if (cells.get(c["name"]) or {}).get("status") in OPEN]
+    lines = to_confirm_lines(here, list(earlier_open or []))
+    if lines:
+        sections.append({"title": TO_CONFIRM, "body": "\n".join(lines)})
     if sources:
         sections.append({"title": EVIDENCE, "body": "\n".join(dict.fromkeys(sources))})
     return {"title": str(item.get(title_field) or item.get("_id") or ""), "meta": str(item.get("_id") or ""),
-            "rec": {"title": stage.get("name") or "Recommendation", "body": body}, "facts": facts, "sections": sections}
+            "rec": {"title": stage.get("name") or "Recommendation", "body": body, "column": stmt_col or ""}, "facts": facts, "sections": sections}
 
 
 def clean(doc) -> dict:
@@ -89,12 +103,13 @@ def clean(doc) -> dict:
     if not isinstance(doc, dict):
         raise ValueError("A document is an object.")
     s = lambda v: v.strip()[:MAX_TEXT] if isinstance(v, str) else ""                # noqa: E731
+    col = lambda x: {"column": x["column"].strip()[:200]} if isinstance(x.get("column"), str) and x["column"].strip() else {}      # noqa: E731
     rec = doc.get("rec") if isinstance(doc.get("rec"), dict) else {}
     facts = [{"label": s(f.get("label")), "value": s(f.get("value"))} for f in doc.get("facts") or [] if isinstance(f, dict)]
-    sections = [{"title": s(x.get("title")), "body": s(x.get("body"))} for x in doc.get("sections") or [] if isinstance(x, dict)]
+    sections = [{"title": s(x.get("title")), "body": s(x.get("body")), **col(x)} for x in doc.get("sections") or [] if isinstance(x, dict)]
     facts = [f for f in facts if f["label"] or f["value"]][:MAX_FACTS]
     sections = [x for x in sections if x["title"] or x["body"]][:MAX_SECTIONS]
-    return {"title": s(doc.get("title")), "meta": s(doc.get("meta")), "rec": {"title": s(rec.get("title")), "body": s(rec.get("body"))},
+    return {"title": s(doc.get("title")), "meta": s(doc.get("meta")), "rec": {"title": s(rec.get("title")), "body": s(rec.get("body")), **col(rec)},
             "facts": facts, "sections": sections}
 
 
@@ -144,6 +159,38 @@ def _entry(store, case, pid, item_id) -> dict:
     if e is None:
         raise LookupError("No results for that item in this phase.")
     return e
+
+
+def _shown(v) -> str:
+    return "; ".join(str(x) for x in v) if isinstance(v, list) else ("" if v is None else str(v))
+
+
+def trail(store, case: dict, pid: str, item_id: str) -> dict:
+    """How each answer in the draft was decided, from what the engine recorded: for every property of the stage, what was searched, the
+    passages the model was given, the sources it cited, its one-line note, and what it built on from earlier answers.
+    {columns: {name: {status, source, need, how, evidence}}, built_on: {"decided:<id>": the earlier answer}}."""
+    _stage(case, pid)
+    cid = case["id"]
+    cells = {c["column"]: c for c in store.cells(cid, pid) if c["item_id"] == item_id}
+    if not cells:
+        raise LookupError("No results for that item in this phase.")
+    earlier = {}
+    for st in case["spec"]["stages"]:
+        if phase_id(st) == pid:
+            break
+        for c in store.cells(cid, phase_id(st)):
+            if c["item_id"] == item_id and c["status"] != "not_assessed":
+                earlier[f"{st.get('name') or phase_id(st)} / {c['column']}"] = _shown(c["value"])
+    built = {}
+    cols = {}
+    for name, c in cells.items():
+        ev = [e for e in c.get("evidence") or [] if isinstance(e, str)]
+        for e in ev:
+            if e.startswith("decided:"):
+                key = e[len("decided:"):]
+                built[e] = earlier.get(key) or (_shown(cells[key]["value"]) if key in cells else "")
+        cols[name] = {"status": c["status"], "source": c.get("source") or "", "need": c.get("need") or "", "how": list(c.get("how") or []), "evidence": ev}
+    return {"columns": cols, "built_on": built}
 
 
 def edit(store, case: dict, pid: str, item_id: str, doc) -> dict:

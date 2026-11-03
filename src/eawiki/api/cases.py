@@ -230,6 +230,13 @@ def documents_of(cid: str, pid: str):
     return {"documents": _doc_call(document.listing, store(), case, pid)}
 
 
+@router.get("/cases/{cid}/phases/{pid}/documents/{item}/trail")
+def document_trail(cid: str, pid: str, item: str):
+    """How each answer behind a draft was decided: what was looked at, the sources cited, what it built on, and the model's note."""
+    from eawiki.cases import document
+    return _doc_call(document.trail, store(), _doc_case(cid), pid, item)
+
+
 @router.put("/cases/{cid}/phases/{pid}/documents/{item}")
 def edit_document(cid: str, pid: str, item: str, body: DocBody):
     from eawiki.cases import document

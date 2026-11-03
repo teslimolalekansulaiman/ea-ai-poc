@@ -85,6 +85,7 @@ export const api = {
   caseDraftSave: (cid, pid, item, doc) => J('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item),
     { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ doc }) }),
   caseDraftDecide: (cid, pid, item, action, note) => post('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item) + '/decision', { action, note: note || '' }),
+  caseDraftTrail: (cid, pid, item) => J('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item) + '/trail'),
   caseDraftExportUrl: (cid, pid, item) => '/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/documents/' + encodeURIComponent(item) + '/export',
   readiness: (ucId, body) => post('/api/usecases/' + encodeURIComponent(ucId) + '/readiness', body),
 

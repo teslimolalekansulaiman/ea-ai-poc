@@ -36,7 +36,7 @@ def test_the_document_is_composed_from_the_cells_in_the_order_the_use_case_decla
     }
     d = document.compose(SPEC, STAGE, {"_id": ID, "title": "Complaint tracking"}, cells, [("Linked initiative or project", "Which roadmap project?")])
     assert d["title"] == "Complaint tracking" and d["meta"] == ID
-    assert d["rec"] == {"title": STAGE["name"], "body": "Do not raise a new demand. Merge it into D-2026-014."}
+    assert d["rec"] == {"title": STAGE["name"], "body": "Do not raise a new demand. Merge it into D-2026-014.", "column": "Recommended action"}
     # the tag is the stage's row tag, then the key lines; list values read one to a line
     assert d["facts"] == [{"label": "Recommendation", "value": "Merge/CR"}, {"label": "Recommended owner", "value": "Customer Services IT"},
                           {"label": "Consolidate with demand(s)", "value": "D-2026-014"}]
@@ -202,3 +202,57 @@ def test_the_document_settings_are_checked():
     out["document"]["statement"] = "Recommended action"
     out["document"]["facts"] = ["No such property"]
     assert any("key lines" in e for e in usecases.validate(spec))
+
+
+# ---- how it was decided; a shorter list of what is open ------------------------------------------------------------
+
+def test_a_long_list_of_open_items_is_listed_by_name_not_one_line_of_guidance_each():
+    here = [("A", "need a"), ("B", "need b")]
+    # a few open items keep their guidance
+    assert document.to_confirm_lines(here, [("C", "need c")]) == ["? A: need a", "? B: need b", "? C: need c"]
+    # many: the ones from earlier phases are counted and named, this phase keeps its lines
+    many = [(f"P{i}", f"need {i}") for i in range(6)]
+    got = document.to_confirm_lines(here, many)
+    assert got == ["? A: need a", "? B: need b", "? Still open from the earlier phases (6): " + "; ".join(n for n, _ in many)]
+    # and a long list in this phase too collapses to one line; nothing is dropped
+    assert document.to_confirm_lines(many, []) == ["? Not settled in this phase (6): " + "; ".join(n for n, _ in many)]
+    assert document.to_confirm_lines([], []) == []
+
+
+def test_each_section_remembers_the_property_it_was_written_from():
+    cells = {"Recommended action": _cell("Merge."), "Overlaps with": _cell(["CRM"]), "Justification": _cell("Because.")}
+    d = document.compose(SPEC, STAGE, {"_id": ID, "title": "T"}, cells)
+    assert d["rec"]["column"] == "Recommended action"
+    assert {s["title"]: s["column"] for s in d["sections"]} == {"Overlaps with": "Overlaps with", "Justification": "Justification"}
+    # an edit keeps the link; the "To confirm" section has none
+    assert document.clean(d)["sections"][0]["column"] == d["sections"][0]["column"]
+
+
+def test_the_trail_shows_what_each_answer_rests_on_and_what_it_built_on():
+    e, cid = _case()
+    case = e.store.get_case(cid)
+    t = document.trail(e.store, case, PID, ID)
+    rec = t["columns"]["Recommended action"]
+    assert rec["status"] == "answered" and rec["evidence"] == ["Strategy:1"]
+    assert any(h.startswith("Looked at:") for h in rec["how"])                    # what was searched is recorded by the engine
+    # an answer that was built on the screening says so, and the earlier answer is carried with it
+    first = case["spec"]["stages"][0]
+    e.store.save_cell(cid, ID, "screening", "Duplicate with existing artefact", value="Yes", status="answered", source="model")
+    first_name = first.get("name") or "screening"
+    e.store.save_cell(cid, ID, PID, "Security fit", value="Fine", status="answered", source="model",
+                      evidence=[f"decided:{first_name} / Duplicate with existing artefact"], how=["Looked at: nothing"])
+    t = document.trail(e.store, case, PID, ID)
+    assert t["built_on"] == {f"decided:{first_name} / Duplicate with existing artefact": "Yes"}
+    with pytest.raises(LookupError):
+        document.trail(e.store, case, PID, "no-such-demand")
+
+
+def test_the_trail_route_answers_and_a_missing_demand_is_404():
+    e, cid = _case()
+    app = FastAPI()
+    app.include_router(api.router)
+    api.set_engine(e)
+    c = TestClient(app)
+    ok = c.get(f"/api/cases/{cid}/phases/{PID}/documents/{ID}/trail")
+    assert ok.status_code == 200 and "Recommended action" in ok.json()["columns"]
+    assert c.get(f"/api/cases/{cid}/phases/{PID}/documents/nope/trail").status_code == 404

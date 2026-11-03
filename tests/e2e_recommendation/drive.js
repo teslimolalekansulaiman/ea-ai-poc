@@ -41,6 +41,19 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (
   check(!/Confidence/.test(await page.innerText('.rd-sheet')), 'no confidence is shown (it is graded in the table, not signed)');
   await shot(page, '1-draft');
 
+  // how the answer was decided: opened on demand, read-only, with the model's note marked as unchecked
+  const why = page.locator('.rd-rec .rd-why');
+  check(await why.count() === 1, 'the headline offers "How was this decided?"');
+  await why.click();
+  await page.waitForSelector('.rd-rec .rd-trail .rd-tr-row');
+  const trailText = await page.innerText('.rd-rec .rd-trail');
+  check(/What was done/.test(trailText) && /Looked at:/.test(trailText), 'the trail says what was done: ' + trailText.replace(/\s+/g, ' ').slice(0, 90));
+  check(/The model's note/.test(trailText) && /not checked by the engine/.test(trailText), "the model's note is labelled as unchecked");
+  check(await page.locator('.rd-rec .rd-trail .cs-cite').count() > 0, 'the sources it cites are listed as buttons');
+  await shot(page, '1b-how-decided');
+  await why.click();
+  check(await page.locator('.rd-rec .rd-trail').count() === 0, 'it closes again');
+
   // edit any text; the original is kept
   await page.click('.rd-sheet button:has-text("Edit")');
   await page.fill('.rd-lead', 'Do not raise a new demand. Merge it into the HR platform.');
