@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useCite } from '../cite'
 
@@ -110,19 +110,25 @@ export function Recommendations({ caseId, phase, onOpenTable, onExport, onChange
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const status = phase.state.status
+  const top = useRef(null)
+  const shown = useRef(false)
 
   const load = useCallback(() => api.caseDrafts(caseId, phase.id).then(r => {
     setDocs(r.documents)
     setSel(s => (s && r.documents.some(d => d.item_id === s)) ? s : (r.documents[0] ? r.documents[0].item_id : null))
   }).catch(x => setErr(String(x.message || x))), [caseId, phase.id])
   useEffect(() => { load() }, [load, status, phase.state.finished])
+  // The drafts are what the EA came to read, and they sit below the questions of a long thread: bring them into view once, when they first open.
+  useEffect(() => {
+    if (docs && docs.length && !shown.current && top.current) { shown.current = true; top.current.scrollIntoView({ block: 'start' }) }
+  }, [docs])
 
   const replace = (r) => setDocs(ds => ds.map(d => d.item_id === r.item_id ? r : d))
   const cur = docs && docs.find(d => d.item_id === sel)
   const approved = docs ? docs.filter(d => d.status === 'approved').length : 0
 
   return (
-    <div className="cs-msg"><div className="cs-av">AA</div>
+    <div className="cs-msg" ref={top}><div className="cs-av">AA</div>
       <div className="cs-body"><div className="cs-card rd">
         <div className="eyebrow">Recommendations · {phase.name}</div>
         <h3>{docs ? `${approved} of ${docs.length} approved` : 'Loading…'}</h3>
