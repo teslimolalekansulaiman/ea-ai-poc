@@ -50,7 +50,8 @@ export function RequestIntake({ uc, L, beginCase }) {
   const [req, setReq] = useState(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
-  const [notice, setNotice] = useState('')           // what the agent said when it found nothing to start a request from
+  const [pre, setPre] = useState([])                // the conversation before any demand was found: what the person said, and what the agent answered
+  const said = pre.filter(m => m.role === 'user' && m.said).map(m => m.text)       // the person's words so far, read together with the next message
   const [sending, setSending] = useState(null)       // what the person just sent, shown while the agent reads it
   const [qi, setQi] = useState(0)                     // the open question being shown, when stepping through them
   const [choice, setChoice] = useState(null)         // 'one' (question by question) or 'all' (one message), once the person has chosen; else by how many are open
@@ -70,19 +71,18 @@ export function RequestIntake({ uc, L, beginCase }) {
   }, [rid])                                          // eslint-disable-line
 
   useEffect(() => {                                  // the address no longer names a request (a new case was chosen): start clean
-    if (!rid && req) { setReq(null); setFiles([]); setText(''); setErr(''); setNotice('') }
+    if (!rid && req) { setReq(null); setFiles([]); setText(''); setErr(''); setPre([]) }
   }, [rid])                                          // eslint-disable-line
 
-  useEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight }, [count, sending, busy])
+  useEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight }, [count, sending, busy, pre.length])
 
   const open = (r) => { setSp({ request: r.id }, { replace: true }); setReq(r); setText(''); setFiles([]); setQi(0); setChoice(null) }
-  const reset = () => { setReq(null); setFiles([]); setText(''); setErr(''); setNotice(''); setQi(0); setChoice(null); setSp({}, { replace: true }) }
+  const reset = () => { setReq(null); setFiles([]); setText(''); setErr(''); setPre([]); setQi(0); setChoice(null); setSp({}, { replace: true }) }
   const guard = async (fn) => { setErr(''); setBusy(true); try { await fn() } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) } }
 
   const start = () => guard(async () => {
     const t = text.trim()
     if (!t && !files.length) return
-    setNotice('')
     const sheets = files.filter(f => SHEET.test(f.name))
     const others = files.filter(f => !SHEET.test(f.name))
     if (sheets.length > 1) throw new Error('Attach one sheet at a time.')
@@ -94,13 +94,21 @@ export function RequestIntake({ uc, L, beginCase }) {
       open(r)
       return
     }
-    const out = await api.requestFromSources(uc.id, t, others)
-    if (!out.request) { setNotice(out.reply); return }
-    open(out.request)
+    const heard = [...said, t].filter(Boolean).join('\n\n')             // what was said before counts: the next message adds to it
+    setSending(t || 'Attached: ' + others.map(f => f.name).join(', '))
+    try {
+      const out = await api.requestFromSources(uc.id, heard, others)
+      if (!out.request) {                              // nothing to start from yet: the exchange stays in the chat, and the next message adds to it
+        setPre(p => [...p, { role: 'user', text: t || 'Attached: ' + others.map(f => f.name).join(', '), said: !!t }, { role: 'agent', text: out.reply }])
+        setText('')
+        return
+      }
+      open(out.request)
+    } finally { setSending(null) }
   })
 
   const asIs = () => guard(async () => {              // the agent could not read it: start the old way, with the text as it is
-    const r = await beginCase(uc.id, null, text)
+    const r = await beginCase(uc.id, null, [...said, text.trim()].filter(Boolean).join('\n\n'))
     nav('/cases/' + r.id, { state: { unmatched: r.unmatched } })
   })
 
@@ -179,6 +187,29 @@ export function RequestIntake({ uc, L, beginCase }) {
     )
   }
 
+  if (pre.length) {                                    // nothing to start a request from yet: keep talking, in the same chat
+    return (
+      <div className="rc">
+        <section className="rc-chat" aria-label="Conversation with the request agent">
+          <div className="rc-head"><span className="cs-faint">{uc.name}</span><span className="sp" /><button className="cs-link" disabled={busy} onClick={reset}>Start over</button></div>
+          <div className="rc-msgs" ref={scroller}>
+            {pre.map((m, i) => <Message key={i} m={m} />)}
+            {sending && <Message m={{ role: 'user', text: sending }} />}
+            {busy && <div className="rc-working"><span className="cs-spin" />Reading…</div>}
+            {err && <div className="cs-need">{err}</div>}
+          </div>
+          <div className="rc-q"><div className="rc-opts">
+            <button className="btn sm" disabled={busy || !said.length && !text.trim()} onClick={asIs}>Start the case with my text as it is</button>
+          </div></div>
+          <div className="rc-comp">
+            <Composer text={text} setText={setText} files={files} setFiles={setFiles} busy={busy} onSend={start} fileRef={fileRef}
+              placeholder={`Say what is needed, who asks for it and why, or attach a file…`} hint="Enter to send" />
+          </div>
+        </section>
+      </div>
+    )
+  }
+
   return (
     <>
       <div className="cs-scroll"><div className="cs-col cs-empty">
@@ -189,11 +220,6 @@ export function RequestIntake({ uc, L, beginCase }) {
           <div><b>2. Fill the gaps</b><span>I fill in what it says, with the words I took each value from, and ask only for what is missing.</span></div>
           <div><b>3. Start the case</b><span>Then the case runs: a quick check, the screening, and a recommendation for you to review.</span></div>
         </div>
-        {notice && (
-          <div className="rc-note">
-            <div>{notice}</div>
-            <div className="cs-actions"><button className="btn sm" disabled={busy || !text.trim()} onClick={asIs}>Start the case with my text as it is</button></div>
-          </div>)}
         {err && <div className="cs-need">{err}</div>}
       </div></div>
       <div className="cs-composer-wrap"><div className="cs-composer">

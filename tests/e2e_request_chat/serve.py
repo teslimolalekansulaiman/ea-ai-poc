@@ -24,7 +24,7 @@ def model(prompt):
     if "list the demands in them" in prompt:                              # reading a message and files
         srcs = sources(prompt)
         msg = srcs.get("your message", "")
-        if "hello there" in msg.lower():
+        if "need" not in msg.lower() and not any("sponsor is" in t for t in srcs.values()):      # nothing in it says that something is needed
             return {"items": []}
         fields = {}
         if msg:

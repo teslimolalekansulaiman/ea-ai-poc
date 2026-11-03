@@ -109,11 +109,17 @@ const SPARSE = 'We need a complaint tracking system to log, assign and follow up
   m = await msgs(page); check(/from notes\.txt/.test(m.join('\n')), 'a file added mid-chat fills gaps and names itself');
   await shot(page, '9-attached');
 
-  // 10. the agent could not read the text: the old way is still there
+  // 10. text with no demand in it: the exchange stays in the chat, the next message adds to it, and the old way is still there
   await page.goto(BASE); await page.waitForSelector(MSG);
-  await page.fill(MSG, 'hello there how are you');
-  await page.click('button:has-text("Send")'); await page.waitForSelector('.rc-note');
-  check(/could not find any demands/.test(await page.innerText('.rc-note')), 'when nothing is found, it says so');
+  await page.fill(MSG, 'demand use case'); await page.press(MSG, 'Enter'); await page.waitForSelector('.rc .rc-msgs'); await idle(page);
+  m = await msgs(page);
+  check(m.length === 2 && /demand use case/.test(m[0]) && /could not find any demands/.test(m[1]), 'text with no demand stays in the chat: your words, then the agent\'s answer');
+  check((await page.inputValue(MSG)) === '', 'and the box is cleared, as in any chat');
+  await shot(page, '10-nothing-found');
+  await page.fill(MSG, 'We need a way to log complaints.'); await page.press(MSG, 'Enter'); await page.waitForSelector('.rc-sum'); await idle(page);
+  m = await msgs(page); check(/I found 1 demand/.test(m.join('\n')), 'the next message adds to what was said, and a request starts: ' + (m[m.length - 1] || '').slice(0, 60).replace(/\n/g, ' '));
+  await page.goto(BASE); await page.waitForSelector(MSG);
+  await page.fill(MSG, 'hello there how are you'); await page.press(MSG, 'Enter'); await page.waitForSelector('.rc-msgs'); await idle(page);
   await page.click('button:has-text("Start the case with my text as it is")'); await page.waitForURL(/#\/cases\/[a-f0-9]{12}$/, { timeout: 15000 });
   check(true, 'and the text can still start a case as it is');
 
