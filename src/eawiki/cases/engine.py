@@ -33,6 +33,10 @@ from eawiki.cases.store import CaseStore
 DEFAULT_GATE_COLUMN = "Is it a true demand?"
 
 
+class PhaseNotReady(ValueError):
+    """A phase was asked to run before the phase it reads has been approved."""
+
+
 def phase_id(stage: dict) -> str:
     return stage.get("id") or re.sub(r"[^a-z0-9]+", "-", (stage.get("name") or "phase").lower()).strip("-")
 
@@ -155,8 +159,17 @@ class Engine:
     def resume(self, cid: str, pid: str, background: bool = True) -> dict:
         """Run the phase again, keeping every cell already decided and every answer from the architect."""
         case = self.store.get_case(cid)
-        if not case or not any(phase_id(x) == pid for x in case["spec"]["stages"]):
+        stages = (case or {}).get("spec", {}).get("stages") or []
+        idx = next((i for i, x in enumerate(stages) if phase_id(x) == pid), None)
+        if idx is None:
             raise ValueError("no such phase")
+        if idx > 0:                                  # a phase reads the one before it: that one must be finished and approved
+            prev = stages[idx - 1]
+            st = case["state"].get("phases", {}).get(phase_id(prev), {}).get("status")
+            if st != "approved":
+                raise PhaseNotReady(f"{stages[idx].get('name') or pid} reads the results of {prev.get('name') or phase_id(prev)}, "
+                                    f"which is {'not finished' if st in (None, 'waiting', 'running') else 'not approved yet'}. "
+                                    "Finish and approve it first.")
         self._spawn(lambda: self.run_phase(cid, pid, resume=True), background)
         return {"phase": pid, "status": "resuming"}
 

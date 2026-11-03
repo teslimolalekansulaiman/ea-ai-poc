@@ -211,3 +211,37 @@ def test_a_lookup_may_start_from_a_property_of_an_earlier_stage():
     # a property of THIS stage still has to be listed under 'builds on', so it is decided first
     col["lookups"][0]["from"] = "result:Security fit"
     assert any("'builds on' list" in e for e in usecases.validate(spec))
+
+
+# ---- order -----------------------------------------------------------------------------------------------------------
+
+def test_a_phase_cannot_be_run_before_the_phase_it_reads_is_approved():
+    import pytest
+    from eawiki.cases.engine import PhaseNotReady
+    e = Engine(CaseStore(), base.fake_tools, workers=2)
+    cid = e.create(SPEC, base.ITEMS[:1], "order")
+    with pytest.raises(PhaseNotReady, match="not finished"):                    # screening has not run
+        e.resume(cid, "recommendation", background=False)
+    e.run_phase(cid, "screening")                                               # finished, waiting for review
+    with pytest.raises(PhaseNotReady, match="not approved yet"):
+        e.resume(cid, "recommendation", background=False)
+    assert not e.store.cells(cid, "recommendation")                             # nothing ran
+    e.approve(cid, "screening", background=False)                               # approving starts it, as before
+    assert e.store.cells(cid, "recommendation")
+    e.resume(cid, "recommendation", background=False)                           # and a resume is now allowed
+    e.resume(cid, "screening", background=False)                                # the first phase has nothing before it
+
+
+def test_the_resume_route_refuses_with_a_conflict_not_a_missing_phase():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from eawiki.api import cases as api
+    e = Engine(CaseStore(), base.fake_tools, workers=2)
+    cid = e.create(SPEC, base.ITEMS[:1], "route")
+    api.get_engine = lambda: e
+    api.store = lambda: e.store
+    app = FastAPI()
+    app.include_router(api.router)
+    r = TestClient(app).post(f"/api/cases/{cid}/phases/recommendation/resume")
+    assert r.status_code == 409 and "Finish and approve" in r.json()["detail"]
+    assert TestClient(app).post(f"/api/cases/{cid}/phases/nothing/resume").status_code == 404

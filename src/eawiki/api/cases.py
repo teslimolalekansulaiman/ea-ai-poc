@@ -185,8 +185,11 @@ def approve(cid: str, pid: str):
 @router.post("/cases/{cid}/phases/{pid}/resume")
 def resume(cid: str, pid: str):
     """Run a phase again after a failure or a restart, keeping everything already decided."""
+    from eawiki.cases.engine import PhaseNotReady
     try:
         return get_engine().resume(cid, pid)
+    except PhaseNotReady as e:
+        raise HTTPException(409, str(e))
     except ValueError as e:
         raise HTTPException(404, str(e))
 
