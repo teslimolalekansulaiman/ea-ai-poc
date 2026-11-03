@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-// What the request agent puts in front of the person, inside the chat: the open questions, one at a time (or as a list when there
-// are too many to step through), the question about which demands a value is for, and the card that starts the case. The agent
-// chooses the questions in code; the person's choice of scope is never assumed.
+// What the request agent puts in front of the person, inside the chat: the open questions as a sheet to swipe through and answer
+// once, the list shown when there are too many for that, the question about which demands a value is for, and the card that
+// starts the case. The agent chooses the questions in code; the person's choice of scope is never assumed.
 
 const forText = (items, L) => items.length <= 2 ? 'for ' + items.join(' and ') : `for ${items.length} ${L.plural}`
 
@@ -22,42 +22,84 @@ function Scope({ items, s }) {
     </div>)
 }
 
-// One open question as a card. A pick list answers by button; free text is typed in the message box below.
-function Slide({ q, L, busy, onAnswer }) {
-  const s = useScope(q.items)
-  return (
-    <div className="rc-slide">
-      <div className="rc-qh"><b>{q.label}</b><span className="cs-faint">{forText(q.items, L)}</span></div>
-      {q.description && <div className="rc-help">{q.description}</div>}
-      <Scope items={q.items} s={s} />
-      {q.options.length > 0 && (
-        <div className="rc-opts">{q.options.map(o => <button key={o} className="btn sm" disabled={busy || s.none} onClick={() => onAnswer({ value: o, scope: s.scope, field: q.field }, o)}>{o}</button>)}</div>)}
-      <div className="rc-opts">
-        {q.options.length === 0 && <span className="cs-faint" style={{ fontSize: 12.5 }}>Type it below{q.items.length > 1 ? ' and say if it is only for some of them' : ''}.</span>}
-        <span className="sp" />
-        <button className="btn sm" disabled={busy || s.none} onClick={() => onAnswer({ decline: true, scope: s.scope, field: q.field }, 'Ask the requester')}>Ask the requester</button>
-      </div>
-    </div>)
-}
+const BLANK = { value: '', ask: false, picked: null }     // picked: null means all of the demands the question is open for
 
-// Open questions, one at a time, with the way to step between them.
-export function Steps({ qs, i, setI, L, busy, onAnswer, onAll }) {
-  const q = qs[Math.min(i, qs.length - 1)]
-  const at = Math.min(i, qs.length - 1)
+// The open questions as pages: each has its own answer box (or buttons for a pick list), drafts are kept while the person swipes
+// between them, and one button sends everything answered. A question left alone stays open.
+export function AnswerSheet({ qs, L, busy, onSend }) {
+  const [at, setAt] = useState(0)
+  const [drafts, setDrafts] = useState({})              // field -> { value, ask, picked }
+  const box = useRef(null)
+  const i = Math.min(at, qs.length - 1)
+  const q = qs[i]
+  const get = (f) => drafts[f] || BLANK
+  const put = (f, patch) => setDrafts(s => ({ ...s, [f]: { ...(s[f] || BLANK), ...patch } }))
+  const picked = (x) => { const d = get(x.field); return d.picked === null ? x.items : x.items.filter(id => d.picked.includes(id)) }
+  const state = (x) => { const d = get(x.field); return !picked(x).length ? 'open' : d.ask ? 'asked' : d.value.trim() ? 'answered' : 'open' }
+  const ready = qs.filter(x => state(x) !== 'open')
+  const d = get(q.field)
+  const mine = picked(q)
+
+  useEffect(() => { if (box.current) box.current.focus() }, [i, q.field])      // the page you land on is ready to type in
+
+  const go = (n) => setAt(Math.max(0, Math.min(qs.length - 1, n)))
+  const send = () => {
+    if (!ready.length || busy) return
+    const answers = ready.map(x => {
+      const ids = picked(x)
+      const scope = ids.length === x.items.length ? 'all' : ids
+      return get(x.field).ask ? { field: x.field, decline: true, scope } : { field: x.field, value: get(x.field).value.trim(), scope }
+    })
+    onSend(answers, ready.map(x => `${x.label}: ${get(x.field).ask ? 'Ask the requester' : get(x.field).value.trim()}`).join('\n'))
+  }
+  const toggleId = (id) => { const now = d.picked === null ? q.items : d.picked; put(q.field, { picked: now.includes(id) ? now.filter(x => x !== id) : [...now, id] }) }
+
   return (
-    <div className="rc-q" role="group" aria-label="Open question">
+    <div className="rc-q" role="group" aria-label="Open questions">
       <div className="rc-qnav">
-        <span className="cs-faint">{qs.length > 1 ? `Question ${at + 1} of ${qs.length}` : 'Question'}</span>
+        <span className="cs-faint">{qs.length > 1 ? `Question ${i + 1} of ${qs.length}` : 'Question'}{ready.length ? ` · ${ready.length} ready` : ''}</span>
         <span className="sp" />
-        {qs.length > 1 && <button className="cs-link" disabled={at === 0} onClick={() => setI(at - 1)} aria-label="Previous question">‹ Back</button>}
-        {qs.length > 1 && <button className="cs-link" disabled={at === qs.length - 1} onClick={() => setI(at + 1)} aria-label="Next question">Next ›</button>}
-        {qs.length > 1 && <button className="cs-link" onClick={onAll}>Answer in one message instead</button>}
+        {qs.length > 1 && <button className="cs-link" disabled={i === 0} onClick={() => go(i - 1)} aria-label="Previous question">‹ Back</button>}
+        {qs.length > 1 && <button className="cs-link" disabled={i === qs.length - 1} onClick={() => go(i + 1)} aria-label="Next question">Next ›</button>}
       </div>
-      <Slide key={q.field + q.items.join(',')} q={q} L={L} busy={busy} onAnswer={onAnswer} />
+      {qs.length > 1 && (
+        <div className="rc-dots" role="tablist" aria-label="Questions">
+          {qs.map((x, n) => <button key={x.field} role="tab" aria-selected={n === i} className={'rc-dot ' + state(x) + (n === i ? ' on' : '')}
+            aria-label={`Question ${n + 1}: ${x.label}, ${state(x) === 'open' ? 'not answered' : state(x) === 'asked' ? 'ask the requester' : 'answered'}`} onClick={() => go(n)} />)}
+        </div>)}
+      <div className="rc-slide">
+        <div className="rc-qh"><b>{q.label}</b><span className="cs-faint">{forText(q.items, L)}</span></div>
+        {q.description && <div className="rc-help">{q.description}</div>}
+        {q.items.length > 1 && (
+          <div className="rc-scope"><span>Applies to:</span>
+            {q.items.map(id => <label key={id}><input type="checkbox" checked={mine.includes(id)} onChange={() => toggleId(id)} />{id}</label>)}
+          </div>)}
+        {q.options.length > 0
+          ? <div className="rc-opts">{q.options.map(o => (
+            <button key={o} className={'btn sm' + (d.value === o && !d.ask ? ' primary' : '')} aria-pressed={d.value === o && !d.ask} disabled={busy}
+              onClick={() => { put(q.field, { value: d.value === o ? '' : o, ask: false }); if (d.value !== o) go(i + 1) }}>{o}</button>))}</div>
+          : <textarea ref={box} className="rq-in rc-ans" rows={2} aria-label={q.label} placeholder="Type the answer" value={d.ask ? '' : d.value} disabled={busy}
+            onChange={e => put(q.field, { value: e.target.value, ask: false })}
+            onKeyDown={e => {
+              if (e.key !== 'Enter' || e.shiftKey) return
+              e.preventDefault()
+              if (e.metaKey || e.ctrlKey || i === qs.length - 1) send(); else go(i + 1)
+            }} />}
+        <div className="rc-opts">
+          <button className={'btn sm' + (d.ask ? ' primary' : '')} aria-pressed={d.ask} disabled={busy || !mine.length}
+            onClick={() => { put(q.field, { ask: !d.ask, value: '' }); if (!d.ask) go(i + 1) }}>Ask the requester</button>
+          <span className="sp" />
+          <span className="cs-faint" style={{ fontSize: 12.5 }}>{q.options.length ? 'Pick one, or skip it.' : 'Enter for the next question.'} Skipped ones stay open.</span>
+        </div>
+      </div>
+      <div className="rc-opts">
+        <button className="btn primary" disabled={busy || !ready.length} onClick={send}>{ready.length ? `Send ${ready.length} answer${ready.length === 1 ? '' : 's'}` : 'Send answers'}</button>
+        {ready.length > 0 && ready.length < qs.length && <span className="cs-faint" style={{ fontSize: 12.5 }}>{qs.length - ready.length} will stay open.</span>}
+      </div>
     </div>)
 }
 
-// Too many open questions to step through: name them, and offer the other ways to go on.
+// Too many open questions to swipe through at first: name them, and offer the other ways to go on.
 export function Gaps({ qs, L, busy, onOne, onAttach, onDeclineAll }) {
   return (
     <div className="rc-q" role="group" aria-label="Open questions">

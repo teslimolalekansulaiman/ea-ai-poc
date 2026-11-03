@@ -145,11 +145,14 @@ class TurnBody(BaseModel):
     text: Optional[str] = None
     answer: Optional[dict] = None          # a button: {value, scope: "all" | [ids]}, {decline: true, scope} or {decline_all: true}
     field: Optional[str] = None            # the open question the person is looking at, when it is not the first
+    answers: Optional[list] = None         # several answers sent at once, one per open question: [{field, value | decline, scope}]
 
 
 @router.post("/requests/{rid}/messages")
 def message(rid: str, body: TurnBody):
     """One step with the agent: what the person typed (or the button they pressed), what changed, and the next question."""
+    if body.answers is not None:
+        return _call(intake_agent.answer_sheet, store(), rid, llm_factory(), body.answers)
     return _call(intake_agent.turn, store(), rid, llm_factory(), text=body.text, answer=body.answer, field=body.field)
 
 

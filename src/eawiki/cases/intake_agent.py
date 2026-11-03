@@ -548,6 +548,56 @@ def _scope(scope, items: list) -> list:
     raise AgentError("Say which: all of them, or a list of ids.")
 
 
+def answer_sheet(store, rid: str, llm: Optional[Callable], answers: list) -> dict:
+    """Several answers sent at once, one per open question: [{field, value, scope}] or [{field, decline: true, scope}]. What the person typed
+    is the value, exactly: no model reads it, so nothing is paraphrased or dropped. All of them are checked before any is applied, so a bad
+    one changes nothing. A question left out stays open. Same result as a turn."""
+    v = rq.view(store, rid)
+    if v["status"] != rq.DRAFTING:
+        raise rq.RequestLocked("This request was already submitted.")
+    spec = rq._spec(rq.get(store, rid))
+    by = {f["name"]: f for f in completeness.input_fields(spec)}
+    open_ = {q["field"]: q for q in v["questions"]}
+    if not isinstance(answers, list) or not answers:
+        raise AgentError("There is nothing to send.")
+    seen, todo = set(), []
+    for a in answers:
+        f = a.get("field") if isinstance(a, dict) else None
+        if f not in open_ or f in seen:
+            raise AgentError("One of the answers is not for an open question, or is given twice.")
+        seen.add(f)
+        q = open_[f]
+        ids = _scope(a.get("scope"), q["items"])
+        if not ids:
+            raise AgentError(f"Say which {v['item_label']['plural']} “{q['label']}” is for.")
+        if a.get("decline"):
+            todo.append((q, ids, None))
+            continue
+        value = rq._value(by[f], a.get("value"))                       # a pick list holds the person to it
+        if not value:
+            raise AgentError(f"“{q['label']}” has no answer.")
+        todo.append((q, ids, value))
+    idf = (spec.get("input") or {}).get("id_field")
+    todo.sort(key=lambda t: t[0]["field"] == idf)                      # a demand's id follows its id field, so that answer goes last
+    changes, declined = [], []
+    for q, ids, value in todo:
+        r = rq.fill(store, rid, q["field"], ids, decline=True) if value is None else rq.fill(store, rid, q["field"], ids, value=value)
+        if value is None:
+            declined += [{"id": i, "field": q["field"], "label": q["label"]} for i in r["changed"]]
+        else:
+            changes += [{"id": i, "field": q["field"], "label": q["label"], "value": value, "quote": ""} for i in r["changed"]]
+    model = Model(llm)
+    v2 = rq.view(store, rid)
+    said = "\n".join(f"{q['label']}: {'Ask the requester' if value is None else value}" for q, _ids, value in todo)
+    head = _summary(changes, declined, [], False, {f["name"]: f["label"] for f in v2["fields"]})
+    question = plan_question(spec, v2, model if len(v2["questions"]) == 1 else Model(None))        # the model words a question only when it is asked as itself
+    probs = [p for i in v2["items"] for p in i["problems"]]
+    reply = " ".join(x for x in (head, _tail(question, v2, brief=True), " ".join(dict.fromkeys(probs))) if x)
+    _save(store, rid, v, said, reply, question)
+    return {"reply": reply, "question": question, "changes": changes, "declined": declined, "dropped": [], "ready": v2["ready"],
+            "request": rq.view(store, rid), "calls": model.calls}
+
+
 def turn(store, rid: str, llm: Optional[Callable], *, text: Optional[str] = None, answer: Optional[dict] = None, field: Optional[str] = None) -> dict:
     """One step. `answer` is a button: {value, scope}, {decline: true, scope} or {decline_all: true}; `text` is what the person typed.
     `field` names the question the person is looking at, when it is not the first (they may step through the open ones in any order);

@@ -51,24 +51,34 @@ const SPARSE = 'We need a complaint tracking system to log, assign and follow up
   check(await page.locator('.rc-gaplist li').count() === before - 1 || await page.locator('.rc-q[aria-label="Open question"]').count() === 1, 'one message fills what it states, and the list shrinks');
   m = await msgs(page); check(/Business sponsor: the Chief Financial Officer/.test(m.join('\n')) , 'and the agent says what it added');
 
-  // 5. go through them one by one: a card per question, stepping, a pick list by buttons, typing for the rest, ask the requester on any
-  await page.click('.rc-q button:has-text("Go through them one by one")'); await page.waitForSelector('.rc-q[aria-label="Open question"]');
+  // 5. the answer sheet: swipe through the questions, answer in each page, and send everything once
+  await page.click('.rc-q button:has-text("Go through them one by one")'); await page.waitForSelector('.rc-slide');
   const nav = await page.innerText('.rc-qnav');
-  check(/Question 1 of \d+/.test(nav), 'the questions are stepped through: ' + nav.replace(/\s+/g, ' ').slice(0, 60));
+  const N = await page.locator('.rc-dot').count();
+  check(/Question 1 of \d+/.test(nav) && N > 5, 'the questions are pages of one sheet: ' + nav.replace(/\s+/g, ' ').slice(0, 40) + ' (' + N + ' dots)');
   await page.click('button[aria-label="Next question"]');
   check(/Question 2 of/.test(await page.innerText('.rc-qnav')), 'Next moves to the next question');
-  await page.click('button[aria-label="Previous question"]');
-  await shot(page, '4-step');
-  await page.setViewportSize({ width: 400, height: 800 }); await shot(page, '4b-step-phone'); await page.setViewportSize({ width: 1360, height: 860 });
-  let asked = false;
-  for (let i = 0; i < 20 && await page.$('.rc-q[aria-label="Open question"]'); i++) {
-    const opt = await page.$('.rc-q[aria-label="Open question"] .rc-opts button:not(:has-text("Ask the requester"))');
-    if (opt) await opt.click();
-    else if (!asked && i === 1) { await page.click('.rc-q button:has-text("Ask the requester")'); asked = true; }
-    else { await page.fill(MSG, 'Answer ' + i); await page.press(MSG, 'Enter'); }
-    await idle(page); await page.waitForTimeout(150);
+  await page.click('.rc-dot >> nth=0');
+  check(/Question 1 of/.test(await page.innerText('.rc-qnav')), 'a dot jumps to any question');
+  await shot(page, '4-sheet');
+  await page.setViewportSize({ width: 400, height: 800 }); await shot(page, '4b-sheet-phone'); await page.setViewportSize({ width: 1360, height: 860 });
+  const sent0 = (await msgs(page)).length;
+  for (let n = 0; n < N; n++) {
+    const chip = await page.$('.rc-slide .rc-opts button:not(:has-text("Ask the requester"))');
+    if (n === 1) await page.click('.rc-slide button:has-text("Ask the requester")');                          // asks the requester, and moves on
+    else if (chip) await chip.click();                                                                         // a pick list answers by a button, and moves on
+    else if (n === N - 1) await page.fill('.rc-ans', 'Answer ' + n);                                           // Enter on the last page would send
+    else { await page.fill('.rc-ans', 'Answer ' + n); await page.press('.rc-ans', 'Enter'); }
   }
-  check(!(await page.$('.rc-q[aria-label="Open question"]')), 'every question was answered or asked of the requester');
+  check(/\d+ ready/.test(await page.innerText('.rc-qnav')) && await page.locator(`button:has-text("Send ${N} answers")`).count() === 1, 'every page answered, and one button to send them all: Send ' + N + ' answers');
+  check((await msgs(page)).length === sent0, 'nothing is sent until that button is pressed');
+  await page.click('.rc-dot >> nth=0');
+  check((await page.inputValue('.rc-ans').catch(() => '')) !== '' || await page.locator('.rc-slide .rc-opts button[aria-pressed="true"]').count() > 0, 'swiping back keeps what was typed on the first page');
+  await shot(page, '4c-sheet-filled');
+  await page.click(`button:has-text("Send ${N} answers")`); await page.waitForSelector('.rc-ready'); await idle(page);
+  m = await msgs(page);
+  check(m.length === sent0 + 2 && /Ask the requester/.test(m[m.length - 2]) && /Answer 0/.test(m[m.length - 2]), 'one message in the thread carries every answer, and the agent replies once');
+  check(!(await page.$('.rc-slide')), 'every question was answered or asked of the requester');
 
   // 6. nothing left to ask: the start button is in the chat (a demand asked of the requester is held)
   await page.waitForSelector('.rc-ready');
@@ -91,22 +101,21 @@ const SPARSE = 'We need a complaint tracking system to log, assign and follow up
   check(/Start anyway, holding 1 demand/.test(await page.innerText('.rc-ready')), 'and the demand is held, not lost');
   await shot(page, '7-asked-all');
 
-  // 8. a sheet with gaps: few questions, so they are stepped through; the demands an answer is for can be chosen
+  // 8. a sheet with gaps: few questions, so they are pages straight away; the demands an answer is for can be chosen
   await page.goto(BASE); await page.waitForSelector(MSG);
   await page.setInputFiles('input[type=file]', path.join(D, 'gaps.csv'));
   await page.click('button:has-text("Send")'); await page.waitForSelector('.rc'); await idle(page);
   m = await msgs(page); check(/required details are still missing|missing for|business sponsor/i.test(m.join('\n')), 'a sheet with gaps gets its questions in the chat: ' + (m[0] || '').slice(0, 80).replace(/\n/g, ' '));
-  check(!!(await page.$('.rc-q[aria-label="Open question"]')) && !!(await page.$('.rc-scope')), 'a card per question, with the demands it is for');
+  check(await page.locator('.rc-slide').count() === 1 && await page.locator('.rc-dot').count() === 2 && !!(await page.$('.rc-scope')), 'two pages, with the demands each answer is for');
   await shot(page, '8-sheet');
-  await page.click('button:has-text("Answer in one message instead")');
-  check(!(await page.$('.rc-q[aria-label="Open question"]')) && /Write everything you know below/.test(await page.innerText('.rc-q')), 'the person can switch to one message about everything');
-  await page.click('button:has-text("Answer one at a time")'); await page.waitForSelector('.rc-q[aria-label="Open question"]');
-  check(true, 'and back to question by question');
 
-  // 9. attach a file mid-chat: it is read for the gaps and named
+  // 9. attach a file mid-chat: it is read for the gaps and named; then answer what is left, from the sheet
   await page.setInputFiles('.rc input[type=file]', path.join(D, 'notes.txt'));
   await page.click('.rc-comp button:has-text("Send")'); await idle(page);
   m = await msgs(page); check(/from notes\.txt/.test(m.join('\n')), 'a file added mid-chat fills gaps and names itself');
+  await page.waitForSelector('.rc-ans'); await page.fill('.rc-ans', '2027-06-30');
+  await page.click('button:has-text("Send 1 answer")'); await page.waitForSelector('.rc-ready'); await idle(page);
+  check(/Start the case/.test(await page.innerText('.rc-ready')), 'the last answer sent from the sheet leaves nothing to ask');
   await shot(page, '9-attached');
 
   // 10. text with no demand in it: the exchange stays in the chat, the next message adds to it, and the old way is still there

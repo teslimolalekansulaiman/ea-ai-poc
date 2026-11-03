@@ -410,3 +410,52 @@ def test_after_an_answer_the_agent_says_what_it_added_and_how_many_are_left_not_
     out = ag.turn(store(), rid, None, answer={"value": "Finance", "scope": "all"}, field="department")
     assert out["reply"] == "I added Requesting department: Finance for D-1. 2 left."
     assert ag.turn(store(), rid, None)["reply"].startswith("2 required details are still missing: ")        # asked again with no change: the list is named
+
+
+# ---- an answer sheet: several answers, sent once --------------------------------------------------------------------
+
+def test_several_answers_are_applied_together_exactly_as_typed_and_need_no_model():
+    rid = _request([_item("D-1", sponsor="", department="", requester_role=""), _item("D-2", sponsor="", department="")])
+    out = ag.answer_sheet(store(), rid, None, [
+        {"field": "department", "value": "  Finance ", "scope": "all"},
+        {"field": "sponsor", "value": "Chief Financial Officer", "scope": ["D-2"]},
+        {"field": "requester_role", "decline": True, "scope": "all"}])
+    assert out["calls"] == 0
+    v = out["request"]
+    by = {i["id"]: i for i in v["items"]}
+    assert by["D-1"]["values"]["department"] == "Finance" and by["D-2"]["values"]["department"] == "Finance"          # typed, trimmed, not reworded
+    assert by["D-2"]["values"]["sponsor"] == "Chief Financial Officer" and by["D-1"]["values"]["sponsor"] == ""      # only for the demands chosen
+    assert by["D-1"]["set"]["department"] == "you" and by["D-1"]["declined"] == ["requester_role"]                       # typed by the person, and asked of the requester
+    assert [q["field"] for q in v["questions"]] == ["sponsor"] and v["questions"][0]["items"] == ["D-1"]                  # a question not answered stays open
+    assert v["messages"][-2] == {"role": "user", "text": "Requesting department: Finance\nBusiness sponsor: Chief Financial Officer\nRequester role: Ask the requester"}
+    assert out["reply"].startswith("I added Requesting department: Finance for D-1 and D-2; Business sponsor: Chief Financial Officer for D-2.")
+
+
+def test_one_bad_answer_changes_nothing():
+    rid = _request([_item("D-1", sponsor="", request_type="")])
+    for bad in ([{"field": "sponsor", "value": "CFO", "scope": "all"}, {"field": "request_type", "value": "Not on the list", "scope": "all"}],       # off the pick list
+                [{"field": "sponsor", "value": "CFO", "scope": "all"}, {"field": "title", "value": "x", "scope": "all"}],                          # not an open question
+                [{"field": "sponsor", "value": "CFO", "scope": "all"}, {"field": "sponsor", "value": "COO", "scope": "all"}],                      # twice
+                [{"field": "sponsor", "value": "   ", "scope": "all"}],                                                                           # no answer
+                [{"field": "sponsor", "value": "CFO", "scope": []}],                                                                              # for none of them
+                []):
+        with pytest.raises(ValueError):
+            ag.answer_sheet(store(), rid, None, bad)
+    assert rq.view(store(), rid)["items"][0]["values"]["sponsor"] == ""
+
+
+def test_a_demands_id_follows_its_id_answer_even_when_other_answers_come_with_it():
+    rid = _request([_item("item-1", demand_id="", sponsor="")])
+    out = ag.answer_sheet(store(), rid, None, [{"field": "demand_id", "value": "D-2026-100", "scope": "all"}, {"field": "sponsor", "value": "CFO", "scope": "all"}])
+    it = out["request"]["items"][0]
+    assert it["id"] == "D-2026-100" and it["values"]["sponsor"] == "CFO" and out["request"]["questions"] == []
+
+
+def test_the_answer_sheet_route():
+    from eawiki.api.app import app as _app
+    rid = _request([_item("D-1", sponsor="", department="")])
+    c = TestClient(_app)
+    ok = c.post(f"/api/requests/{rid}/messages", json={"answers": [{"field": "sponsor", "value": "CFO", "scope": "all"}]})
+    assert ok.status_code == 200 and ok.json()["request"]["items"][0]["values"]["sponsor"] == "CFO"
+    assert c.post(f"/api/requests/{rid}/messages", json={"answers": [{"field": "sponsor", "value": "x", "scope": "all"}]}).status_code == 400      # settled now
+    assert c.post(f"/api/requests/{rid}/messages", json={"answers": []}).status_code == 400

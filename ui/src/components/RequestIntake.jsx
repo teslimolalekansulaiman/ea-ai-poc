@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { Gaps, Ready, ScopeQuestion, Steps } from './RequestAsk'
+import { AnswerSheet, Gaps, Ready, ScopeQuestion } from './RequestAsk'
 import { RequestSummary } from './RequestSummary'
 
 // The front of a case: say what is needed, or attach what it came in, and the agent fills in what it says and asks only for
@@ -53,8 +53,7 @@ export function RequestIntake({ uc, L, beginCase }) {
   const [pre, setPre] = useState([])                // the conversation before any demand was found: what the person said, and what the agent answered
   const said = pre.filter(m => m.role === 'user' && m.said).map(m => m.text)       // the person's words so far, read together with the next message
   const [sending, setSending] = useState(null)       // what the person just sent, shown while the agent reads it
-  const [qi, setQi] = useState(0)                     // the open question being shown, when stepping through them
-  const [choice, setChoice] = useState(null)         // 'one' (question by question) or 'all' (one message), once the person has chosen; else by how many are open
+  const [sheet, setSheet] = useState(false)           // with too many open questions to swipe through at first, the person chose to go through them
   const fileRef = useRef(null)
   const scroller = useRef(null)
   const count = req ? req.messages.length : 0
@@ -76,8 +75,8 @@ export function RequestIntake({ uc, L, beginCase }) {
 
   useEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight }, [count, sending, busy, pre.length])
 
-  const open = (r) => { setSp({ request: r.id }, { replace: true }); setReq(r); setText(''); setFiles([]); setQi(0); setChoice(null) }
-  const reset = () => { setReq(null); setFiles([]); setText(''); setErr(''); setPre([]); setQi(0); setChoice(null); setSp({}, { replace: true }) }
+  const open = (r) => { setSp({ request: r.id }, { replace: true }); setReq(r); setText(''); setFiles([]); setSheet(false) }
+  const reset = () => { setReq(null); setFiles([]); setText(''); setErr(''); setPre([]); setSheet(false); setSp({}, { replace: true }) }
   const guard = async (fn) => { setErr(''); setBusy(true); try { await fn() } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) } }
 
   const start = () => guard(async () => {
@@ -112,14 +111,12 @@ export function RequestIntake({ uc, L, beginCase }) {
     nav('/cases/' + r.id, { state: { unmatched: r.unmatched } })
   })
 
-  // What the person typed goes where it makes sense: to the question they are looking at, to the question about which demands a
-  // value is for, or against everything that is missing (when they chose one message, or there are too many to step through).
+  // What the person typed in the message box is read against everything that is missing, unless the agent is waiting to hear which
+  // demands a value is for. Answers to the questions themselves go through the sheet, in one go.
   const ask = (r) => {
     const qs = r.questions || []
     const scopeQ = r.pending && r.pending.kind === 'scope' && r.pending.items && r.pending.items.length ? r.pending : null
-    const mode = choice || (r.stepwise ? 'one' : 'all')
-    const focus = !scopeQ && qs.length && mode === 'one' ? qs[Math.min(qi, qs.length - 1)] : null
-    return { qs, scopeQ, mode, focus }
+    return { qs, scopeQ }
   }
   const exchange = async (shown, call) => {
     setErr(''); setBusy(true); setSending(shown)
@@ -132,16 +129,17 @@ export function RequestIntake({ uc, L, beginCase }) {
     if (!t && !files.length) return
     const f = files
     const a = ask(req)
-    const wide = f.length > 0 || (!a.scopeQ && a.qs.length > 0 && !a.focus)
+    const wide = f.length > 0 || (!a.scopeQ && a.qs.length > 0)
     setText(''); setFiles([])
     const ok = await exchange(t || 'Attached: ' + f.map(x => x.name).join(', '),
-      () => wide ? api.requestSources(req.id, t, f) : api.requestMessage(req.id, a.focus ? { text: t, field: a.focus.field } : { text: t }))
+      () => wide ? api.requestSources(req.id, t, f) : api.requestMessage(req.id, { text: t }))
     if (!ok) { setText(t); setFiles(f) }
   }
   const answer = (body, shown) => {                      // a button: the question it is for travels beside it
     const { field, ...rest } = body
     return exchange(shown, () => api.requestMessage(req.id, field ? { answer: rest, field } : { answer: rest }))
   }
+  const sendSheet = (answers, shown) => exchange(shown, () => api.requestMessage(req.id, { answers }))      // every answer in the sheet, once
   const saveValue = async (itemId, name, value) => {    // the person corrects a value in the summary
     setErr(''); setBusy(true)
     try { setReq(await api.requestSet(req.id, itemId, { values: { [name]: value } })); return true }
@@ -153,9 +151,9 @@ export function RequestIntake({ uc, L, beginCase }) {
   if (req) {
     const a = ask(req)
     const L = req.item_label
-    const wide = !a.scopeQ && a.qs.length > 0 && a.mode === 'all'
-    const hint = a.scopeQ ? 'Say which, or use the buttons…' : a.focus ? `Answer “${a.focus.label}”, or write anything else you know…`
-      : a.qs.length ? 'Write everything you know about what is missing, or attach a file…' : 'Anything to add or correct?'
+    const showList = !a.scopeQ && a.qs.length > 0 && !req.stepwise && !sheet
+    const showSheet = !a.scopeQ && a.qs.length > 0 && !showList
+    const hint = a.scopeQ ? 'Say which, or use the buttons…' : a.qs.length ? 'Or tell me everything you know about what is missing, or attach a file…' : 'Anything to add or correct?'
     return (
       <div className="rc">
         <section className="rc-chat" aria-label="Conversation with the request agent">
@@ -169,14 +167,10 @@ export function RequestIntake({ uc, L, beginCase }) {
           </div>
           <RequestSummary req={req} busy={busy} onSave={saveValue} />
           {a.scopeQ && <ScopeQuestion key={a.scopeQ.field + a.scopeQ.items.join(',')} q={a.scopeQ} busy={busy} onAnswer={answer} />}
-          {!a.scopeQ && a.qs.length > 0 && !wide &&
-            <Steps qs={a.qs} i={qi} setI={setQi} L={L} busy={busy} onAnswer={answer} onAll={() => setChoice('all')} />}
-          {wide && !req.stepwise &&
-            <Gaps qs={a.qs} L={L} busy={busy} onOne={() => { setChoice('one'); setQi(0) }} onAttach={() => fileRef.current && fileRef.current.click()}
+          {showSheet && <AnswerSheet qs={a.qs} L={L} busy={busy} onSend={sendSheet} />}
+          {showList &&
+            <Gaps qs={a.qs} L={L} busy={busy} onOne={() => setSheet(true)} onAttach={() => fileRef.current && fileRef.current.click()}
               onDeclineAll={() => answer({ decline_all: true }, 'Ask the requesters for all of these')} />}
-          {wide && req.stepwise &&
-            <div className="rc-q"><div className="rc-opts"><span className="cs-faint">Write everything you know below.</span><span className="sp" />
-              <button className="btn sm" onClick={() => { setChoice('one'); setQi(0) }}>Answer one at a time</button></div></div>}
           {!a.scopeQ && a.qs.length === 0 && req.items.length > 0 && <Ready req={req} busy={busy} onStart={go} gapsUrl={api.requestGapsUrl(req.id)} />}
           <div className="rc-comp">
             <Composer text={text} setText={setText} files={files} setFiles={setFiles} busy={busy} onSend={send} fileRef={fileRef}
