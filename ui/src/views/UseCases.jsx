@@ -155,6 +155,29 @@ function LookupRelations({ lookups, edges, counts, col, pagesDefault, docs, onCh
   )
 }
 
+// Removing a property takes out everything that pointed at it, so nothing is left naming a property that is not there (which could not be
+// seen on the screen, and would stop the settings from being saved).
+function dropProperty(d, si, ci) {
+  const st = d.stages[si]
+  const name = st.output.columns[ci].name
+  st.output.columns.splice(ci, 1)
+  if (!name) return
+  const without = (a) => Array.isArray(a) ? a.filter(x => x !== name) : a
+  const elsewhere = d.stages.some(s => s.output.columns.some(c => c.name === name))      // another stage has a property of that name: what names it stays
+  d.stages.forEach((s, i) => s.output.columns.forEach(c => {
+    if (i === si && c.uses) c.uses = without(c.uses)
+    if (c.sees_others && !elsewhere) c.sees_others = without(c.sees_others)
+    if (i === si && c.derive && c.derive.from === name) delete c.derive
+  }))
+  if (st.summary_columns) st.summary_columns = without(st.summary_columns)
+  if (st.result && st.result.row_tag === name) delete st.result.row_tag
+  const doc = st.output.document
+  if (doc) {
+    ;['facts', 'internal'].forEach(k => { if (doc[k]) doc[k] = without(doc[k]) })
+    ;['statement', 'item_text'].forEach(k => { if (doc[k] === name) delete doc[k] })
+  }
+}
+
 export default function UseCases() {
   const [list, setList] = useState([])
   const [uc, setUc] = useState(null)          // null = list mode; object = editing
@@ -386,7 +409,7 @@ export default function UseCases() {
 
         <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginBottom: 30 }}>
           <button className="btn" disabled={pos <= 0} onClick={() => setPage({ k: 'prop', si: props[pos - 1].si, ci: props[pos - 1].ci })}>← Previous property</button>
-          <button className="btn" style={{ color: 'var(--crit)' }} onClick={() => { if (confirm(`Remove the property "${c.name || 'new property'}"?`)) { patch(d => d.stages[si].output.columns.splice(ci, 1)); setPage({ k: 'stage', si }) } }}>Remove this property</button>
+          <button className="btn" style={{ color: 'var(--crit)' }} onClick={() => { if (confirm(`Remove the property "${c.name || 'new property'}"? Whatever builds on it, is shown it, or uses it in the draft stops doing so.`)) { patch(d => dropProperty(d, si, ci)); setPage({ k: 'stage', si }) } }}>Remove this property</button>
           <button className="btn" disabled={pos < 0 || pos >= props.length - 1} onClick={() => setPage({ k: 'prop', si: props[pos + 1].si, ci: props[pos + 1].ci })}>Next property →</button>
         </div>
       </div>
@@ -579,7 +602,7 @@ export default function UseCases() {
                 <div key={u.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                     <b style={{ flex: 1 }}>{u.title}</b>
-                    {u.applied ? <span className="pill ok">applied</span> : <button className="btn primary" disabled={u.errors.length > 0} onClick={() => applyUpdate(u)}>Apply</button>}
+                    {u.applied ? <span className="pill ok">applied</span> : u.errors.length === 0 && u.changes.length === 0 ? <span className="pill neutral">already in place</span> : <button className="btn primary" disabled={u.errors.length > 0} onClick={() => applyUpdate(u)}>Apply</button>}
                   </div>
                   {u.note && <div className="meta">{u.note}</div>}
                   {!u.applied && u.errors.length > 0 && <div className="meta" style={{ color: 'var(--crit)' }}>It cannot be applied to these settings: {u.errors.join(' ')}</div>}

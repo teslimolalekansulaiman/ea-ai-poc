@@ -19,6 +19,7 @@ SEED = base.SPEC                                       # the use case as it ship
 OLD = base.SPEC_P2                                     # the use case as it stood before the update: what a database copy holds
 UC = "demand-management"
 UPDATE = "recommendation-request-draft"
+FOLLOW = "recommendation-steps-in-sections"
 S = "Recommendation"
 
 
@@ -28,9 +29,14 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setattr(usecases, "DIR", tmp_path)
     monkeypatch.delenv("USECASE_STORE", raising=False)
     (tmp_path / "updates" / UC).mkdir(parents=True)
-    shutil.copy(base.ROOT / "use_cases" / "updates" / UC / f"{UPDATE}.json", tmp_path / "updates" / UC / f"{UPDATE}.json")
+    for f in (base.ROOT / "use_cases" / "updates" / UC).glob("*.json"):
+        shutil.copy(f, tmp_path / "updates" / UC / f.name)
     usecases.save(copy.deepcopy(OLD), UC)
     return tmp_path
+
+
+def _one(uid):
+    return next(x for x in up.available(UC) if x["id"] == uid)
 
 
 def _names(spec, stage=1):
@@ -38,7 +44,7 @@ def _names(spec, stage=1):
 
 
 def test_the_shipped_update_brings_an_older_copy_to_the_shipped_design(store):
-    [u] = up.available(UC)
+    u = _one(UPDATE)
     assert u["id"] == UPDATE and not u["applied"] and u["errors"] == [] and u["changes"]
     assert any("renamed 'Recommendation type'" in c for c in u["changes"]) and any("'Recommended action' is removed" in c for c in u["changes"])
     assert all(any(f"'{n}' is added" in c for c in u["changes"]) for n in ("Risks and conditions", "Handled with", "Recommendation", "Request overview"))
@@ -58,7 +64,8 @@ def test_the_shipped_update_brings_an_older_copy_to_the_shipped_design(store):
     assert new["Recommendation"]["type"] == "text" and "senior enterprise architect" in new["Recommendation"]["how_to_resolve"]
     assert new["Request overview"]["scope"] == "request" and new["Handled with"]["derive"]["kind"] == "groups"
     assert new["Recommendation"]["sees_others"] == ["Recommendation type", "Recommended owner", "Handled with"]
-    assert [x["applied"] for x in up.available(UC)] == [True]                           # offered once
+    assert [(x["id"], x["applied"]) for x in up.available(UC)] == [(UPDATE, True), (FOLLOW, False)]       # offered once; the follow-up has nothing to do here
+    assert _one(FOLLOW)["changes"] == [] and _one(FOLLOW)["errors"] == []
     with pytest.raises(up.UpdateError):
         up.apply(UC, UPDATE)
 
@@ -71,7 +78,7 @@ def test_the_owners_own_wording_is_kept_and_only_empty_wording_is_filled(store):
     own.pop("how_to_resolve")                                                            # nothing written there
     spec["stages"][1]["instructions"] = "My stage instructions."
     usecases.save(spec, UC)
-    [u] = up.available(UC)
+    u = _one(UPDATE)
     assert any("'Security fit': your description is kept" in k for k in u["kept"])
     up.apply(UC, UPDATE)
     now = usecases.get(UC)
@@ -94,7 +101,7 @@ def test_nothing_is_stored_when_it_cannot_be_applied(store):
     spec = usecases.get(UC)
     spec["stages"][1]["name"] = "Advice"                                                  # the stage the update names is not there
     usecases.save(spec, UC)
-    [u] = up.available(UC)
+    u = _one(UPDATE)
     assert u["errors"] and "no stage named 'Recommendation'" in u["errors"][0].replace("There is ", "")
     v = usecases.get(UC)["version"]
     with pytest.raises(up.UpdateError):
@@ -142,13 +149,13 @@ def test_a_step_that_does_not_make_sense_is_reported_not_guessed():
 def test_the_routes_list_apply_and_refuse(store):
     c = TestClient(app)
     got = c.get(f"/api/usecases/{UC}/updates").json()["updates"]
-    assert [u["id"] for u in got] == [UPDATE] and got[0]["changes"] and not got[0]["applied"]
+    assert [u["id"] for u in got] == [UPDATE, FOLLOW] and got[0]["changes"] and not got[0]["applied"]
     assert c.get("/api/usecases/nope/updates").status_code == 404
     assert c.post(f"/api/usecases/{UC}/updates/nope").status_code == 404
     ok = c.post(f"/api/usecases/{UC}/updates/{UPDATE}")
     assert ok.status_code == 200 and ok.json()["changes"]
     assert c.post(f"/api/usecases/{UC}/updates/{UPDATE}").status_code == 400              # already applied
-    assert c.get(f"/api/usecases/{UC}/updates").json()["updates"][0]["applied"] is True
+    assert c.get(f"/api/usecases/{UC}/updates").json()["updates"][0]["applied"] is True and c.get(f"/api/usecases/{UC}/updates").json()["updates"][1]["changes"] == []
     got = c.get(f"/api/usecases/{UC}").json()["stages"][1]
     assert got["summary_columns"] == ["Recommendation"] and got["output"]["document"]["scope"] == "request"
 
@@ -159,8 +166,55 @@ def test_a_property_the_copy_does_not_have_is_left_out_of_what_a_property_is_sho
     for c in spec["stages"][0]["output"]["columns"]:
         c["uses"] = [x for x in c.get("uses") or [] if x != "Impacted business capability"]
     usecases.save(spec, UC)
-    [u] = up.available(UC)
+    u = _one(UPDATE)
     assert u["errors"] == [] and any("not shown the other demands' 'Impacted business capability'" in k for k in u["kept"])
     up.apply(UC, UPDATE)
     cons = next(c for c in usecases.get(UC)["stages"][1]["output"]["columns"] if c["name"] == "Consolidate with demand(s)")
     assert cons["sees_others"] == ["Is duplicate", "Duplicate demand number (in the sheet)", "Impacted application"]
+
+
+# ---- a copy that already has the earlier whole-request update ------------------------------------------------------
+
+def _earlier_copy():
+    """The use case as the earlier whole-request update left it: with 'Next steps' and 'Confidence', and that update recorded as applied."""
+    spec = copy.deepcopy(SEED)
+    spec["stages"][1] = json.loads((base.ROOT / "tests" / "fixtures" / "phase2_effabae_stage.json").read_text(encoding="utf-8"))
+    spec[up.APPLIED_KEY] = [UPDATE]
+    return spec
+
+
+def test_a_copy_that_already_has_the_earlier_update_is_brought_forward_and_nothing_is_left_pointing_at_what_went(store):
+    usecases.save(_earlier_copy(), UC)
+    assert _one(UPDATE)["applied"] is True
+    u = _one(FOLLOW)
+    assert u["errors"] == [] and any("'Next steps' is removed" in c for c in u["changes"]) and any("'Confidence' is removed" in c for c in u["changes"])
+    assert any("'Recommendation': how to resolve is brought up to date" in c for c in u["changes"]) and any("'Request overview': sees others is brought up to date" in c for c in u["changes"])
+    up.apply(UC, FOLLOW)
+    now = usecases.get(UC)
+    assert usecases.validate(now) == [] and _names(now) == _names(SEED)
+    a, b = now["stages"][1], SEED["stages"][1]
+    cols = {c["name"]: c for c in a["output"]["columns"]}
+    assert cols["Recommendation"]["how_to_resolve"] == next(c for c in b["output"]["columns"] if c["name"] == "Recommendation")["how_to_resolve"]
+    assert "Next steps" not in cols["Recommendation"]["uses"] and "Next steps" not in cols["Request overview"]["sees_others"] and "Next steps" not in a["output"]["document"]["internal"]
+    assert a["output"]["document"] == b["output"]["document"] and a["instructions"].count("which ends with its next steps") == 1 and "next steps. The last" not in a["instructions"]
+    assert now[up.APPLIED_KEY] == [UPDATE, FOLLOW]
+
+
+def test_what_the_owner_changed_since_the_earlier_update_is_kept_when_it_is_brought_forward(store):
+    spec = _earlier_copy()
+    mine = next(c for c in spec["stages"][1]["output"]["columns"] if c["name"] == "Recommendation")
+    mine["how_to_resolve"] = "MY OWN INSTRUCTIONS"
+    usecases.save(spec, UC)
+    u = _one(FOLLOW)
+    assert any("'Recommendation': your how to resolve is kept" in k for k in u["kept"])
+    up.apply(UC, FOLLOW)
+    cols = {c["name"]: c for c in usecases.get(UC)["stages"][1]["output"]["columns"]}
+    assert cols["Recommendation"]["how_to_resolve"] == "MY OWN INSTRUCTIONS" and "Next steps" not in cols["Recommendation"]["uses"]      # the setting that was not changed moves on
+
+
+def test_an_upgrade_does_not_bring_back_a_property_the_owner_removed(store):
+    spec = _earlier_copy()
+    spec["stages"][1]["output"]["columns"] = [c for c in spec["stages"][1]["output"]["columns"] if c["name"] != "Request overview"]
+    spec["stages"][1]["output"]["document"] = {"scope": "item", "statement": "Recommended owner"} if False else {}
+    plan = up.plan(spec, next(x for x in up.shipped(UC) if x["id"] == FOLLOW))
+    assert not any("Request overview" in c and "up to date" in c for c in plan["changes"])

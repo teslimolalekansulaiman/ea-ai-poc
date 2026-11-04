@@ -8,6 +8,9 @@ careful with the owner's own work:
   remove_property   a property goes, and so does every reference to it
   ensure_property   a property is added when it is not there; one that is there is never touched
   fill_property     wording and settings the owner has not written are filled in; what they wrote is kept, and said so
+  upgrade_property  wording or a setting that is still exactly what an earlier update wrote is replaced by the new one; anything
+                    the owner has changed since is kept, and said so
+  replace_text      a sentence an earlier update added to a stage's text is replaced by the new one, if it is still there
   set_stage         the stage's own settings (how the results are shown, the summary property, the tag)
   append_text       a sentence is added to a stage's instructions, unless it is already there
   order             properties are put in an order
@@ -162,6 +165,23 @@ def plan(spec: dict, update: dict) -> dict:
                         changes.append(f"{sn}: '{op['name']}': {k.replace('_', ' ')} was empty and is filled in.")
                     elif c.get(k) != v:
                         kept.append(f"{sn}: '{op['name']}': your {k.replace('_', ' ')} is kept as it is.")
+            elif kind == "upgrade_property":
+                c = _find(stage, op["name"])
+                if c is None:
+                    continue                                                       # a property the owner removed is not brought back by an upgrade
+                for k, rule in op["fields"].items():
+                    if c.get(k) == rule["now"]:
+                        continue
+                    if c.get(k) in rule["was"]:
+                        c[k] = copy.deepcopy(rule["now"])
+                        changes.append(f"{sn}: '{op['name']}': {k.replace('_', ' ')} is brought up to date.")
+                    else:
+                        kept.append(f"{sn}: '{op['name']}': your {k.replace('_', ' ')} is kept as it is.")
+            elif kind == "replace_text":
+                cur = stage.get(op["field"]) or ""
+                if op["was"] in cur:
+                    stage[op["field"]] = cur.replace(op["was"], op["now"])
+                    changes.append(f"{sn}: a sentence of the {op['field']} is brought up to date.")
             elif kind == "set_stage":
                 for path, v in op["fields"].items():
                     if _set_path(stage, path, v):
