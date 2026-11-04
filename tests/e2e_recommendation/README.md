@@ -40,3 +40,13 @@ Opens Demand Management → Security fit, presses **Draft the questions**, and c
 start and why, that one starting from a property that does not exist was left out and said, that nothing is added until **Add this question**,
 that adding one that starts from a property of the same stage also makes the property build on it, and that Save keeps the lookup without the
 draft's notes. Run it against a fresh server: a second run finds the lookup already there.
+
+## "Draft the questions for every property" of a stage
+
+```
+PORT=8769 python tests/e2e_recommendation/serve.py &       # a fresh server again: the check saves into its temporary copy
+PORT=8769 node tests/e2e_recommendation/drive_stage_draft.js
+```
+
+Opens Demand Management → Stage 1 and drafts the questions of the whole stage: only the properties that had none are drafted, the others are
+named and left alone, nothing is stored by drafting, a question can be unticked, and Save keeps the picked ones without the draft's notes.

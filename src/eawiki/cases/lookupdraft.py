@@ -15,6 +15,7 @@ matches by name, come from the existing helper (cases/relsuggest.py) and are kep
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
 from eawiki.cases import plan as pmod
@@ -157,3 +158,72 @@ def draft(col: dict, spec: dict, si: int, ci: int, docs: list[str], llm_json: Op
                     d["relations"] = rel
                     d["relations_why"] = [f"{g['relation']} ({g['direction']}, {g['edges']} edges): {g['why']}" for g in got["suggestions"] if g.get("edges")]
     return {"status": "ok" if lookups else "none", "lookups": lookups, "notes": notes}
+
+
+# ---- the whole stage --------------------------------------------------------------------------------------------------------
+
+STAGE_WORKERS = 4
+TEXT_FIELDS = ("description", "how_to_resolve", "rules", "collate")
+
+
+def _mentions(col: dict, name: str) -> bool:
+    """True when the property's own wording names `name`, exactly as written, as a whole phrase. A pattern, not a reading: whether it
+    means the property is for the owner to judge, so this only offers it."""
+    text = " ".join(str(col.get(f) or "") for f in TEXT_FIELDS)
+    return bool(re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", text))
+
+
+def draft_stage(spec: dict, si: int, docs: list[str], llm_json: Optional[Callable], edge_types: Optional[list] = None,
+                counts: Optional[dict] = None, llm_text: Optional[Callable] = None) -> dict:
+    """Draft the questions of every property of one stage that has none, and what each should build on.
+    {properties: [{column, name, status, lookups, notes, uses_text: [{name, why}]}], skipped: [{name, reason}]}.
+    Each property is drafted as the editor holds it. Nothing is written: the owner picks. Where two properties would each need to build on the
+    other, the first in the order they are decided keeps its question and the other's is left out and said."""
+    cols = spec["stages"][si]["output"]["columns"]
+    skipped, todo = [], []
+    for ci, c in enumerate(cols):
+        n = str(c.get("name") or "").strip()
+        if not n:
+            continue
+        if c.get("type") == "citations":
+            continue
+        if c.get("derive"):
+            skipped.append({"name": n, "reason": "it is worked out in code, not looked up"})
+        elif c.get("scope") == "request":
+            skipped.append({"name": n, "reason": "it is written once for the whole request from the other answers"})
+        elif c.get("lookups"):
+            skipped.append({"name": n, "reason": "it already has questions: use its own button to add more"})
+        else:
+            todo.append(ci)
+    from eawiki.cases.engine import levels
+    rank = {c["name"]: i for i, lv in enumerate(levels([c for c in cols if c.get("name")])) for c in lv}
+    todo.sort(key=lambda ci: (rank.get(cols[ci]["name"], 0), ci))
+    with ThreadPoolExecutor(max_workers=STAGE_WORKERS) as ex:
+        drafts = list(ex.map(lambda ci: draft(cols[ci], spec, si, ci, docs, llm_json, edge_types, counts, llm_text), todo))
+    working = {c["name"]: list(c.get("uses") or []) for c in cols if c.get("name")}      # what each builds on, with what has been proposed so far
+    out = []
+    for ci, d in zip(todo, drafts):
+        col = cols[ci]
+        name = col["name"]
+        keep = []
+        for lk in d["lookups"]:
+            need = lk.get("needs_uses")
+            if need:
+                if name in _depends([{"name": k, "uses": v} for k, v in working.items()], need):
+                    d["notes"].append(f"“{lk['find'][:70]}” was left out: '{need}' already builds on this property, so this one cannot build on it.")
+                    continue
+                if need not in working[name]:
+                    working[name].append(need)
+            keep.append(lk)
+        mentioned = []
+        for other in cols:
+            on = other.get("name")
+            if not on or on == name or other.get("type") == "citations" or other.get("scope") == "request" or on in working[name] or not _mentions(col, on):
+                continue
+            if name in _depends([{"name": k, "uses": v} for k, v in working.items()], on):
+                continue
+            working[name].append(on)
+            mentioned.append({"name": on, "why": f"the wording of '{name}' names '{on}'"})
+        out.append({"column": ci, "name": name, "status": d["status"] if keep or d["status"] != "ok" else "none", "lookups": keep,
+                    "notes": d["notes"], "uses_text": mentioned})
+    return {"properties": out, "skipped": skipped}

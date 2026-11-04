@@ -216,3 +216,88 @@ def test_a_plan_is_made_again_when_what_it_may_start_from_changes():
     assert len(calls) == 1
     pmod.build_plan(col, [], DOCS, llm, cache, results=["A", "B"])
     assert len(calls) == 2
+
+
+# ---- the whole stage ----------------------------------------------------------------------------------------------------
+
+def _stage_spec():
+    spec = copy.deepcopy(SPEC)
+    cols = spec["stages"][1]["output"]["columns"]
+    for c in cols:
+        c.pop("lookups", None)
+        if c["name"] in ("Overlaps with", "Contract / licence match", "Security fit"):
+            c.pop("uses", None)
+    by = {c["name"]: c for c in cols}
+    by["Security fit"]["lookups"] = [{"find": "my own", "from": "need", "match": "meaning", "in": []}]            # has questions already
+    by["Recommended owner"]["how_to_resolve"] = "Take the role from the answer of Overlaps with, and say so when Security fit is open."    # names two
+    cols.append({"name": "Worked out", "type": "text", "derive": {"kind": "groups", "from": "Consolidate with demand(s)", "lead_by": "date_submitted"}})
+    cols.append({"name": "Whole request", "type": "text", "scope": "request"})
+    return spec
+
+
+def _by_name(raw_by_name):
+    def llm(p):
+        name = p.split("PROPERTY: ", 1)[1].split("  [", 1)[0]
+        return {"lookups": raw_by_name.get(name, [])}
+    return llm
+
+
+def _q(find, frm, match="name", kinds=("Application Catalog",)):
+    return {"find": find, "from": frm, "match": match, "in": list(kinds), "why": "w"}
+
+
+def test_a_stage_is_drafted_for_the_properties_that_have_no_questions_and_the_others_are_named_with_a_reason():
+    spec = _stage_spec()
+    got = ld.draft_stage(spec, 1, DOCS, _by_name({"Overlaps with": [_q("what overlaps", "result:Impacted application")],
+                                                  "Contract / licence match": [_q("which contract covers it", "result:Overlaps with", kinds=("Contract Register",))]}))
+    names = [p["name"] for p in got["properties"]]
+    assert "Security fit" not in names and "Worked out" not in names and "Whole request" not in names and "Evidence" not in names
+    skipped = {s["name"]: s["reason"] for s in got["skipped"]}
+    assert "already has questions" in skipped["Security fit"] and "in code" in skipped["Worked out"] and "once for the whole request" in skipped["Whole request"]
+    assert "Evidence" not in skipped                                                                   # a list of sources is not a property to look anything up for
+    by = {p["name"]: p for p in got["properties"]}
+    assert [d["find"] for d in by["Overlaps with"]["lookups"]] == ["what overlaps"] and by["Overlaps with"]["status"] == "ok"
+    assert by["Contract / licence match"]["lookups"][0]["needs_uses"] == "Overlaps with"
+    assert by["Recommended action"]["status"] == "none" and by["Recommended action"]["lookups"] == []      # a real answer: nothing to look up
+    assert [p["name"] for p in got["properties"]].index("Overlaps with") < [p["name"] for p in got["properties"]].index("Contract / licence match")
+
+
+def test_two_properties_that_would_each_build_on_the_other_cannot_both_keep_the_question():
+    spec = _stage_spec()
+    spec["stages"][1]["output"]["columns"] = [c for c in spec["stages"][1]["output"]["columns"] if c["name"] != "Security fit"]
+    spec["stages"][1]["output"]["columns"].append({"name": "Security fit", "type": "text"})
+    got = ld.draft_stage(spec, 1, DOCS, _by_name({"Overlaps with": [_q("what is secure", "result:Security fit")],
+                                                  "Security fit": [_q("what overlaps, for security", "result:Overlaps with")]}))
+    by = {p["name"]: p for p in got["properties"]}
+    firstname = "Overlaps with"                                                                       # decided first (by the order they are decided, then as listed)
+    assert [d["find"] for d in by[firstname]["lookups"]] == ["what is secure"]
+    assert by["Security fit"]["lookups"] == [] and "already builds on this property" in " ".join(by["Security fit"]["notes"])
+
+
+def test_a_property_whose_wording_names_another_is_offered_to_build_on_it_and_only_as_written():
+    spec = _stage_spec()
+    for c in spec["stages"][1]["output"]["columns"]:
+        if c["name"] == "Security fit":
+            c.pop("lookups")
+    got = ld.draft_stage(spec, 1, DOCS, _by_name({}))
+    owner = next(p for p in got["properties"] if p["name"] == "Recommended owner")
+    assert [u["name"] for u in owner["uses_text"]] == ["Security fit"]                                  # it already builds on Overlaps with
+    assert "names 'Security fit'" in owner["uses_text"][0]["why"]
+    assert ld._mentions({"description": "the overlaps with answer"}, "Overlaps with") is False           # not as written: left to the owner
+    assert ld._mentions({"how_to_resolve": "Use Overlaps with."}, "Overlaps with") is True
+    assert ld._mentions({"how_to_resolve": "Use Overlaps within."}, "Overlaps with") is False            # a whole phrase
+
+
+def test_the_stage_route_drafts_for_the_stage_as_the_editor_holds_it(monkeypatch):
+    def tools():
+        t = base.fake_tools()
+        t.llm_json = _by_name({"Overlaps with": [_q("what overlaps", "result:Impacted application")]})
+        t.doc_ids = lambda: DOCS
+        return t
+    engine = Engine(CaseStore(), tools, workers=1)
+    monkeypatch.setattr(cases_api, "get_engine", lambda: engine)
+    c = TestClient(app)
+    got = c.post("/api/usecases/draft-stage-lookups", json={"use_case": _stage_spec(), "stage": 1}).json()
+    assert [d["find"] for d in next(p for p in got["properties"] if p["name"] == "Overlaps with")["lookups"]] == ["what overlaps"] and got["skipped"]
+    for bad in ({}, {"use_case": _stage_spec(), "stage": 9}, {"use_case": "no", "stage": 0}):
+        assert c.post("/api/usecases/draft-stage-lookups", json=bad).status_code == 400

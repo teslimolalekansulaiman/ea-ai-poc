@@ -63,6 +63,51 @@ function LookupDraft({ state, current, onDraft, onAdd, onAddAll }) {
     </div>)
 }
 
+// "Draft the questions for every property" of one stage: the model proposes, the owner picks, nothing is added until "Add the picked".
+// Questions are picked by default; a "builds on" that is only suggested by the property's wording is not.
+function StageDraft({ state, onDraft, onApply, onClose }) {
+  const [picked, setPicked] = useState(null)             // key -> bool; null until the draft arrives
+  const props = state?.properties || []
+  const key = (ci, what) => `${ci}:${what}`
+  const on = (k, dflt) => picked && k in picked ? picked[k] : dflt
+  const flip = (k, dflt) => setPicked(p => ({ ...p, [k]: !on(k, dflt) }))
+  const chosen = props.reduce((n, p) => n + p.lookups.filter((_, i) => on(key(p.column, 'q' + i), true)).length, 0)
+  return (
+    <div className="stage-draft card" style={{ padding: 12, marginTop: 10, display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="btn draft-stage" disabled={state?.loading} onClick={() => { setPicked(null); onDraft() }}>
+          {state?.loading ? 'Drafting the questions…' : props.length ? 'Draft again' : 'Draft the questions for every property'}</button>
+        <span className="meta">Only for properties that have no questions yet. It reads each property’s wording as it is on screen. Nothing is added until you add it.</span>
+      </div>
+      {state?.error && <div className="meta" style={{ color: 'var(--bad, #b42318)' }}>{state.error}</div>}
+      {props.map(p => (
+        <div key={p.column} className="stage-draft-prop" style={{ borderTop: '1px solid var(--border, #ddd)', paddingTop: 6, display: 'grid', gap: 4 }}>
+          <div style={{ fontWeight: 600 }}>{p.name}</div>
+          {p.status === 'unavailable' && <div className="meta">No draft was made (not “no question needed”).</div>}
+          {p.status === 'none' && !p.lookups.length && <div className="meta">No question needed: decided from the demand or from earlier answers.</div>}
+          {p.lookups.map((d, i) => { const k = key(p.column, 'q' + i); return (
+            <label key={i} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 8, alignItems: 'start', fontSize: 13 }}>
+              <input type="checkbox" checked={on(k, true)} onChange={() => flip(k, true)} />
+              <span><b>{d.find}</b><br /><span className="meta">starts from {d.from.startsWith('result:') ? 'the answer of “' + d.from.slice(7) + '”' : d.from.replace('_', ' ')} · by {d.match}
+                {(d.in || []).length ? ' · in ' + d.in.join(', ') : ''}{d.why ? ' · ' + d.why : ''}
+                {d.needs_uses ? ' · builds on “' + d.needs_uses + '”' : ''}{(d.relations_why || []).length ? ' · graph: ' + d.relations_why.join('; ') : ''}</span></span>
+            </label>) })}
+          {p.uses_text.map(u => { const k = key(p.column, 'u' + u.name); return (
+            <label key={u.name} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 8, alignItems: 'start', fontSize: 13 }}>
+              <input type="checkbox" checked={on(k, false)} onChange={() => flip(k, false)} />
+              <span>Builds on “{u.name}” <span className="meta">· {u.why}. Pick it only if the property reads that answer.</span></span>
+            </label>) })}
+          {p.notes.map((n, i) => <div key={i} className="meta">{n}</div>)}
+        </div>))}
+      {(state?.skipped || []).length > 0 && <div className="meta">Left as they are: {state.skipped.map(s => `${s.name} (${s.reason})`).join('; ')}.</div>}
+      {props.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="btn primary add-picked" onClick={() => onApply(props, on, key)}>Add the picked ({chosen} question{chosen === 1 ? '' : 's'})</button>
+          <button type="button" className="btn" onClick={onClose}>Close</button>
+        </div>)}
+    </div>)
+}
+
 // Per lookup: which kinds of entity a name may be, and which graph relationships to read around the entity it matches.
 // `edges` are the metamodel's relationship types (the graph holds no others); `counts` says how many edges of each the
 // graph really holds, so the owner sees which carry anything; "Suggest" drafts a list for the owner to accept or change.
@@ -219,6 +264,7 @@ export default function UseCases() {
   const [counts, setCounts] = useState(null)    // how many edges of each type the graph holds
   const [page, setPage] = useState(null)        // the page of the builder being shown: { k: basics|input|gate|stage|prop, si, ci }
   const [drafts, setDrafts] = useState({})    // the drafted questions of each property, by stage and position: { si:ci -> { name, loading, status, items, notes, error } }
+  const [stageDrafts, setStageDrafts] = useState({})   // the drafted questions of a whole stage, by stage: { si -> { loading, properties, skipped, error } }
   const [hist, setHist] = useState(null)        // the history panel: { versions, store, diff }
 
   const reload = () => api.usecases().then(d => setList(d.usecases)).catch(e => setError(String(e)))
@@ -298,6 +344,32 @@ export default function UseCases() {
   const sel = page || { k: 'basics' }
   const props = uc.stages.flatMap((s, si) => s.output.columns.map((c, ci) => ({ si, ci, c })))
   const badKinds = (c) => (c.lookups || []).reduce((n, lk) => n + (lk.in || []).filter(k => !resolveDocs(k, docs).length).length, 0)
+  async function draftStage(si) {
+    setStageDrafts(d => ({ ...d, [si]: { loading: true } }))
+    try {
+      const r = await api.draftStageLookups({ use_case: uc, stage: si })
+      setStageDrafts(d => ({ ...d, [si]: { properties: r.properties || [], skipped: r.skipped || [] } }))
+    } catch (e) { setStageDrafts(d => ({ ...d, [si]: { error: String(e).replace('Error: ', '') } })) }
+  }
+  // the picked questions go in, with what each starts from added to "builds on", and the picked "builds on" the wording suggested
+  function applyStage(si, props, on, key) {
+    patch(d => {
+      const cols = d.stages[si].output.columns
+      for (const p of props) {
+        const col = cols[p.column]
+        if (!col || col.name !== p.name) continue
+        p.lookups.forEach((t, i) => {
+          if (!on(key(p.column, 'q' + i), true) || (col.lookups || []).length >= 6) return
+          const lk = { ...t }; delete lk.why; delete lk.relations_why; delete lk.needs_uses
+          col.lookups = [...(col.lookups || []), lk]
+          if (t.needs_uses && !(col.uses || []).includes(t.needs_uses)) col.uses = [...(col.uses || []), t.needs_uses]
+        })
+        for (const u of p.uses_text) if (on(key(p.column, 'u' + u.name), false) && !(col.uses || []).includes(u.name)) col.uses = [...(col.uses || []), u.name]
+      }
+    })
+    setStageDrafts(d => { const n = { ...d }; delete n[si]; return n })
+  }
+
   async function draftLookups(si, ci) {
     const key = `${si}:${ci}`
     setDrafts(d => ({ ...d, [key]: { name: uc.stages[si].output.columns[ci].name, loading: true } }))
@@ -560,6 +632,8 @@ export default function UseCases() {
         <div style={h}>Stage {sel.si + 1}</div>
         <label className="meta">Stage name</label>
         <input style={inp} value={s.name} onChange={e => patch(d => { d.stages[sel.si].name = e.target.value })} />
+        <StageDraft state={stageDrafts[sel.si]} onDraft={() => draftStage(sel.si)} onApply={(props, on, key) => applyStage(sel.si, props, on, key)}
+          onClose={() => setStageDrafts(d => { const n = { ...d }; delete n[sel.si]; return n })} />
         <label className="meta" style={lab}>Instructions (what the agent should do)</label>
         <textarea style={{ ...inp, minHeight: 70 }} value={s.instructions} onChange={e => patch(d => { d.stages[sel.si].instructions = e.target.value })} />
         <label className="meta" style={lab}>How the results are shown</label>
