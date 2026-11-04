@@ -1,0 +1,856 @@
+{
+  "id": "dm-table",
+  "name": "Demand table copy",
+  "description": "Screen, assess and recommend on incoming demands. Validates each demand first; if it fails validation, the assessment does not proceed.",
+  "enabled": true,
+  "version": 12,
+  "trigger": "user_selects",
+  "wiki_pages": true,
+  "input": {
+    "mode": "list",
+    "accepts_file": true,
+    "id_field": "demand_id",
+    "title_field": "title",
+    "batch_text_field": "business_need",
+    "retrieval_fields": [
+      "title",
+      "business_need",
+      "expected_outcome",
+      "systems_mentioned",
+      "urgency_reason"
+    ],
+    "item_fields": [
+      {
+        "name": "demand_id",
+        "type": "text",
+        "label": "Demand ID",
+        "required": true,
+        "description": "The unique number of the demand, written as D-YYYY-NNN (for example D-2026-004). It is given once when the request is registered and never reused. Every other sheet refers to the demand by this ID."
+      },
+      {
+        "name": "date_submitted",
+        "type": "text",
+        "label": "Date submitted",
+        "required": true,
+        "description": "The date the request was registered. It is used to order demands and to compare similar requests."
+      },
+      {
+        "name": "department",
+        "type": "text",
+        "label": "Requesting department",
+        "required": true,
+        "description": "The department that asks for the change and will use the result. Pick it from the list. It is the business domain, not an architecture domain."
+      },
+      {
+        "name": "requester_role",
+        "type": "text",
+        "label": "Requester role",
+        "required": true,
+        "description": "The job role of the person who submitted the request, for example Payroll Manager. Write a role, never a personal name."
+      },
+      {
+        "name": "sponsor",
+        "type": "text",
+        "label": "Business sponsor",
+        "required": true,
+        "description": "The role that owns the benefit and stands behind the request, for example Chief Financial Officer. The sponsor confirms the need, the deadline and the benefit. It can differ from the requester."
+      },
+      {
+        "name": "title",
+        "type": "text",
+        "label": "Demand title",
+        "required": true,
+        "description": "A short name for the demand that says what is wanted, for example \"Complaint tracking system\"."
+      },
+      {
+        "name": "business_need",
+        "type": "textarea",
+        "label": "Business need / problem",
+        "required": true,
+        "description": "What is wrong or missing today, in the requester's own words. Describe the problem and who is affected, not the solution."
+      },
+      {
+        "name": "expected_outcome",
+        "type": "textarea",
+        "label": "Expected outcome / benefit",
+        "required": true,
+        "description": "What will be better after the change, with numbers if known (hours saved, errors avoided, people served)."
+      },
+      {
+        "name": "request_type",
+        "type": "enum",
+        "label": "Request type",
+        "required": true,
+        "description": "The kind of request, picked from the list: New solution, Enhancement of existing, Interface between systems, Data & analytics, Infrastructure & platform, Licence or renewal, Support issue, Other. It helps the first sorting only. The architecture domain is decided later.",
+        "values": [
+          "New solution",
+          "Enhancement of existing",
+          "Interface between systems",
+          "Data & analytics",
+          "Infrastructure & platform",
+          "Licence or renewal",
+          "Support issue",
+          "Other"
+        ]
+      },
+      {
+        "name": "requester_urgency",
+        "type": "enum",
+        "label": "Requester urgency",
+        "required": true,
+        "description": "The requester's own view of how urgent it is. Critical: a service is stopped, or a legal or mandated deadline is within 3 months. High: a deadline or significant risk within 6 months. Medium: a clear benefit with a deadline within 12 months. Low: nice to have, no deadline. The agent sets its own urgency in screening, so this field may be changed.",
+        "values": [
+          "Critical",
+          "High",
+          "Medium",
+          "Low"
+        ]
+      },
+      {
+        "name": "urgency_reason",
+        "type": "textarea",
+        "label": "Reason for urgency / deadline",
+        "required": false,
+        "description": "What drives the date and what happens if it is late, for example a mandate, an audit finding or a service failure. It is optional, but without it the agent cannot confirm a Critical or High urgency."
+      },
+      {
+        "name": "target_go_live",
+        "type": "text",
+        "label": "Target go-live",
+        "required": true,
+        "description": "The date the requester wants the solution in use. It is compared with the delivery calendar and with other projects."
+      },
+      {
+        "name": "systems_mentioned",
+        "type": "text",
+        "label": "Systems or data mentioned",
+        "required": false,
+        "description": "The systems, tools or data the request involves, named as the requester knows them, for example \"HR app, payroll, attendance devices\". The agent matches these names to the Application Catalog and the Data Catalog."
+      }
+    ],
+    "item_label": {
+      "singular": "demand",
+      "plural": "demands"
+    }
+  },
+  "validation": {
+    "enabled": true,
+    "on_fail": "stop",
+    "fail_message": "Not a valid demand — returned to requester for clarification.",
+    "questions": [
+      "Is this a true demand (a need or change), not an incident or a question?",
+      "Is there a clear business need or outcome?",
+      "Is there enough detail to assess it (what / who / why)?"
+    ],
+    "result_column": "Is it a true demand?"
+  },
+  "stages": [
+    {
+      "id": "screening",
+      "name": "Screening & Impact Assessment",
+      "instructions": "Screen each demand and assess its impact, filling the columns below. First decide whether it is a true demand. If it is not (not yet complete, an incident, or a standard service), answer only what can still be answered and write Not assessed in the other columns. Use Not applicable where a step does not apply to this kind of demand, None where you checked and found nothing, and No link found or Not identified where a link or capability could not be found. Answer only what the knowledge base supports; for anything it does not, say what is needed rather than guessing.",
+      "output": {
+        "mode": "table",
+        "columns": [
+          {
+            "name": "Is it a true demand?",
+            "type": "text",
+            "description": "Yes, or Not yet: return for information when the request is incomplete, or the type of not-a-demand (for example No: incident, No: standard service).",
+            "evidence_required": false,
+            "activity": "Checking each demand is a true demand"
+          },
+          {
+            "name": "Demand type",
+            "type": "enum",
+            "description": "Digital, Technical or People. Not assessed when the demand is not a true demand.",
+            "values": [
+              "Digital",
+              "Technical",
+              "People",
+              "Not assessed"
+            ],
+            "evidence_required": false,
+            "activity": "Deciding the demand type"
+          },
+          {
+            "name": "Domain",
+            "type": "list",
+            "description": "Architecture domains, main one first: Business, Data, Application, Integration, Technology, Security. A technical demand is Application, Data, Technology or Security. A people demand has no domain: write Not applicable.",
+            "evidence_required": false,
+            "activity": "Classifying domains",
+            "collate": "4. Add Security when the data is Confidential or Restricted (check the Data Classification Standard; the Data classification is decided before this property, use it), or the demand touches sign-in, encryption or security controls.\n5. Record the business domain (the department that asks) separately, not in this field.",
+            "uses": [
+              "Data classification"
+            ],
+            "rules": "Valid domains and what each covers (exactly five):\n• Business: processes, services, policies, organization, capabilities and people\n• Data: any area that comes under the data domain in TOGAF and similar frameworks, for example data sources, analytics, reports, data quality, data sharing and data classification\n• Application: any area that comes under the application, system and platform domain in TOGAF and similar frameworks, for example applications for business users, and the interfaces and integration between applications, modules and system features\n• Technology: any area that comes under the infrastructure and technology domain in TOGAF and similar frameworks, for example infrastructure, cloud, hosting, network, data center and similar\n• Security: a new or changed security control or security capability. Controls can be sign-in and access, encryption, monitoring or protection of Confidential or personal data (for example, multi-factor sign-in for the staff portal)\nMain domain first. Integration is not a domain: interfaces and integration belong to Application. Business domains (Human Resources, Finance, Customer Services and others) are not values of this field.",
+            "values": [
+              "Business",
+              "Data",
+              "Application",
+              "Technology",
+              "Security"
+            ],
+            "how_to_resolve": "1. Read the business need, the expected outcome, and the systems and data mentioned in the demand.\n2. Check each named system, data set and platform against the Application Catalog, Data Catalog, Technology Catalog and Security Control Catalog to see which domain it belongs to.\n3. Choose the main domain and write it first, based on the majority of the content. Add other domains only when the demand clearly needs them.",
+            "lookups": [
+              {
+                "find": "what each system or platform the demand names is, and which domain it belongs to",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Technology Catalog"
+                ],
+                "extract": "its type and domain",
+                "types": [
+                  "application",
+                  "technology"
+                ]
+              },
+              {
+                "find": "what each data set the demand names is",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog"
+                ],
+                "extract": "its type",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "whether the demand touches sign-in, encryption, monitoring or protection of confidential data",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "extract": ""
+              }
+            ],
+            "min_sources": 1
+          },
+          {
+            "name": "Urgency",
+            "type": "enum",
+            "description": "Critical, High, Medium or Low. Set from the deadline and what happens if it is missed. Not assessed when the demand is not a true demand.",
+            "values": [
+              "Critical",
+              "High",
+              "Medium",
+              "Low",
+              "Not assessed"
+            ],
+            "evidence_required": false,
+            "how_to_resolve": "Read the deadline and what happens if it is missed from the demand text. If the demand states neither, answer needs_input and say so.",
+            "uses": [
+              "Mandate / business or DT objective"
+            ],
+            "activity": "Setting urgency"
+          },
+          {
+            "name": "Priority",
+            "type": "enum",
+            "description": "Fast-track, Standard or Backlog, from the weighted score of the prioritization model. No score when the demand is not assessed.",
+            "values": [
+              "Fast-track",
+              "Standard",
+              "Backlog",
+              "No score"
+            ],
+            "evidence_required": false,
+            "how_to_resolve": "Apply the EA prioritization rule to the demand. The rule has not been supplied yet: if it is not available to you, answer needs_input and say the prioritization rule is required.",
+            "uses": [
+              "Urgency",
+              "Mandate / business or DT objective"
+            ],
+            "activity": "Working out priority"
+          },
+          {
+            "name": "Mandate / business or DT objective",
+            "type": "text",
+            "description": "Objective and initiative IDs from the strategy, and any mandate. Write No link found if none.",
+            "info_needed": "The objective, initiative ID or mandate this demand supports, or confirmation that there is none.",
+            "activity": "Linking to objectives and mandates"
+          },
+          {
+            "name": "Linked initiative or project",
+            "type": "text",
+            "description": "Initiative or project IDs from the roadmap and the initiative list. Write No link found if none.",
+            "info_needed": "The initiative or project ID from the roadmap this demand belongs to, or confirmation that there is none.",
+            "activity": "Linking to initiatives and projects"
+          },
+          {
+            "name": "Impacted business capability",
+            "type": "list",
+            "description": "Capability names from the business architecture. Write Not identified if none.",
+            "info_needed": "The business capability this demand affects.",
+            "activity": "Mapping business capabilities"
+          },
+          {
+            "name": "Impacted application",
+            "type": "list",
+            "description": "Names with IDs from the application inventory or the contract register.",
+            "info_needed": "The application (with its ID) this demand affects.",
+            "activity": "Mapping applications",
+            "collate": "Link by a name match (through the catalogue). Never link by department alone. A solution that does not exist yet is not listed here.\n\n1. Read the systems and data named in the demand and in the answers to the intake questions.\n2. Match each name to the Application Catalog, using the glossary and aliases (for example, 'the HR app' is the Peoplex HR system, C-204).\n3. Add applications that exchange data with the matched ones when the demand needs that data. Use the graph relationships read for each name, and the Application Interaction Diagram, Data Flow Diagram and Data to Application Matrix where they were retrieved.\n4. List the main application first, with its catalog ID or contract ID.\n5. In your note, describe how the application links to the other artefacts and components (Data Catalog, Application to Technology Matrix, Application to Security Control Matrix), so that the Screening observation can use it.",
+            "lookups": [
+              {
+                "find": "which application each name is",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Glossary and Aliases"
+                ],
+                "extract": "the application, its ID and owner role",
+                "types": [
+                  "application"
+                ],
+                "relations": [
+                  {
+                    "relation": "sends_data_to",
+                    "direction": "both"
+                  },
+                  {
+                    "relation": "communicates_with",
+                    "direction": "both"
+                  },
+                  {
+                    "relation": "accesses",
+                    "direction": "out"
+                  }
+                ]
+              },
+              {
+                "find": "which applications run on, or depend on, each platform the demand names",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Technology Catalog"
+                ],
+                "extract": "the applications connected to it",
+                "types": [
+                  "technology"
+                ],
+                "relations": [
+                  {
+                    "relation": "is_deployed_on",
+                    "direction": "in"
+                  }
+                ]
+              }
+            ],
+            "min_sources": 1
+          },
+          {
+            "name": "Is duplicate",
+            "type": "enum",
+            "description": "Whether another demand in the sheet or an existing artefact already covers the same need.",
+            "values": [
+              "Yes",
+              "No",
+              "Possible",
+              "Not assessed"
+            ],
+            "evidence_required": false,
+            "how_to_resolve": "Compare this demand with the other demands in the same request sheet, and with nothing else. Yes when another demand in the sheet asks for the same outcome, for the same users, on the same systems, even if it is worded differently; No when the comparison found none; Not assessed when a demand could not be compared. A match needs the same need and the same systems, not the same words.",
+            "activity": "Checking for duplicates",
+            "collate": "Two demands are the same when they ask for the same outcome, for the same users, on the same systems, even if they are worded differently.\n• Related demands with a different outcome are not duplicates. Mention them in your note; the Screening observation writes them up.",
+            "lookups": [
+              {
+                "find": "whether another demand in the sheet asks for the same outcome, for the same users, on the same systems, even if it is worded differently",
+                "from": "other_demands",
+                "match": "compare",
+                "in": []
+              }
+            ]
+          },
+          {
+            "name": "Duplicate demand number (in the sheet)",
+            "type": "text",
+            "description": "Demand ID from the Input sheet, or blank.",
+            "evidence_required": false,
+            "activity": "Finding the duplicate demand",
+            "collate": "Two demands are the same when they ask for the same outcome, for the same users, on the same systems, even if they are worded differently.\n• Related demands with a different outcome are not duplicates. Mention them in your note; the Screening observation writes them up.\n• Use the ID format only. Do not write titles or names here.",
+            "lookups": [
+              {
+                "find": "whether another demand in the sheet asks for the same outcome, for the same users, on the same systems, even if it is worded differently",
+                "from": "other_demands",
+                "match": "compare",
+                "in": []
+              }
+            ],
+            "uses": [
+              "Is duplicate"
+            ],
+            "blank_ok": true
+          },
+          {
+            "name": "Duplicate with existing artefact / artefact name",
+            "type": "text",
+            "description": "ID and name of the existing application, service, initiative or contract, or None.",
+            "info_needed": "Whether an existing application, service, initiative or contract already covers this need.",
+            "activity": "Comparing with existing artefacts",
+            "lookups": [
+              {
+                "find": "whether each system the demand names already has a contract feature or a project",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Contract Register",
+                  "Initiative Portfolio"
+                ],
+                "extract": "the artefact, its ID, what it covers"
+              },
+              {
+                "find": "whether each system or platform the demand names already has an entry of its own",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Technology Catalog"
+                ],
+                "extract": "the artefact, its ID, what it covers",
+                "types": [
+                  "application",
+                  "technology"
+                ]
+              },
+              {
+                "find": "whether each data set the demand names already exists as a data set or report",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog",
+                  "Initiative Portfolio"
+                ],
+                "extract": "the data set, its ID, what it covers",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "whether a project or contract already covers each process the demand changes",
+                "from": "processes",
+                "match": "meaning",
+                "in": [
+                  "Initiative Portfolio",
+                  "Contract Register"
+                ],
+                "extract": ""
+              },
+              {
+                "find": "whether a project, contract, catalog entry or control already covers the need",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Initiative Portfolio",
+                  "Contract Register",
+                  "Data Catalog",
+                  "Technology Catalog",
+                  "Security Control Catalog"
+                ],
+                "extract": ""
+              }
+            ],
+            "min_sources": 1
+          },
+          {
+            "name": "Architecture principles and standards alignment",
+            "type": "enum",
+            "description": "Checked against the architecture principles and standards, including the security standards.",
+            "values": [
+              "Conforms",
+              "Conflict found",
+              "Not checked"
+            ],
+            "info_needed": "The principles or standards to check this demand against.",
+            "activity": "Checking principles and standards"
+          },
+          {
+            "name": "Data classification",
+            "type": "enum",
+            "description": "Level of the data involved, checked against the organization's data classification standard and the national data classification standard.",
+            "values": [
+              "Public",
+              "Internal",
+              "Confidential",
+              "Restricted",
+              "Not stated",
+              "Not assessed"
+            ],
+            "info_needed": "The classification level of the data involved.",
+            "activity": "Classifying the data",
+            "collate": "The level of the data involved, checked against the organization's data classification standard and the national data classification standard. If either standard was not among the retrieved documents, say which in your note.",
+            "lookups": [
+              {
+                "find": "what each data set the demand names is and how it is classified",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog",
+                  "Data Classification Standard"
+                ],
+                "extract": "its classification",
+                "types": [
+                  "data"
+                ]
+              },
+              {
+                "find": "the definitions of the data classification levels (Public, Internal, Confidential, Restricted) and the rule when several levels are involved",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Standards"
+                ],
+                "extract": ""
+              }
+            ],
+            "min_sources": 1
+          },
+          {
+            "name": "Linked security capability",
+            "type": "list",
+            "description": "Digital or technical demand: the security capabilities it touches, at a general level (based on the NORA framework). People demand: Not applicable. The detailed assessment is with the security and infrastructure teams.",
+            "info_needed": "The security capabilities this demand touches.",
+            "activity": "Linking security capabilities",
+            "collate": "Use the Demand type decided earlier.\n• Digital or Technical demand: the security capabilities it touches, at a general level (based on the NORA framework).\n• People demand: the answer is Not applicable.\n• Demand type Not assessed: do not decide; ask which type the demand is.\nThe detailed assessment is with the security and infrastructure teams.",
+            "uses": [
+              "Demand type",
+              "Impacted application",
+              "Data classification"
+            ],
+            "lookups": [
+              {
+                "find": "the security controls linked to each impacted application",
+                "from": "result:Impacted application",
+                "match": "name",
+                "in": [
+                  "Application to Security Control Matrix"
+                ],
+                "extract": "the controls named"
+              },
+              {
+                "find": "what the demand touches that needs a security capability",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "extract": ""
+              },
+              {
+                "find": "what the standard requires for data classified as",
+                "from": "result:Data classification",
+                "match": "meaning",
+                "in": [
+                  "Standards"
+                ],
+                "extract": ""
+              }
+            ],
+            "min_sources": 1
+          },
+          {
+            "name": "Owners",
+            "type": "list",
+            "description": "The roles accountable for the capabilities, applications, data, platforms and security controls that the demand impacts. They confirm the impact and receive the demand for review. Roles only, never personal names.",
+            "how_to_resolve": "1. For each impacted application, take the owner role from the Application Catalog or the contract owner role in the contract register.\n2. For each impacted capability or service, take the owner role from the Business Capability Map or the Business Service Catalog. If there is none, use the owner of its business domain in the routing matrix.\n3. For impacted data, platforms and security controls, take the owner role from the Data Catalog, the Technology Catalog and the Security Control Catalog.",
+            "where_to_look": "• Application Catalog: the owner role of each application\n• Business Capability Map and Business Service Catalog: the owner role of each capability and service\n• Data Catalog: the data owner and steward\n• Technology Catalog: the platform owner\n• Security Control Catalog: the control owner\n• Organization Structure: units and roles, when an owner role is missing\n• Initiative portfolio: 'Project manager role (optional)'",
+            "rules": "Which owner takes precedence (proposed):\n• The application owner decides on the application.\n• The capability owner decides on the process and the service.\n• The data owner decides on the data, and the platform owner decides on the platform.\n• The architecture domain owners review the design. They do not replace the business owner.\nList only owners the retrieved evidence names. Capability and service owners are listed only if a retrieved passage names them. The demand coordinator confirms the owners afterwards.",
+            "examples": "Correct: 'HR Systems Lead (C-204); Lead Application Architect; Lead Security Architect' for the employee mobile app (the data is Confidential).\nWrong: a personal name, or 'HR Department' (a team, not a role).",
+            "info_needed": "None from the requester.",
+            "info_needed_source": "[PROPOSED by Claude] An owner role is missing from the catalog. Write 'owner not in data' and ask the Head of EA Office. The original had no needs-source line.",
+            "uses": [
+              "Impacted application",
+              "Linked security capability"
+            ],
+            "min_sources": 1,
+            "activity": "Finding the owners",
+            "lookups": [
+              {
+                "find": "who owns each impacted application",
+                "from": "result:Impacted application",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Contract Register"
+                ],
+                "types": [
+                  "application"
+                ],
+                "extract": "the owner role"
+              },
+              {
+                "find": "who owns each platform the demand names",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Technology Catalog"
+                ],
+                "types": [
+                  "technology"
+                ],
+                "extract": "the owner role"
+              },
+              {
+                "find": "who owns each data set the demand names",
+                "from": "data",
+                "match": "name",
+                "in": [
+                  "Data Catalog"
+                ],
+                "types": [
+                  "data"
+                ],
+                "extract": "the owner role"
+              },
+              {
+                "find": "who owns each linked security capability",
+                "from": "result:Linked security capability",
+                "match": "name",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "types": [
+                  "security"
+                ],
+                "extract": "the owner role"
+              }
+            ]
+          },
+          {
+            "name": "Security review needed",
+            "type": "enum",
+            "description": "Yes for every digital or technical demand: review by the cyber team.",
+            "values": [
+              "Yes",
+              "No",
+              "Not assessed"
+            ],
+            "evidence_required": false,
+            "how_to_resolve": "Yes for every digital or technical demand. Not assessed when the demand is not a true demand.",
+            "activity": "Deciding if a security review is needed"
+          },
+          {
+            "name": "Screening observation",
+            "type": "text",
+            "description": "Free text with all the insights for the architect: what was found, what is unclear, what to confirm. Say if it is a digital, technical or people demand; a digital or technical demand needs a security review by the cyber team.",
+            "evidence_required": false,
+            "activity": "Writing the observations"
+          },
+          {
+            "name": "Evidence",
+            "type": "citations",
+            "description": "The source blocks that support the answers above. Added by the system; not part of the EA team's sheet.",
+            "evidence_required": false
+          }
+        ]
+      },
+      "summary_columns": [
+        "Screening observation"
+      ],
+      "result": {
+        "row_tag": "Priority",
+        "tag_order": [
+          "Fast-track",
+          "Standard",
+          "Backlog"
+        ],
+        "kpis": [
+          {
+            "label": "Fast-track",
+            "column": "Priority",
+            "equals": "Fast-track"
+          },
+          {
+            "label": "Security review",
+            "column": "Security review needed",
+            "equals": "Yes"
+          },
+          {
+            "label": "Duplicates",
+            "column": "Is duplicate",
+            "in": [
+              "Yes",
+              "Possible"
+            ]
+          }
+        ],
+        "decisions": [
+          {
+            "when": {
+              "column": "Is duplicate",
+              "in": [
+                "Yes"
+              ],
+              "filled": "Duplicate demand number (in the sheet)"
+            },
+            "text": "Duplicate of {Duplicate demand number (in the sheet)}: group the demands and assess them once."
+          },
+          {
+            "when": {
+              "column": "Architecture principles and standards alignment",
+              "equals": "Conflict found"
+            },
+            "text": "Resolve the conflict with the architecture principles or standards."
+          }
+        ],
+        "questions": [
+          {
+            "text": "Which demands were returned, and why?",
+            "if": "returned"
+          },
+          {
+            "text": "What overlaps with what?",
+            "if": "decisions"
+          },
+          {
+            "text": "Why is {top_item} {top_tag}?",
+            "if": "top"
+          },
+          {
+            "text": "What do you need from the requesters?",
+            "if": "always"
+          }
+        ]
+      },
+      "consistency": {
+        "duplicates": {
+          "flag": "Is duplicate",
+          "ref": "Duplicate demand number (in the sheet)",
+          "yes": [
+            "Yes",
+            "Possible"
+          ],
+          "no": "No"
+        }
+      }
+    },
+    {
+      "id": "recommendation",
+      "name": "Recommendation",
+      "instructions": "Check overlap with existing solutions (components, platforms, applications, APIs, prior/running initiatives) and with other demands (consolidate). Check the contract register for licences/renewals that could cover it. Confirm security fit before recommending reuse. Recommend the way forward and the demand owner, and justify by what it overlaps with. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it doesn't, say what is needed.",
+      "output": {
+        "columns": [
+          {
+            "name": "Recommendation",
+            "type": "enum",
+            "values": [
+              "Reuse",
+              "Enhancement",
+              "Merge/CR",
+              "Link new artefacts",
+              "Onboard new requirement"
+            ],
+            "description": "The way forward for this demand, as one of the five words below. Choose the one that fits what the other answers of this phase show.\n\nReuse: something we already own meets the need as it is; the demand uses it and nothing changes.\nEnhancement: something we already own would meet the need with a change to it (a new feature or an extension).\nMerge/CR: the demand covers the same need as another demand in this request, or as work already running; it is combined with that one, or handled as a change request on it, instead of being raised on its own.\nLink new artefacts: the need is not met as it is, but what it adds relates to artefacts that exist (applications, data, capabilities, contracts); register what is new and link it to them.\nOnboard new requirement: nothing we own or have in flight covers it and there is nothing to combine it with; take it in as a new requirement.",
+            "how_to_resolve": "Decide from what is already decided for this demand: what it overlaps with, any demand to consolidate with, the contract and licence match and the security fit. Another demand with the same need: Merge/CR. An existing solution that covers the need as it is: Reuse. One that covers it with a change: Enhancement. Overlap with artefacts that exist, with new ones to register: Link new artefacts. No overlap and nothing to combine with: Onboard new requirement. If the overlap is not settled, do not choose by guessing: answer needs_input and say what is needed. Never choose Reuse while the security fit is open.",
+            "uses": [
+              "Overlaps with",
+              "Consolidate with demand(s)",
+              "Contract / licence match",
+              "Security fit"
+            ]
+          },
+          {
+            "name": "Recommended action",
+            "type": "text",
+            "description": "What the architecture team recommends doing with this demand, in one or two plain sentences addressed to the requester.",
+            "how_to_resolve": "State the way forward in words, using what is already decided for this demand: the Recommendation, what it overlaps with, any demand to consolidate with, the contract and the security fit. If another demand covers the same need, say not to raise a new demand and name that one. If an existing solution covers it, name it and say what to extend. Do not recommend new business capabilities. Say only what the sources support; if they do not settle it, say what is needed.",
+            "uses": [
+              "Recommendation",
+              "Overlaps with",
+              "Consolidate with demand(s)",
+              "Contract / licence match",
+              "Security fit"
+            ]
+          },
+          {
+            "name": "Overlaps with",
+            "type": "list",
+            "description": "Existing solutions this demand overlaps with: applications, platforms, components, APIs and prior or running initiatives, main one first, each with its catalogue or contract ID. None when you checked and found no overlap.",
+            "how_to_resolve": "Start from what the screening decided for this demand: the impacted applications and any duplicate with an existing artefact. Add an existing solution only when it serves the same need for the same users, not when it shares a word with the demand. Name each as the catalogue names it, with its ID. A solution that does not exist yet is not listed. If nothing was found, write None; if the catalogue could not be checked, say what is needed."
+          },
+          {
+            "name": "Consolidate with demand(s)",
+            "type": "list",
+            "description": "Other demands in this request that should be handled together with this one because they ask for the same need, for the same users, on the same systems. Their demand IDs, or None.",
+            "how_to_resolve": "Take the IDs from the screening's duplicate answers for this demand (Is duplicate, Duplicate demand number). Write only demand IDs that appear in this request, never one invented or taken from outside it. None when the screening found no duplicate. If the screening left the duplicate question open, say that rather than writing None."
+          },
+          {
+            "name": "Contract / licence match",
+            "type": "text",
+            "description": "Whether a contract or licence in the contract register already covers this need, with its contract ID and the renewal or end date where the register gives one. None found when the register was checked and nothing matches.",
+            "how_to_resolve": "Look in the contract register for the overlapping solutions and the systems the demand names. Give the contract ID and the dates only as the register states them. Do not infer a licence scope from the product's name. None found when it was checked and nothing matches; if the register could not be checked, say what is needed."
+          },
+          {
+            "name": "Security fit",
+            "type": "text",
+            "description": "Whether the existing solution, or the approach the demand takes, fits the security controls that apply, in one or two plain sentences, and what is still to be confirmed. This is a general fit; the detailed assessment is with the security and infrastructure teams.",
+            "how_to_resolve": "Build on the screening's data classification and linked security capabilities for this demand. Say what fits and what is not yet confirmed. Do not declare a solution secure on its own: where the sources do not settle it, answer needs_source and say which control or standard has to be checked."
+          },
+          {
+            "name": "Recommended owner",
+            "type": "text",
+            "description": "The role that should own this demand from here: the owner role of the main solution or capability it overlaps with. A role only, never a personal name.",
+            "how_to_resolve": "Take the owner role from the screening's Owners answer and from the catalogue entry of the main overlapping solution. Write a role, never a name. If no solution overlaps, take the owner role of the capability the demand impacts. If no role is recorded, say what is needed.",
+            "uses": [
+              "Overlaps with"
+            ]
+          },
+          {
+            "name": "Justification",
+            "type": "text",
+            "description": "Why this is recommended, in plain sentences for the architect: what it overlaps with, what the contract and the security fit show, and what is still to be confirmed.",
+            "how_to_resolve": "Explain the recommendation from the answers above and the sources behind them, and nothing else: do not add a reason that none of them gives. Say what is still open, so the architect knows what to confirm before approving.",
+            "uses": [
+              "Recommendation",
+              "Overlaps with",
+              "Consolidate with demand(s)",
+              "Contract / licence match",
+              "Security fit"
+            ]
+          },
+          {
+            "name": "Confidence",
+            "type": "enum",
+            "values": [
+              "High",
+              "Medium",
+              "Low"
+            ],
+            "graded": true
+          },
+          {
+            "name": "Evidence",
+            "type": "citations"
+          }
+        ],
+        "mode": "document",
+        "document": {
+          "statement": "Recommended action",
+          "facts": [
+            "Recommended owner",
+            "Consolidate with demand(s)"
+          ]
+        }
+      },
+      "summary_columns": [
+        "Justification"
+      ],
+      "result": {
+        "row_tag": "Recommendation",
+        "kpis": [],
+        "decisions": [],
+        "questions": [
+          {
+            "text": "Which demands can reuse something we already own?",
+            "if": "always"
+          }
+        ]
+      }
+    }
+  ],
+  "updated_at": "2026-11-04T03:12:13+00:00"
+}
