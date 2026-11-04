@@ -1038,7 +1038,8 @@
             "Recommended owner",
             "Risks and conditions",
             "Handled with"
-          ]
+          ],
+          "apart": false
         }
       },
       "summary_columns": [

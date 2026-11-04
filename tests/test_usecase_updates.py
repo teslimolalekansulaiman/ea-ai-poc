@@ -21,6 +21,7 @@ UC = "demand-management"
 UPDATE = "recommendation-request-draft"
 FOLLOW = "recommendation-steps-in-sections"
 STARTER = "recommendation-starter-lookups"
+MESSAGE = "recommendation-without-architect-part"
 S = "Recommendation"
 
 
@@ -34,6 +35,11 @@ def store(tmp_path, monkeypatch):
         shutil.copy(f, tmp_path / "updates" / UC / f.name)
     usecases.save(copy.deepcopy(OLD), UC)
     return tmp_path
+
+
+def _doc(stage):
+    """The document settings without the one the message-only update sets: the earlier updates do not."""
+    return {k: v for k, v in stage["output"]["document"].items() if k != "apart"}
 
 
 def _one(uid):
@@ -57,7 +63,7 @@ def test_the_shipped_update_brings_an_older_copy_to_the_shipped_design(store):
     assert usecases.validate(now) == []
     assert _names(now) == _names(SEED)                                                   # the same properties, in the same order
     a, b = now["stages"][1], SEED["stages"][1]
-    assert a["summary_columns"] == b["summary_columns"] and a["result"]["row_tag"] == b["result"]["row_tag"] and a["output"]["document"] == b["output"]["document"]
+    assert a["summary_columns"] == b["summary_columns"] and a["result"]["row_tag"] == b["result"]["row_tag"] and _doc(a) == _doc(b)
     assert a["output"]["mode"] == "document" and "The last two properties" in a["instructions"]
     cons = next(c for c in a["output"]["columns"] if c["name"] == "Consolidate with demand(s)")
     assert cons["sees_others"] == next(c for c in b["output"]["columns"] if c["name"] == "Consolidate with demand(s)")["sees_others"]
@@ -65,7 +71,7 @@ def test_the_shipped_update_brings_an_older_copy_to_the_shipped_design(store):
     assert new["Recommendation"]["type"] == "text" and "senior enterprise architect" in new["Recommendation"]["how_to_resolve"]
     assert new["Request overview"]["scope"] == "request" and new["Handled with"]["derive"]["kind"] == "groups"
     assert new["Recommendation"]["sees_others"] == ["Recommendation type", "Recommended owner", "Handled with"]
-    assert [(x["id"], x["applied"]) for x in up.available(UC)] == [(UPDATE, True), (STARTER, False), (FOLLOW, False)]       # offered once; the follow-up has nothing to do here
+    assert [(x["id"], x["applied"]) for x in up.available(UC)] == [(UPDATE, True), (STARTER, False), (FOLLOW, False), (MESSAGE, False)]       # offered once; the follow-up has nothing to do here
     assert _one(FOLLOW)["changes"] == [] and _one(FOLLOW)["errors"] == []
     with pytest.raises(up.UpdateError):
         up.apply(UC, UPDATE)
@@ -150,7 +156,7 @@ def test_a_step_that_does_not_make_sense_is_reported_not_guessed():
 def test_the_routes_list_apply_and_refuse(store):
     c = TestClient(app)
     got = c.get(f"/api/usecases/{UC}/updates").json()["updates"]
-    assert [u["id"] for u in got] == [UPDATE, STARTER, FOLLOW] and got[0]["changes"] and not got[0]["applied"]
+    assert [u["id"] for u in got] == [UPDATE, STARTER, FOLLOW, MESSAGE] and got[0]["changes"] and not got[0]["applied"]
     assert c.get("/api/usecases/nope/updates").status_code == 404
     assert c.post(f"/api/usecases/{UC}/updates/nope").status_code == 404
     ok = c.post(f"/api/usecases/{UC}/updates/{UPDATE}")
@@ -197,7 +203,7 @@ def test_a_copy_that_already_has_the_earlier_update_is_brought_forward_and_nothi
     cols = {c["name"]: c for c in a["output"]["columns"]}
     assert cols["Recommendation"]["how_to_resolve"] == next(c for c in b["output"]["columns"] if c["name"] == "Recommendation")["how_to_resolve"]
     assert "Next steps" not in cols["Recommendation"]["uses"] and "Next steps" not in cols["Request overview"]["sees_others"] and "Next steps" not in a["output"]["document"]["internal"]
-    assert a["output"]["document"] == b["output"]["document"] and a["instructions"].count("which ends with its next steps") == 1 and "next steps. The last" not in a["instructions"]
+    assert _doc(a) == _doc(b) and a["instructions"].count("which ends with its next steps") == 1 and "next steps. The last" not in a["instructions"]
     assert now[up.APPLIED_KEY] == [UPDATE, FOLLOW]
 
 
@@ -309,3 +315,17 @@ def test_the_starter_questions_are_applied_once_from_the_screen(store):
     stored = usecases.get(UC)
     assert _cols(stored)["Recommended owner"]["lookups"] and STARTER in stored["updates_applied"]
     assert c.post(f"/api/usecases/{UC}/updates/{STARTER}").status_code in (400, 409)            # once
+
+
+def test_the_message_only_update_leaves_out_the_architects_part_and_the_owner_can_turn_it_back_on():
+    spec = copy.deepcopy(SEED)
+    spec["stages"][1]["output"]["document"].pop("apart")
+    p = up.plan(spec, json.loads((base.ROOT / "use_cases" / "updates" / UC / f"{MESSAGE}.json").read_text(encoding="utf-8")))
+    assert p["errors"] == [] and p["spec"]["stages"][1]["output"]["document"]["apart"] is False and p["changes"]
+    assert up.plan(copy.deepcopy(SEED), json.loads((base.ROOT / "use_cases" / "updates" / UC / f"{MESSAGE}.json").read_text(encoding="utf-8")))["changes"] == []     # the shipped one has it
+    on = copy.deepcopy(SEED)
+    on["stages"][1]["output"]["document"].pop("apart")
+    assert usecases.validate(on) == []
+    bad = copy.deepcopy(SEED)
+    bad["stages"][1]["output"]["document"]["apart"] = "no"
+    assert any("true or false" in e for e in usecases.validate(bad))

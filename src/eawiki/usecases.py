@@ -130,6 +130,8 @@ def _document_errors(where: str, output: dict, cols: list) -> list[str]:
     facts = cfg.get("facts")
     if facts is not None and (not isinstance(facts, list) or any(f not in names for f in facts)):
         errs.append(f"{where}: the document's key lines must be properties of this stage.")
+    if cfg.get("apart") is not None and not isinstance(cfg["apart"], bool):
+        errs.append(f"{where}: whether a part is kept for the architect (not sent) must be true or false.")
     internal = cfg.get("internal")
     if internal is not None and (not isinstance(internal, list) or any(f not in names or f == st for f in internal)):
         errs.append(f"{where}: the properties kept for the architect (not sent) must be properties of this stage, other than the headline text.")

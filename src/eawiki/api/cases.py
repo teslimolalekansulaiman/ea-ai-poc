@@ -286,26 +286,21 @@ class CaseAsk(BaseModel):
     focus: Optional[str] = None         # the demand the architect has open, if any
 
 
-def case_context(case: dict, cells: list[dict], limit: int = 14000) -> str:
-    """The case's results as plain text: one block per item, every property decided so far."""
+def case_context(cid: str, case: dict, focus: Optional[str] = None) -> str:
+    """Everything the case knows, as the text a follow-up question is asked in: the request, every stage, what was written once for the
+    whole request, the drafts as they stand, and what is still open (see cases/casecontext.py)."""
+    from eawiki.cases import casecontext, document
+    st = store()
     spec = case["spec"]
-    by: dict = {}
-    for c in cells:
-        by.setdefault((c["phase_id"], c["item_id"]), {})[c["column"]] = c
-    lines = []
+    request = {phase_id(stage): st.request_cells(cid, phase_id(stage)) for stage in spec["stages"]}
+    drafts = {}
     for stage in spec["stages"]:
-        pid = phase_id(stage)
-        lines.append(f"## {stage.get('name')}")
-        for it in case["items"]:
-            cs = by.get((pid, it["_id"]))
-            if not cs:
-                continue
-            title = it.get((spec.get("input") or {}).get("title_field") or "title") or ""
-            lines.append(f"### {it['_id']} {title}")
-            for col, cell in cs.items():
-                v = "; ".join(map(str, cell["value"])) if isinstance(cell["value"], list) else cell["value"]
-                lines.append(f"- {col}: {v or '(' + cell['status'] + ')'}" + (f"  [{cell['need']}]" if cell.get("need") else ""))
-    return "\n".join(lines)[:limit]
+        if (stage.get("output") or {}).get("mode") == "document":
+            try:
+                drafts[stage.get("name") or phase_id(stage)] = document.listing(st, case, phase_id(stage))
+            except Exception:
+                continue                                       # a draft that cannot be composed yet is simply not in the context
+    return casecontext.build(case, st.cells(cid), request, drafts, st.questions(cid), focus)
 
 
 @router.post("/cases/{cid}/ask")
@@ -315,11 +310,9 @@ def ask_case(cid: str, body: CaseAsk):
         raise HTTPException(404, "no such case")
     from eawiki.api import app as appmod
     from eawiki.query.ask import ask as run
-    ctx = case_context(case, store().cells(cid))
-    if body.focus and any(i["_id"] == body.focus for i in case["items"]):
-        ctx = f"The architect has {body.focus} open: questions without a demand number are about it.\n\n" + ctx
+    from eawiki.query import answer as ans
     out = run(body.question, k=8, backend=appmod.API_BACKEND, model=appmod.ASK_MODEL, use_llm=True,
-              safety_llm=False, history=body.history, case_context=ctx)
+              safety_llm=False, history=ans.recent(body.history), case_context=case_context(cid, case, body.focus))
     return {k: v for k, v in out.items() if k not in ("context",)}
 
 

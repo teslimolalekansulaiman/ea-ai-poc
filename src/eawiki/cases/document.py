@@ -78,7 +78,8 @@ def compose(spec: dict, stage: dict, item: dict, cells: dict, earlier_open: Opti
     cols = stage["output"]["columns"]
     tag_col = (stage.get("result") or {}).get("row_tag")
     stmt_col = cfg.get("statement") if cfg.get("statement") in {c["name"] for c in cols} else None
-    internal = set(cfg.get("internal") or [])
+    apart = cfg.get("apart") is not False                                            # False: nothing is kept for the architect: no findings, no open list, no sources
+    internal = set(cfg.get("internal") or []) if apart else set()
     fact_cols = [f for f in dict.fromkeys(cfg.get("facts") or []) if f in {c["name"] for c in cols} and f != tag_col]       # the tag opens the key lines already: never twice
     title_field = (spec.get("input") or {}).get("title_field") or "title"
     has = lambda name: _text((cells.get(name) or {}).get("value"))                  # noqa: E731
@@ -103,9 +104,9 @@ def compose(spec: dict, stage: dict, item: dict, cells: dict, earlier_open: Opti
     here = [(c["name"], (cells.get(c["name"]) or {}).get("need", "")) for c in cols if (cells.get(c["name"]) or {}).get("status") in OPEN]
     lines = to_confirm_lines(here, list(earlier_open or []))
     keep = {"internal": True} if internal else {}                                    # with a message kept apart, what is open and the sources are the architect's too
-    if lines:
+    if lines and apart:
         sections.append({"title": TO_CONFIRM, "body": "\n".join(lines), **keep})
-    if sources:
+    if sources and apart:
         sections.append({"title": EVIDENCE, "body": "\n".join(dict.fromkeys(sources)), **keep})
     sections.sort(key=lambda x: bool(x.get("internal")))                              # the message's sections first, then the architect's (a stable sort)
     return {"title": str(item.get(title_field) or item.get("_id") or ""), "meta": str(item.get("_id") or ""),
@@ -122,7 +123,8 @@ def compose_request(spec: dict, stage: dict, case: dict, held: dict, request_cel
     names = {c["name"] for c in cols}
     title_field = (spec.get("input") or {}).get("title_field") or "title"
     over, item_col = cfg.get("statement"), cfg.get("item_text")
-    internal = [f for f in cfg.get("internal") or [] if f in names]
+    keep_apart = cfg.get("apart") is not False                                        # False: the draft is the message and nothing else
+    internal = [f for f in cfg.get("internal") or [] if f in names] if keep_apart else []
     have = {k[0] for k in held}
     assessed = [it for it in case["items"] if it["_id"] in have]
     returned = [it for it in case["items"] if it["_id"] not in have]
@@ -153,10 +155,10 @@ def compose_request(spec: dict, stage: dict, case: dict, held: dict, request_cel
         lines += [f"? {i}: {ln[2:]}" for ln in to_confirm_lines(here, list(earlier_open.get(i) or []))]
     lines += [f"? {n}: {c.get('need') or 'not written yet'}" for n, c in request_cells.items() if c["status"] in OPEN or not _text(c["value"])]
     lines += [f"? {b} did not name {a} as a match, though {a} named {b}: confirm that they belong together." for g in gs for a, b in g["disagree"]]
-    if lines:
+    if lines and keep_apart:
         apart.append({"title": TO_CONFIRM, "body": "\n".join(lines), "internal": True})
     sources = [e for c in cols if c.get("type") == "citations" for i in order for e in (held.get((i, c["name"])) or {}).get("value") or [] if isinstance(e, str)]
-    if sources:
+    if sources and keep_apart:
         apart.append({"title": EVIDENCE, "body": "\n".join(dict.fromkeys(sources)), "internal": True})
     n = len(case["items"])
     return {"title": case["name"], "meta": f"{n} demand{'s' if n != 1 else ''}" + (f", {len(gs)} handled together" if gs else ""),

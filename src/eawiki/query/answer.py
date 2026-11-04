@@ -39,10 +39,21 @@ def assemble_context(blocks: list[dict], subgraph: Optional[dict] = None, query:
     return "\n".join(lines)
 
 
+HISTORY_EXCHANGES = 5            # how many earlier question-and-answer pairs a follow-up reads; the same for the wiki and for a case
+HISTORY_CHARS = 1200             # the most of one turn that is kept (an answer can be long)
+
+
+def recent(history: Optional[list], exchanges: int = HISTORY_EXCHANGES) -> list:
+    """The last few exchanges of a conversation, as [{role, content}], each turn cut to a length that keeps the prompt small."""
+    turns = [{"role": h.get("role"), "content": str(h.get("content") or "")[:HISTORY_CHARS]}
+             for h in (history or []) if isinstance(h, dict) and str(h.get("content") or "").strip()]
+    return turns[-2 * exchanges:]
+
+
 def build_prompt(question: str, context: str, history: Optional[list] = None) -> str:
     convo = ""
     if history:
-        turns = "\n".join(f"{h.get('role')}: {h.get('content')}" for h in history[-6:])
+        turns = "\n".join(f"{h.get('role')}: {h.get('content')}" for h in recent(history))
         convo = ("Conversation so far (for reference and pronoun resolution only — do not "
                  "treat it as a source to cite):\n" + turns + "\n\n")
     return f"""Answer the question using ONLY the context below (source blocks, graph facts and wiki pages). Cite the block id in square brackets after each claim, like [03-data:5]; cite a wiki page by its id, like [wiki:payroll-portal]. Do not invent facts, and make no statement you cannot cite.

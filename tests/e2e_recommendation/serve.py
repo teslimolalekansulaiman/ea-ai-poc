@@ -26,6 +26,24 @@ if os.environ.get("EA_E2E_OLD_SECOND_STAGE"):      # a database copy from before
     spec = json.loads(f.read_text(encoding="utf-8"))
     spec["stages"][1] = json.loads((ROOT / "tests" / "fixtures" / "phase2_stage.json").read_text(encoding="utf-8"))
     f.write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
+if os.environ.get("EA_E2E_ARCHITECT_PART"):         # the owner has turned the part for the architect back on, for drive.js, which checks it
+    import json as _json
+    _f = usecases.DIR / "demand-management.json"
+    _spec = _json.loads(_f.read_text(encoding="utf-8"))
+    _spec["stages"][1]["output"]["document"].pop("apart", None)
+    _f.write_text(_json.dumps(_spec, ensure_ascii=False, indent=2), encoding="utf-8")
+import eawiki.query.ask as askmod  # noqa: E402
+
+
+def _stand_in_ask(question, **kw):
+    """The answer to a follow-up on a case is not a model's here: it says what it was given, for drive_followup.js to check."""
+    ctx = kw.get("case_context") or ""
+    return {"answer": f"STAND-IN ANSWER ctx={len(ctx)} request={'yes' if '# THE REQUEST' in ctx else 'no'} stages={ctx.count('## STAGE: ')} "
+                      f"drafts={'yes' if '# THE DRAFTS' in ctx else 'no'} history={len(kw.get('history') or [])} focus={'yes' if ctx.startswith('The architect has') else 'no'}",
+            "status": "answered", "citations": []}
+
+
+askmod.ask = _stand_in_ask
 from eawiki.cases.engine import Engine  # noqa: E402
 from eawiki.cases.store import store  # noqa: E402
 

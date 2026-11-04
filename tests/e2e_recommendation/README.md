@@ -50,3 +50,16 @@ PORT=8769 node tests/e2e_recommendation/drive_stage_draft.js
 
 Opens Demand Management → Stage 1 and drafts the questions of the whole stage: only the properties that had none are drafted, the others are
 named and left alone, nothing is stored by drafting, a question can be unticked, and Save keeps the picked ones without the draft's notes.
+
+## The draft is the message only, and a follow-up question on a case
+
+```
+PORT=8774 python tests/e2e_recommendation/serve.py &
+PORT=8774 node tests/e2e_recommendation/drive_followup.js
+```
+
+Starts a case, approves the screening and checks that the draft is the overview and a section for each demand, with nothing kept for the
+architect after them. Then it asks seven follow-up questions in the box on the case page. The answer is a stand-in that says what it was
+given: the request, both stages and the drafts, and the last five exchanges of the conversation and no more.
+
+`drive.js` checks the architect's part, which the shipped use case no longer has: start `serve.py` with `EA_E2E_ARCHITECT_PART=1` for it.

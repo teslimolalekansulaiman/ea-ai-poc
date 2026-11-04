@@ -680,6 +680,12 @@ export default function UseCases() {
                 {c.name}
               </label>))}
           </div>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginTop: 8 }}>
+            <input type="checkbox" checked={(s.output.document || {}).apart !== false}
+              onChange={e => patch(d => { const o = d.stages[sel.si].output; o.document = { ...o.document, apart: e.target.checked ? undefined : false } })} />
+            Keep a part for the architect after the message (findings, what is still to confirm, the sources). Off: the draft is the message and nothing else
+          </label>
+          {(s.output.document || {}).apart !== false && (<>
           <label className="meta" style={lab}>Kept for the architect, not sent (these sections, with what is still to confirm and the sources, come after the message and are left out of the download)</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
             {s.output.columns.filter(c => c.name && c.name !== (s.output.document || {}).statement && c.type !== 'citations').map(c => (
@@ -689,7 +695,7 @@ export default function UseCases() {
                     o.document = { ...o.document, internal: e.target.checked ? [...cur, c.name] : cur.filter(x => x !== c.name) } })} />
                 {c.name}
               </label>))}
-          </div>
+          </div></>)}
         </>)}
         <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
           <button className="btn" onClick={() => { patch(d => { d.stages[sel.si].output.columns.push({ name: '', type: 'text', values: [] }) }); setPage({ k: 'prop', si: sel.si, ci: s.output.columns.length }) }}>+ property</button>

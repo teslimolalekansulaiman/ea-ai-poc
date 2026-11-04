@@ -1,0 +1,14 @@
+{
+  "id": "recommendation-without-architect-part",
+  "title": "The recommendation draft is the message only",
+  "note": "Leaves out the part of the draft that was kept for the architect after the message: each demand's findings (what it overlaps with, the contract and security answers and so on), what is still to confirm, and the list of sources. The draft is then the overview and each demand's own section. How each section was decided is still one click away on it. You can turn the part back on in the stage's settings (Keep a part for the architect).",
+  "ops": [
+    {
+      "op": "set_stage",
+      "stage": "Recommendation",
+      "fields": {
+        "output.document.apart": false
+      }
+    }
+  ]
+}

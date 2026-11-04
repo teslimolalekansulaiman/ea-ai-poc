@@ -48,11 +48,12 @@ def test_the_shipped_stage_is_valid_and_is_the_design_that_was_agreed():
     assert "continue under the lead" in section["how_to_resolve"] and "For the lead of a group, the steps are for the whole group" in section["how_to_resolve"]
     assert REC["output"]["mode"] == "document"
     assert REC["output"]["document"] == {"scope": "request", "statement": "Request overview", "item_text": "Recommendation",
-                                         "internal": ["Recommendation type", *FINDINGS, "Recommended owner", "Risks and conditions", "Handled with"]}
+                                         "internal": ["Recommendation type", *FINDINGS, "Recommended owner", "Risks and conditions", "Handled with"],
+                                         "apart": False}                                       # the draft is the message and nothing else
     assert COLS["Consolidate with demand(s)"]["sees_others"] == ["Is duplicate", "Duplicate demand number (in the sheet)", "Impacted application", "Impacted business capability"]
 
 
-def _run(items=3):
+def _run(items=3, spec=None):
     order, seen = [], {}
 
     def llm(prompt):
@@ -78,7 +79,7 @@ def _run(items=3):
         return t
 
     e = Engine(CaseStore(), tools, workers=2)
-    cid = e.create(copy.deepcopy(SPEC), base.ITEMS[:items], "shipped")
+    cid = e.create(copy.deepcopy(spec or SPEC), base.ITEMS[:items], "shipped")
     e.run_phase(cid, "screening")
     e.approve(cid, "screening", background=False)
     return e, cid, order, seen
@@ -113,8 +114,24 @@ def test_each_demands_section_and_then_the_overview_are_written_last_from_everyt
     assert re.search(r"^- D-2026-003 \(.*?\): Is duplicate: ", cons.split("THE OTHER DEMANDS IN THIS REQUEST")[1], re.M)
 
 
-def test_the_draft_is_one_for_the_request_with_the_findings_kept_apart_and_left_out_of_the_download():
+def _with_the_architects_part():
+    spec = copy.deepcopy(SPEC)
+    spec["stages"][1]["output"]["document"].pop("apart")                                        # the owner turned the part back on
+    return spec
+
+
+def test_the_shipped_draft_is_the_message_and_nothing_else():
     e, cid, order, seen = _run()
+    [entry] = document.listing(e.store, e.store.get_case(cid), PID)
+    d = entry["doc"]
+    assert d["rec"]["body"] == OVERVIEW and [s["title"].split(" · ")[0] for s in d["sections"]] == ["D-2026-001", "D-2026-003", "D-2026-004"]
+    assert not any(s.get("internal") for s in d["sections"])                                     # no findings, no open list, no sources for the architect
+    assert document.TO_CONFIRM not in {s["title"] for s in d["sections"]} and document.EVIDENCE not in {s["title"] for s in d["sections"]}
+    assert "For the architect" not in document.render_html(entry, include_internal=True)
+
+
+def test_the_draft_is_one_for_the_request_with_the_findings_kept_apart_and_left_out_of_the_download():
+    e, cid, order, seen = _run(spec=_with_the_architects_part())
     case = e.store.get_case(cid)
     [entry] = document.listing(e.store, case, PID)
     d = entry["doc"]
