@@ -33,6 +33,36 @@ function LookupsBox({ value, onValid }) {
 const KINDS = ['application', 'data', 'technology', 'security', 'role']
 const DIRECTIONS = [['out', 'outgoing (from the matched entity)'], ['in', 'incoming (to the matched entity)'], ['both', 'both directions']]
 
+// "Draft the questions": the model proposes the lookups a property needs; nothing is saved or added until the owner accepts one.
+// `state` is kept by the page above, so the list survives while the owner adds some and edits others.
+function LookupDraft({ state, current, onDraft, onAdd, onAddAll }) {
+  const room = 6 - current
+  const items = state?.items || []
+  return (
+    <div className="lookup-draft" style={{ display: 'grid', gap: 6, marginBottom: 8 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <button type="button" className="btn draft-lookups" disabled={state?.loading || room <= 0} onClick={onDraft}>
+          {state?.loading ? 'Drafting the questions…' : 'Draft the questions'}</button>
+        <span className="meta">The model reads this property’s text and the documents and proposes questions. Nothing is added until you add it.</span>
+      </div>
+      {state?.error && <div className="meta" style={{ color: 'var(--bad, #b42318)' }}>{state.error}</div>}
+      {state?.status === 'unavailable' && <div className="meta">No draft was made (not “no question needed”).</div>}
+      {state?.status === 'none' && !items.length && <div className="meta">No question needed.</div>}
+      {(state?.notes || []).map((n, i) => <div key={i} className="meta">{n}</div>)}
+      {items.map((d, i) => (
+        <div key={i} className="draft-item" style={{ border: '1px dashed var(--border, #bbb)', borderRadius: 6, padding: 8, display: 'grid', gap: 4 }}>
+          <div style={{ fontWeight: 600 }}>{d.find}</div>
+          <div className="meta">starts from {d.from.startsWith('result:') ? 'the answer of “' + d.from.slice(7) + '”' : d.from.replace('_', ' ')} · matches by {d.match}
+            {(d.in || []).length ? ' · in ' + d.in.join(', ') : ''}{(d.types || []).length ? ' · ' + d.types.join(', ') : ''}{d.extract ? ' · reads ' + d.extract : ''}</div>
+          {d.why && <div className="meta">Why: {d.why}</div>}
+          {(d.relations_why || []).map((w, k) => <div key={k} className="meta">Graph: {w}</div>)}
+          {d.needs_uses && <div className="meta">Adding this also makes the property build on “{d.needs_uses}”, so that answer is decided first.</div>}
+          <div><button type="button" className="btn add-draft" disabled={room <= 0} onClick={() => onAdd(i)}>Add this question</button></div>
+        </div>))}
+      {items.length > 1 && room > 0 && <div><button type="button" className="btn add-all-drafts" onClick={onAddAll}>Add all{items.length > room ? ` (the first ${room})` : ''}</button></div>}
+    </div>)
+}
+
 // Per lookup: which kinds of entity a name may be, and which graph relationships to read around the entity it matches.
 // `edges` are the metamodel's relationship types (the graph holds no others); `counts` says how many edges of each the
 // graph really holds, so the owner sees which carry anything; "Suggest" drafts a list for the owner to accept or change.
@@ -188,6 +218,7 @@ export default function UseCases() {
   const [edges, setEdges] = useState([])        // the metamodel's relationship types, for the graph relationships of a lookup
   const [counts, setCounts] = useState(null)    // how many edges of each type the graph holds
   const [page, setPage] = useState(null)        // the page of the builder being shown: { k: basics|input|gate|stage|prop, si, ci }
+  const [drafts, setDrafts] = useState({})    // the drafted questions of each property, by stage and position: { si:ci -> { name, loading, status, items, notes, error } }
   const [hist, setHist] = useState(null)        // the history panel: { versions, store, diff }
 
   const reload = () => api.usecases().then(d => setList(d.usecases)).catch(e => setError(String(e)))
@@ -267,6 +298,30 @@ export default function UseCases() {
   const sel = page || { k: 'basics' }
   const props = uc.stages.flatMap((s, si) => s.output.columns.map((c, ci) => ({ si, ci, c })))
   const badKinds = (c) => (c.lookups || []).reduce((n, lk) => n + (lk.in || []).filter(k => !resolveDocs(k, docs).length).length, 0)
+  async function draftLookups(si, ci) {
+    const key = `${si}:${ci}`
+    setDrafts(d => ({ ...d, [key]: { name: uc.stages[si].output.columns[ci].name, loading: true } }))
+    try {
+      const r = await api.draftLookups({ use_case: uc, stage: si, column: ci })
+      setDrafts(d => ({ ...d, [key]: { name: uc.stages[si].output.columns[ci].name, status: r.status, items: r.lookups || [], notes: r.notes || [] } }))
+    } catch (e) { setDrafts(d => ({ ...d, [key]: { name: uc.stages[si].output.columns[ci].name, error: String(e).replace('Error: ', '') } })) }
+  }
+  // the proposals go into the property as the owner accepts them; a start from a property of the same stage also makes it build on that one
+  function addDrafted(si, ci, idx) {
+    const key = `${si}:${ci}`
+    const take = (drafts[key]?.items || []).filter((_, i) => idx.includes(i))
+    patch(d => {
+      const col = d.stages[si].output.columns[ci]
+      for (const t of take) {
+        if ((col.lookups || []).length >= 6) break
+        const lk = { ...t }; delete lk.why; delete lk.relations_why; delete lk.needs_uses; const needs_uses = t.needs_uses
+        col.lookups = [...(col.lookups || []), lk]
+        if (needs_uses && !(col.uses || []).includes(needs_uses)) col.uses = [...(col.uses || []), needs_uses]
+      }
+    })
+    setDrafts(d => ({ ...d, [key]: { ...d[key], items: (d[key]?.items || []).filter((_, i) => !idx.includes(i)) } }))
+  }
+
   const patchCol = (si, ci, fn) => patch(d => fn(d.stages[si].output.columns[ci]))
   const isSel = (k, si, ci) => sel.k === k && sel.si === si && sel.ci === ci
   const pos = props.findIndex(x => sel.k === 'prop' && x.si === sel.si && x.ci === sel.ci)
@@ -326,6 +381,9 @@ export default function UseCases() {
         <div className="card" style={card}>
           <div style={h}>Lookups: what is searched for, and where</div>
           <div className="meta" style={{ marginBottom: 6 }}>Each lookup asks one question of the wiki, the graph and the documents. A kind of source under “in” is matched to the ingested documents by the words in their names.</div>
+          <LookupDraft state={drafts[`${si}:${ci}`]?.name === c.name ? drafts[`${si}:${ci}`] : null} current={(c.lookups || []).length}
+            onDraft={() => draftLookups(si, ci)} onAdd={i => addDrafted(si, ci, [i])}
+            onAddAll={() => addDrafted(si, ci, (drafts[`${si}:${ci}`]?.items || []).map((_, i) => i))} />
           <LookupRelations lookups={c.lookups} edges={edges} counts={counts} col={c} pagesDefault={!!uc.wiki_pages} docs={docs}
             onChange={v => set(col => { col.lookups = v })} />
           <details>

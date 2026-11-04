@@ -28,3 +28,15 @@ PORT=8767 node tests/e2e_recommendation/drive_update.js
 It opens Config, Edit, History, and checks that the shipped update is listed with what it would do and which of the owner's wording it keeps;
 applies it; checks the stored use case (new properties, each demand's section as the summary property, one draft for the whole request); then runs a
 case on it through both phases and checks that it ends in one draft with the overview and a section for each demand. Both servers work on a temporary copy of `use_cases/`, so nothing is written into the repo.
+
+## "Draft the questions" on the Config screen
+
+```
+PORT=8768 python tests/e2e_recommendation/serve.py &       # a fresh server: the check saves a lookup into its temporary copy of the use case
+PORT=8768 node tests/e2e_recommendation/drive_draft.js
+```
+
+Opens Demand Management → Security fit, presses **Draft the questions**, and checks that the stand-in model's proposals are shown with where they
+start and why, that one starting from a property that does not exist was left out and said, that nothing is added until **Add this question**,
+that adding one that starts from a property of the same stage also makes the property build on it, and that Save keeps the lookup without the
+draft's notes. Run it against a fresh server: a second run finds the lookup already there.

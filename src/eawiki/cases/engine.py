@@ -200,9 +200,10 @@ class Engine:
         tools = self.tools_factory()
         fields = [f["name"] for f in (spec.get("input") or {}).get("item_fields") or []]
         docs = tools.doc_ids()
+        before = [x["name"] for st in stages[:idx] for x in st["output"]["columns"] if x.get("type") != "citations"]       # answers decided before this stage
         with ThreadPoolExecutor(max_workers=self.workers) as px:
             plans = dict(zip([c["name"] for c in cols], px.map(
-                lambda c: pmod.build_plan(c, fields, docs, tools.llm_json, self._plans), cols)))
+                lambda c: pmod.build_plan(c, fields, docs, tools.llm_json, self._plans, list(dict.fromkeys(before + [u for u in c.get("uses") or [] if u != c["name"]]))), cols)))
         if not only_item:
             st.set_phase(cid, pid, preparing=False)
         done = {(c["item_id"], c["column"]) for c in st.cells(cid, pid)

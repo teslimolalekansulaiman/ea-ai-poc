@@ -482,6 +482,31 @@ def usecase_suggest_relations(body: dict):
             "graph_edges": counts["edges"]}
 
 
+@app.post("/api/usecases/draft-lookups")
+def usecase_draft_lookups(body: dict):
+    """A draft of the questions (lookups) one property needs put to the knowledge base, for the owner to read and accept. Nothing is saved.
+    body: {use_case: the use case as the editor holds it, stage: index, column: index}."""
+    from eawiki import metamodel as mm
+    from eawiki import subjects
+    from eawiki.api import cases as cases_api
+    from eawiki.cases import graphread, lookupdraft
+    from eawiki.query import graphquery as gq
+    spec, si, ci = body.get("use_case"), body.get("stage"), body.get("column")
+    try:
+        col = spec["stages"][si]["output"]["columns"][ci]
+    except (TypeError, KeyError, IndexError):
+        raise HTTPException(400, "send {use_case, stage, column}: the property to draft questions for")
+    if not isinstance(col, dict) or not str(col.get("name") or "").strip():
+        raise HTTPException(400, "Name the property first.")
+    tools = cases_api.get_engine().tools_factory()
+    try:
+        counts, edge_types = graphread.relation_counts(gq._load()), mm.view()["edge_types"]
+    except Exception:
+        counts, edge_types = None, None                               # no graph here: the questions are drafted without relationships
+    return lookupdraft.draft(col, spec, si, ci, sorted(tools.doc_ids() or []), tools.llm_json, edge_types, counts,
+                             lambda p: subjects.llm_text(p, API_BACKEND, ASK_MODEL))
+
+
 @app.get("/api/usecases/{uc_id}/updates")
 def usecase_updates(uc_id: str):
     """Changes shipped with the code for a use case that lives in the database: what each would do, before anything is applied."""

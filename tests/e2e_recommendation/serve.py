@@ -49,6 +49,12 @@ def tools():
     def llm(prompt):
         m = re.search(r"PROPERTY: (.+?)  \[", prompt)
         name = m.group(1) if m else ""
+        if prompt.startswith("You draft the QUESTIONS"):          # the Config button "Draft the questions"
+            return {"lookups": [
+                {"find": "who owns each system or capability the earlier answer names", "from": "result:Overlaps with", "match": "name", "in": ["Application Catalog"],
+                 "types": ["application"], "extract": "the owner role", "why": "the owner of what already exists"},
+                {"find": "a place that is not a property", "from": "result:Nothing at all", "match": "name"},
+                {"find": "what the need corresponds to", "from": "need", "match": "meaning", "why": "the need read against the documents"}]}
         ids = re.findall(r"\[([^\]\s]+:\d+)\]", prompt)
         who = re.search(r"\[demand:demand_id\] Demand ID: (\S+)", prompt)
         who = who.group(1) if who else ""

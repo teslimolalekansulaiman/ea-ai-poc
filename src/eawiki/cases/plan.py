@@ -90,8 +90,11 @@ def default_plan(col: dict, docs: Optional[list[str]] = None) -> dict:
             "documents": pref, "origin": "default"}
 
 
-def _prompt(col: dict, fields: list[str], docs: list[str]) -> str:
+def _prompt(col: dict, fields: list[str], docs: list[str], results: Optional[list] = None) -> str:
     uses = ", ".join(col.get("uses") or []) or "(none)"
+    starts = ("\n- a lookup may start from the ANSWER of a property decided before this one, written \"result:<property>\" (the names in that answer are searched one by "
+              "one: use it when the question is about each thing an earlier answer lists, for example each solution named). The properties you may start from: "
+              + "; ".join(results)) if results else ""
     return f"""You plan WHAT TO LOOK FOR to fill one property of an enterprise-architecture assessment for a demand. Output ONE JSON object, nothing else.
 
 Property: {col['name']}  [{col.get('type', 'text')}{' of ' + ', '.join(col['values']) if col.get('values') else ''}]
@@ -105,7 +108,7 @@ Before you plan: a first step lists what the demand MENTIONS, in groups: {', '.j
 
 A LOOKUP says what to find, starting from which group of mentions, in which kinds of source, and how to match:
 - "find": one sentence, what to find out
-- "from": one of {', '.join(LOOKUP_FROM)}  (need = the demand's need and outcome; all_text = everything; other_demands = compare with the other demands)
+- "from": one of {', '.join(LOOKUP_FROM)}  (need = the demand's need and outcome; all_text = everything; other_demands = compare with the other demands){starts}
 - "match": name (the mention is a name to find, for example a system), meaning (find what the need or process corresponds to), or compare
 - "in": kinds of source, as the owner names them (for example "Application Catalog"); leave empty if the steps do not say
 - "extract": what to read from what is found
@@ -118,11 +121,12 @@ Turn the steps into at most {MAX_LOOKUPS} lookups. One lookup per thing the step
 JSON: {{"sources": ["demand", "documents", ...], "lookups": [{{"find": "...", "from": "systems", "match": "name", "in": ["Application Catalog"], "extract": "which domain it belongs to"}}], "documents": ["<ingested document ids to search first>"]}}"""
 
 
-def validate(raw, col: dict, fields: list[str], docs: list[str]) -> Optional[dict]:
+def validate(raw, col: dict, fields: list[str], docs: list[str], results: Optional[list] = None) -> Optional[dict]:
     if not isinstance(raw, dict):
         return None
     sources = [x for x in (raw.get("sources") or []) if x in SOURCES]
-    lks = [x for x in (_lookup(l, docs) for l in (col.get("lookups") or raw.get("lookups") or [])) if x][:MAX_LOOKUPS]
+    lks = [x for x in (_lookup(l, docs) for l in (col.get("lookups") or raw.get("lookups") or [])) if x]
+    lks = [x for x in lks if not x["from"].startswith(RESULT_PREFIX) or x["from"][len(RESULT_PREFIX):] in (results or [])][:MAX_LOOKUPS]      # only an answer decided before this property
     if not sources:
         sources = ["demand", "documents", "graph"] if lks else []
     if not sources:
@@ -137,8 +141,9 @@ def validate(raw, col: dict, fields: list[str], docs: list[str]) -> Optional[dic
 
 
 def build_plan(col: dict, fields: list[str], docs: list[str], llm: Optional[Callable] = None,
-               cache: Optional[dict] = None) -> dict:
-    key = guidance_key(col) + hashlib.sha1("|".join(sorted(docs)).encode()).hexdigest()[:6]
+               cache: Optional[dict] = None, results: Optional[list] = None) -> dict:
+    """`results` are the properties whose answers this one may start a search from: those decided before it."""
+    key = guidance_key(col) + hashlib.sha1("|".join(sorted(docs) + ["#"] + sorted(results or [])).encode()).hexdigest()[:6]
     if cache is not None and key in cache:
         return cache[key]
     plan = None
@@ -147,7 +152,7 @@ def build_plan(col: dict, fields: list[str], docs: list[str], llm: Optional[Call
         plan["origin"] = "config"
     elif llm is not None:
         try:
-            plan = validate(llm(_prompt(col, fields, docs)), col, fields, docs)
+            plan = validate(llm(_prompt(col, fields, docs, results)), col, fields, docs, results)
         except Exception:
             plan = None
     plan = plan or default_plan(col, docs)

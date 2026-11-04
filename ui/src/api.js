@@ -48,6 +48,7 @@ export const api = {
 
   metamodel: () => J('/api/metamodel'),
   relationCounts: () => J('/api/graph/relation-counts'),
+  draftLookups: (body) => J('/api/usecases/draft-lookups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   suggestRelations: (body) => J('/api/usecases/suggest-relations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
   mmNode: (key, obj) => J('/api/metamodel/node/' + encodeURIComponent(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(obj) }),
   mmNodeDel: (key) => J('/api/metamodel/node/' + encodeURIComponent(key), { method: 'DELETE' }),
