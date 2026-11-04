@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../api'
 import { useCite } from '../cite'
 
@@ -43,25 +43,27 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
   const [draft, setDraft] = useState(null)        // the text being edited; null while reading
   const [asking, setAsking] = useState(false)
   const [note, setNote] = useState('')
-  const [trail, setTrail] = useState(null)        // how the answers were decided; loaded the first time one is opened
-  const [open, setOpen] = useState('')            // the property whose trail is showing
+  const [trails, setTrails] = useState({})        // how the answers were decided, by demand; loaded the first time one is opened
+  const [open, setOpen] = useState('')            // the property whose trail is showing, as "demand|property"
   const e = entry
   const editing = draft !== null
   const locked = e.status === 'approved'
   const [cls, label] = STATUS[e.status] || ['', e.status]
   const doc = editing ? draft : e.doc
 
-  useEffect(() => { setDraft(null); setAsking(false); setNote(''); setTrail(null); setOpen('') }, [e.item_id])
-  const why = (column) => {
+  useEffect(() => { setDraft(null); setAsking(false); setNote(''); setTrails({}); setOpen('') }, [e.item_id])
+  const why = (column, item) => {
     if (!column) return null
-    const on = open === column
+    const who = item || e.item_id                                // a section of a request's draft is about one demand
+    const key = who + '|' + column
+    const on = open === key
     return (
       <>
         <button className="cs-link rd-why" aria-expanded={on} onClick={() => {
-          setOpen(on ? '' : column)
-          if (!trail) api.caseDraftTrail(caseId, phaseId, e.item_id).then(setTrail).catch(x => { setTrail({ columns: {}, built_on: {} }); setErr(String(x.message || x)) })
+          setOpen(on ? '' : key)
+          if (!trails[who]) api.caseDraftTrail(caseId, phaseId, who).then(t => setTrails(m => ({ ...m, [who]: t }))).catch(x => { setTrails(m => ({ ...m, [who]: { columns: {}, built_on: {} } })); setErr(String(x.message || x)) })
         }}>{on ? 'Hide how it was decided' : 'How was this decided?'}</button>
-        {on && <Trail column={column} trail={trail} />}
+        {on && <Trail column={column} trail={trails[who]} />}
       </>)
   }
 
@@ -84,7 +86,7 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
             {s.title === 'Evidence'
               ? <div className="rd-ev">{s.body.split('\n').filter(Boolean).map(b => <button key={b} className="cs-cite" onClick={() => cite.open(b)}>{b}</button>)}</div>
               : <Rows text={s.body} />}
-            {why(s.column)}</>}
+            {why(s.column, s.item)}</>}
     </section>)
 
   return (
@@ -120,7 +122,11 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
               {doc.facts.map((f, i) => <div className="rd-fact" key={i}><span>{f.label}:</span> <b>{f.value}</b></div>)}</>}
       </div>
 
-      {doc.sections.map((s, i) => (editing || !s.internal) ? section(s, i) : null)}
+      {doc.sections.map((s, i) => {
+        if (!editing && s.internal) return null
+        const head = s.group && !s.internal && (i === 0 || doc.sections[i - 1].group !== s.group)       // the demands handled together sit under one heading
+        return <Fragment key={i}>{head && <h3 className="rd-group">{s.group}</h3>}{section(s, i)}</Fragment>
+      })}
       {!editing && apart && (
         <div className="rd-arch">
           <div className="rd-eyebrow">For the architect, not sent</div>
@@ -177,12 +183,13 @@ export function Recommendations({ caseId, phase, onOpenTable, onExport, onChange
   const replace = (r) => setDocs(ds => ds.map(d => d.item_id === r.item_id ? r : d))
   const cur = docs && docs.find(d => d.item_id === sel)
   const approved = docs ? docs.filter(d => d.status === 'approved').length : 0
+  const whole = !!docs && docs.length === 1 && docs[0].item_id === '_request'          // one draft for the whole request, not one per demand
 
   return (
     <div className="cs-msg" ref={top}><div className="cs-av">AA</div>
       <div className="cs-body"><div className="cs-card rd">
         <div className="eyebrow">Recommendations · {phase.name}</div>
-        <h3>{docs ? `${approved} of ${docs.length} approved` : 'Loading…'}</h3>
+        <h3>{!docs ? 'Loading…' : whole ? (docs[0].status === 'approved' ? 'Approved' : 'One draft for the whole request') : `${approved} of ${docs.length} approved`}</h3>
         {docs && docs.length > 1 && (
           <div className="rd-list" role="tablist" aria-label="Demands">
             {docs.map(d => {

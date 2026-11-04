@@ -273,14 +273,8 @@ class Engine:
         ids = [r["_id"] for r in rows]
         if not ids:
             return
-        pat = re.compile("|".join(re.escape(i) for i in sorted(ids, key=len, reverse=True)))
         held = {(c["item_id"], c["column"]): c for c in self.store.cells(cid, pid)}
-        links = {}
-        for r in rows:
-            c = held.get((r["_id"], d["from"]))
-            links[r["_id"]] = [x for x in dict.fromkeys(pat.findall(_show(c["value"]))) if x != r["_id"]] if c and c["status"] in ("answered", "user") else []
-        lead = {r["_id"]: r.get(d["lead_by"]) for r in rows} if d.get("lead_by") else None
-        groups = grpmod.form(ids, links, lead)
+        groups = grpmod.of_stage({"output": {"columns": [col]}}, rows, held)
         self.store.add_event(cid, "step", {"phase": pid, "label": col.get("activity") or f"Working out {col['name']}", "columns": [col["name"]]})
         for r in rows:
             if (held.get((r["_id"], col["name"])) or {}).get("source") == "user":

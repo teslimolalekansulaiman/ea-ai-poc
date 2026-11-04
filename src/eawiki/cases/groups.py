@@ -24,6 +24,29 @@ def _order(value) -> tuple:
     return (0, m.group(0).strip()) if m else (1, "")
 
 
+def links_from(ids: list, texts: dict) -> dict:
+    """{id: [the other ids its text names]}: the answers are free text that name items by their ids."""
+    if not ids:
+        return {}
+    pat = re.compile("|".join(re.escape(i) for i in sorted(ids, key=len, reverse=True)))
+    return {i: [x for x in dict.fromkeys(pat.findall(texts.get(i) or "")) if x != i] for i in ids}
+
+
+def of_stage(stage: dict, rows: list, held: dict) -> list[dict]:
+    """The groups the stage's derived property forms, from the cells {(item id, property): cell}: [] when the stage derives none."""
+    col = next((c for c in stage["output"]["columns"] if c.get("derive")), None)
+    if col is None:
+        return []
+    d = col["derive"]
+    ids = [r["_id"] for r in rows]
+    texts = {}
+    for i in ids:
+        c = held.get((i, d["from"]))
+        v = c["value"] if c and c["status"] in ("answered", "user") else ""
+        texts[i] = "; ".join(map(str, v)) if isinstance(v, list) else str(v or "")
+    return form(ids, links_from(ids, texts), {r["_id"]: r.get(d["lead_by"]) for r in rows} if d.get("lead_by") else None)
+
+
 def form(ids: list, links: dict, lead_by: Optional[dict] = None) -> list[dict]:
     """[{lead, members, disagree}] for every group of two or more. `ids` is the order the items came in; `links` is {id: [ids it names]};
     `lead_by` is {id: the value the lead is chosen by}. Ids that are not in `ids` are ignored, and so is an item naming itself."""

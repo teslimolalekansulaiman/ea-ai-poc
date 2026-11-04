@@ -325,3 +325,4 @@
 .rd-eyebrow{font-size:11.5px;color:var(--fg-faint);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
 .rd-arch{display:grid;gap:12px;margin-top:6px;padding-top:14px;border-top:2px dashed var(--border-strong)}
 .rd-arch-note{font-size:12.5px;color:var(--fg-muted);max-width:72ch}
+.rd-group{margin:10px 0 0;padding-top:12px;border-top:1px solid var(--border);font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-muted);font-weight:600}

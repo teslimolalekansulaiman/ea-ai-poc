@@ -26,13 +26,15 @@ import html
 import time
 from typing import Optional
 
+from eawiki.cases import groups as grpmod
 from eawiki.cases.engine import gate_column, phase_id
+from eawiki.cases.store import REQUEST_ID
 
 MODE = "document"
 OPEN = ("needs_input", "needs_source")
 TO_CONFIRM = "To confirm before approval"
 EVIDENCE = "Evidence"
-MAX_SECTIONS, MAX_FACTS, MAX_TEXT = 40, 12, 8000
+MAX_SECTIONS, MAX_FACTS, MAX_TEXT = 600, 12, 8000
 COMPACT_ABOVE = 3             # more open items than this are listed by name, not one line of guidance each
 STATUSES = ("draft", "approved", "returned")
 
@@ -43,6 +45,11 @@ def is_document(stage: dict) -> bool:
 
 def settings(stage: dict) -> dict:
     return (stage.get("output") or {}).get("document") or {}
+
+
+def is_request(stage: dict) -> bool:
+    """One draft for the whole request, with a section for each item, instead of one draft per item."""
+    return settings(stage).get("scope") == "request"
 
 
 def _text(v) -> str:
@@ -105,12 +112,65 @@ def compose(spec: dict, stage: dict, item: dict, cells: dict, earlier_open: Opti
             "rec": {"title": stage.get("name") or "Recommendation", "body": body, "column": stmt_col or ""}, "facts": facts, "sections": sections}
 
 
+def compose_request(spec: dict, stage: dict, case: dict, held: dict, request_cells: dict, earlier_open: dict, gates: dict) -> dict:
+    """The one draft for a whole request. It opens with the text written once for the request, then a section for each item: the items
+    that are handled together first, under a heading that names the group, the lead first, then the others in the order they came; an
+    item that did not pass the first check last, as returned. What is for the architect comes after, apart: each item's findings,
+    what is still open (and where the answers about who is combined did not agree) and the sources."""
+    cfg = settings(stage)
+    cols = stage["output"]["columns"]
+    names = {c["name"] for c in cols}
+    title_field = (spec.get("input") or {}).get("title_field") or "title"
+    over, item_col = cfg.get("statement"), cfg.get("item_text")
+    internal = [f for f in cfg.get("internal") or [] if f in names]
+    have = {k[0] for k in held}
+    assessed = [it for it in case["items"] if it["_id"] in have]
+    returned = [it for it in case["items"] if it["_id"] not in have]
+    gs = grpmod.of_stage(stage, assessed, held)
+    grouped = [m for g in gs for m in g["members"]]
+    order = grouped + [it["_id"] for it in assessed if it["_id"] not in grouped]
+    label = {m: "Combined: " + ", ".join(g["members"]) for g in gs for m in g["members"]}
+    by_id = {it["_id"]: it for it in case["items"]}
+    name_of = lambda i: f"{i} · {by_id[i].get(title_field) or i}"                      # noqa: E731
+    val = lambda i, c: _text((held.get((i, c)) or {}).get("value"))                      # noqa: E731
+    message, apart = [], []
+    for i in order:
+        cell = held.get((i, item_col)) or {}
+        body = val(i, item_col) if cell.get("status") not in OPEN else ""
+        if not body:
+            body = "Not written yet" + (f": {cell['need']}" if cell.get("need") else ".")
+        message.append({"title": name_of(i), "body": body, "column": item_col, "item": i, **({"group": label[i]} if i in label else {})})
+    for it in returned:
+        message.append({"title": name_of(it["_id"]), "body": "Not assessed further. " + (gates.get(it["_id"]) or "It did not pass the first check, and goes back to the requester."),
+                        "item": it["_id"]})
+    for i in order:
+        for f in internal:
+            if val(i, f):
+                apart.append({"title": f"{i} · {f}", "body": val(i, f), "column": f, "item": i, "internal": True})
+    lines = []
+    for i in order:
+        here = [(c["name"], (held.get((i, c["name"])) or {}).get("need", "")) for c in cols if (held.get((i, c["name"])) or {}).get("status") in OPEN]
+        lines += [f"? {i}: {ln[2:]}" for ln in to_confirm_lines(here, list(earlier_open.get(i) or []))]
+    lines += [f"? {n}: {c.get('need') or 'not written yet'}" for n, c in request_cells.items() if c["status"] in OPEN or not _text(c["value"])]
+    lines += [f"? {b} did not name {a} as a match, though {a} named {b}: confirm that they belong together." for g in gs for a, b in g["disagree"]]
+    if lines:
+        apart.append({"title": TO_CONFIRM, "body": "\n".join(lines), "internal": True})
+    sources = [e for c in cols if c.get("type") == "citations" for i in order for e in (held.get((i, c["name"])) or {}).get("value") or [] if isinstance(e, str)]
+    if sources:
+        apart.append({"title": EVIDENCE, "body": "\n".join(dict.fromkeys(sources)), "internal": True})
+    n = len(case["items"])
+    return {"title": case["name"], "meta": f"{n} demand{'s' if n != 1 else ''}" + (f", {len(gs)} handled together" if gs else ""),
+            "rec": {"title": f"{stage.get('name') or 'Recommendation'} for this request", "body": _text((request_cells.get(over) or {}).get("value")) if over else "",
+                    **({"column": over} if over else {})},
+            "facts": [], "sections": message + apart}
+
+
 def clean(doc) -> dict:
     """The shape an edit may take: text only, bounded. Anything else is dropped, so a stored document can always be rendered."""
     if not isinstance(doc, dict):
         raise ValueError("A document is an object.")
     s = lambda v: v.strip()[:MAX_TEXT] if isinstance(v, str) else ""                # noqa: E731
-    col = lambda x: {"column": x["column"].strip()[:200]} if isinstance(x.get("column"), str) and x["column"].strip() else {}      # noqa: E731
+    col = lambda x: {k: x[k].strip()[:200] for k in ("column", "item", "group") if isinstance(x.get(k), str) and x[k].strip()}      # noqa: E731
     rec = doc.get("rec") if isinstance(doc.get("rec"), dict) else {}
     facts = [{"label": s(f.get("label")), "value": s(f.get("value"))} for f in doc.get("facts") or [] if isinstance(f, dict)]
     sections = [{"title": s(x.get("title")), "body": s(x.get("body")), **col(x), **({"internal": True} if x.get("internal") is True else {})}
@@ -143,6 +203,8 @@ def listing(store, case: dict, pid: str) -> list[dict]:
     """One entry per demand that has results in this phase: its document as it stands, and where it is in review."""
     stage = _stage(case, pid)
     cid = case["id"]
+    if is_request(stage):
+        return _request_listing(store, case, pid, stage)
     by: dict = {}
     for c in store.cells(cid, pid):
         by.setdefault(c["item_id"], {})[c["column"]] = c
@@ -162,6 +224,25 @@ def listing(store, case: dict, pid: str) -> list[dict]:
     return out
 
 
+def _request_listing(store, case: dict, pid: str, stage: dict) -> list[dict]:
+    """The single entry of a stage shown as one draft for the whole request."""
+    cid = case["id"]
+    held = {(c["item_id"], c["column"]): c for c in store.cells(cid, pid)}
+    if not held:
+        return []
+    spec = case["spec"]
+    first = phase_id(spec["stages"][0])
+    gates = {c["item_id"]: _text(c["value"]) for c in store.cells(cid, first) if c["column"] == gate_column(spec) and c["item_id"] not in {k[0] for k in held}}
+    earlier = {it["_id"]: _earlier_open(store, case, pid, it["_id"]) for it in case["items"]}
+    draft = compose_request(spec, stage, case, held, store.request_cells(cid, pid), earlier, gates)
+    sv = store.documents(cid, pid).get(REQUEST_ID)
+    return [{"item_id": REQUEST_ID, "title": draft["title"], "status": sv["status"] if sv else "draft",
+             "doc": sv["doc"] if sv else draft, "original": sv["original"] if sv else draft,
+             "edited": bool(sv and sv["doc"] != sv["original"]), "note": sv["note"] if sv else "",
+             "decided_at": sv["decided_at"] if sv else None,
+             "stale": bool(sv and sv["status"] != "approved" and draft != sv["original"])}]
+
+
 def _entry(store, case, pid, item_id) -> dict:
     e = next((x for x in listing(store, case, pid) if x["item_id"] == item_id), None)
     if e is None:
@@ -179,6 +260,12 @@ def trail(store, case: dict, pid: str, item_id: str) -> dict:
     {columns: {name: {status, source, need, how, evidence}}, built_on: {"decided:<id>": the earlier answer}}."""
     _stage(case, pid)
     cid = case["id"]
+    if item_id == REQUEST_ID:                                  # the text written once for the request: it has no earlier answers of its own
+        req = store.request_cells(cid, pid)
+        if not req:
+            raise LookupError("Nothing was written for the request in this phase.")
+        return {"columns": {n: {"status": c["status"], "source": c.get("source") or "", "need": c.get("need") or "", "how": list(c.get("how") or []),
+                                "evidence": [e for e in c.get("evidence") or [] if isinstance(e, str)]} for n, c in req.items()}, "built_on": {}}
     cells = {c["column"]: c for c in store.cells(cid, pid) if c["item_id"] == item_id}
     if not cells:
         raise LookupError("No results for that item in this phase.")
@@ -240,9 +327,14 @@ def render_html(entry: dict, include_internal: bool = False) -> str:
     lines = [f"<h1>{e(d['title'])}</h1>", f"<p>{e(d['meta'])} · {e(entry['status'].title())}</p>",
              f"<h2>{e(d['rec']['title'])}</h2><p><b>{e(d['rec']['body'])}</b></p>"]
     lines += [f"<p>{e(f['label'])}: <b>{e(f['value'])}</b></p>" for f in d["facts"]]
+    group = None
     for s in d["sections"]:
         if s.get("internal") and not include_internal:
             continue
+        if s.get("group") != group:
+            group = s.get("group")
+            if group:
+                lines.append(f"<h2>{e(group)}</h2>")
         lines.append(f"<h2>{e(s['title'])}</h2>" + "".join(f"<p>{e(ln)}</p>" for ln in s["body"].splitlines() if ln.strip()))
     if entry["status"] != "approved":
         lines.append("<p><i>Draft. Nothing in it is a decision until it is approved.</i></p>")
