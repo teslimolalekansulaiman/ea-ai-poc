@@ -86,7 +86,7 @@ def phase_summary(spec: dict, stage: dict, cells: list[dict], items: list[dict],
         tag = _txt(vals.get(cfg.get("row_tag", ""), "")).strip() if cfg.get("row_tag") else ""
         row = {"id": it["_id"], "title": titles.get(it["_id"]), "gate": out,
                "tag": tag, "tag_status": display_status(spec, cs[cfg["row_tag"]]) if cfg.get("row_tag") in cs else "",
-               "done": len(cs), "total": len(stage["output"]["columns"])}
+               "done": len(cs), "total": len([c for c in stage["output"]["columns"] if c.get("scope") != "request"])}
         rows.append(row)
         if out == "Yes":
             assessed.append(it["_id"])

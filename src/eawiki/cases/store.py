@@ -19,6 +19,9 @@ from typing import Optional
 from eawiki import history
 
 
+REQUEST_ID = "_request"      # the "item" of a property worked out once for the whole request
+
+
 class CaseStore(history._Store):
     _EVENT_LOCK = threading.Lock()                # one worker at a time takes the next event number
 
@@ -42,6 +45,9 @@ class CaseStore(history._Store):
                 case_id TEXT, item_id TEXT, phase_id TEXT, col TEXT, value_json TEXT, status TEXT,
                 source TEXT, evidence_json TEXT, how_json TEXT, need TEXT, review TEXT,
                 updated_at {r}, PRIMARY KEY(case_id, item_id, phase_id, col))"""))
+            c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS request_cells(
+                case_id TEXT, phase_id TEXT, col TEXT, value_json TEXT, status TEXT, source TEXT, evidence_json TEXT,
+                how_json TEXT, need TEXT, updated_at {r}, PRIMARY KEY(case_id, phase_id, col))"""))
             c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS case_events(
                 case_id TEXT, seq INTEGER, ts {r}, kind TEXT, data_json TEXT,
                 PRIMARY KEY(case_id, seq))"""))
@@ -114,7 +120,7 @@ class CaseStore(history._Store):
 
     def delete_case(self, cid: str) -> bool:
         with self._conn() as c:
-            for t in ("cells", "case_events", "questions", "documents"):
+            for t in ("cells", "case_events", "questions", "documents", "request_cells"):
                 c.execute(self._sql(f"DELETE FROM {t} WHERE case_id=?"), (cid,))
             cur = c.execute(self._sql("DELETE FROM cases WHERE id=?"), (cid,))
         return cur.rowcount > 0
@@ -205,6 +211,28 @@ class CaseStore(history._Store):
                 (cid, item_id, phase_id, col, json.dumps(value, ensure_ascii=False), status, source,
                  json.dumps(evidence or [], ensure_ascii=False), json.dumps(how or [], ensure_ascii=False),
                  need or "", review or "", now))
+
+    def save_request_cell(self, cid: str, phase_id: str, col: str, *, value, status: str, source: str = "model",
+                          evidence=None, how=None, need: str = "") -> None:
+        """A property worked out once for the whole request has no item: it is kept apart from the items' cells, so nothing that counts
+        or lists an item's cells ever meets it."""
+        now = time.time()
+        with self._conn() as c:
+            c.execute(self._sql(
+                "INSERT INTO request_cells(case_id,phase_id,col,value_json,status,source,evidence_json,how_json,need,updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(case_id,phase_id,col) DO UPDATE SET value_json=excluded.value_json,"
+                "status=excluded.status,source=excluded.source,evidence_json=excluded.evidence_json,how_json=excluded.how_json,"
+                "need=excluded.need,updated_at=excluded.updated_at"),
+                (cid, phase_id, col, json.dumps(value, ensure_ascii=False), status, source,
+                 json.dumps(evidence or [], ensure_ascii=False), json.dumps(how or [], ensure_ascii=False), need or "", now))
+
+    def request_cells(self, cid: str, phase_id: str) -> dict:
+        """{property: cell} of the properties worked out once for the whole request."""
+        with self._conn() as c:
+            rows = c.execute(self._sql("SELECT * FROM request_cells WHERE case_id=? AND phase_id=?"), (cid, phase_id)).fetchall()
+        return {r["col"]: {"column": r["col"], "value": json.loads(r["value_json"]), "status": r["status"], "source": r["source"],
+                           "evidence": json.loads(r["evidence_json"] or "[]"), "how": json.loads(r["how_json"] or "[]"),
+                           "need": r["need"], "updated_at": r["updated_at"]} for r in rows}
 
     def cells(self, cid: str, phase_id: Optional[str] = None) -> list[dict]:
         with self._conn() as c:

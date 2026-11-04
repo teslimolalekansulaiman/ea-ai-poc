@@ -8,7 +8,9 @@ For each phase it
   4. saves each cell the moment it is decided, and records an event so the screen can follow along;
   5. when a property needs a source and none was found, opens a question for the architect and carries
      on: nothing else waits. An answer re-runs only the properties that build on it;
-  6. writes the summary properties last, from everything decided, and fills the citations property.
+  6. writes the summary properties last, from everything decided, and fills the citations property;
+  7. a property with request scope is written once, after those, from every item's answers; a derived property
+     (the groups the items form) is written in code before the summaries, so they can read it.
 
 Everything the engine touches outside itself comes through `Tools`, so the same code runs in the
 service and in tests.
@@ -24,11 +26,12 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional
 
 from eawiki.cases import gather as gmod
+from eawiki.cases import groups as grpmod
 from eawiki.cases import grade as grademod
 from eawiki.cases import plan as pmod
 from eawiki.cases import profile as profmod
 from eawiki.cases import solve as smod
-from eawiki.cases.store import CaseStore
+from eawiki.cases.store import REQUEST_ID, CaseStore
 
 DEFAULT_GATE_COLUMN = "Is it a true demand?"
 
@@ -81,12 +84,15 @@ def steps(spec: dict, stage: dict, first: bool) -> list[dict]:
         out.append({"label": label([gname]), "columns": [gname]})
     summ = set(summary_columns(stage))
     skip = {gname} if first else set()
-    main = [c for c in cols if c["name"] not in skip | summ and c.get("type") != "citations"]
-    for level in levels(main):
+    main = [c for c in cols if c["name"] not in skip | summ and c.get("type") != "citations" and c.get("scope") != "request"]
+    for level in levels([c for c in main if not c.get("derive")]):
         out.append({"label": label([c["name"] for c in level]), "columns": [c["name"] for c in level]})
     last = [c["name"] for c in cols if c["name"] in summ]
     if last:
         out.append({"label": label(last), "columns": last})
+    whole = [c["name"] for c in cols if c.get("scope") == "request"]
+    if whole:
+        out.append({"label": label(whole), "columns": whole})
     return out
 
 
@@ -184,6 +190,7 @@ class Engine:
         stage = stages[idx]
         cols = stage["output"]["columns"]
         rows = self._rows(case, idx)
+        everyone = rows                                   # a property that compares items, or covers the request, reads them all
         if only_item:
             rows = [r for r in rows if r["_id"] == only_item]
         if not only_item:                      # visible at once: planning each property can take a while
@@ -203,12 +210,15 @@ class Engine:
                 or (s.get("resume") and c["status"] in ("answered", "not_assessed", "needs_source"))}
         skip = {gate_column(spec)} if idx == 0 else set()
         summary = set(summary_columns(stage))
-        main = [c for c in cols if c["name"] not in skip | summary and c.get("type") != "citations" and not c.get("graded")]
+        main = [c for c in cols if c["name"] not in skip | summary and c.get("type") != "citations" and not c.get("graded")
+                and c.get("scope") != "request" and not c.get("derive")]
         if only_cols is not None:
             main = [c for c in main if c["name"] in only_cols]
-        run.update(spec=spec, stage=stage, idx=idx, cols=cols, rows=rows, passing=rows, tools=tools, plans=plans,
+        run.update(spec=spec, stage=stage, idx=idx, cols=cols, rows=rows, all_rows=everyone, passing=rows, tools=tools, plans=plans,
                    link_cache={}, done=done, rounds=levels(main),
-                   last=[c for c in cols if c["name"] in summary and (only_cols is None or c["name"] in only_cols)])
+                   last=[c for c in cols if c["name"] in summary and (only_cols is None or c["name"] in only_cols)],
+                   derived=[c for c in cols if c.get("derive") and (only_cols is None or c["name"] in only_cols)],
+                   request=[c for c in cols if c.get("scope") == "request" and (only_cols is None or c["name"] in only_cols)])
         return {"li": 0}
 
     def _n_gate(self, s) -> dict:
@@ -248,8 +258,63 @@ class Engine:
 
     def _n_summaries(self, s) -> dict:
         run = s["run"]
+        for col in run["derived"]:
+            self._derive(s["cid"], s["pid"], col, run)
         if run["last"]:
             self._run_level(s["cid"], s["pid"], run["last"], run)
+        return {}
+
+    def _derive(self, cid: str, pid: str, col: dict, run: dict) -> None:
+        """A property written in code: the groups the items form, from the answers of another property that names other items. The
+        model made those answers one item at a time and they may disagree; this joins what is linked in either direction and says where
+        the answers did not agree (see cases/groups.py)."""
+        d = col["derive"]
+        rows = run["all_rows"]
+        ids = [r["_id"] for r in rows]
+        if not ids:
+            return
+        pat = re.compile("|".join(re.escape(i) for i in sorted(ids, key=len, reverse=True)))
+        held = {(c["item_id"], c["column"]): c for c in self.store.cells(cid, pid)}
+        links = {}
+        for r in rows:
+            c = held.get((r["_id"], d["from"]))
+            links[r["_id"]] = [x for x in dict.fromkeys(pat.findall(_show(c["value"]))) if x != r["_id"]] if c and c["status"] in ("answered", "user") else []
+        lead = {r["_id"]: r.get(d["lead_by"]) for r in rows} if d.get("lead_by") else None
+        groups = grpmod.form(ids, links, lead)
+        self.store.add_event(cid, "step", {"phase": pid, "label": col.get("activity") or f"Working out {col['name']}", "columns": [col["name"]]})
+        for r in rows:
+            if (held.get((r["_id"], col["name"])) or {}).get("source") == "user":
+                continue                                                       # the architect's own words stay
+            self.store.save_cell(cid, r["_id"], pid, col["name"], value=grpmod.describe(groups, r["_id"]), status="answered", source="rule",
+                                 how=[f"Worked out in code from the answers to '{d['from']}': an item named in either direction is linked, "
+                                      + (f"and the lead is the earliest by '{d['lead_by']}'." if d.get("lead_by") else "and the lead is the first that came in.")])
+
+    def _n_request(self, s) -> dict:
+        """The properties written once for the whole request, from every item's answers. They have no item: they are kept apart from
+        the items' cells, and a question about one is not opened (what is missing is said in the text itself)."""
+        run, cid, pid = s["run"], s["cid"], s["pid"]
+        if not run["request"] or not run["all_rows"]:
+            return {}
+        case = self.store.get_case(cid)
+        item = {"_id": REQUEST_ID, "title": case["name"]}
+        self.store.add_event(cid, "step", {"phase": pid, "label": run["request"][0].get("activity") or f"Working out {run['request'][0]['name']}",
+                                           "columns": [c["name"] for c in run["request"]]})
+        held = self.store.request_cells(cid, pid)
+        for col in run["request"]:
+            if cid in self._cancel:
+                break
+            mine = held.get(col["name"]) or {}
+            if mine.get("source") == "user" or (s.get("resume") and mine.get("status") == "answered"):
+                continue
+            ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "searched": [], "allowed": set(),
+                  "used": [f"the answers for {len(run['all_rows'])} demand{'s' if len(run['all_rows']) != 1 else ''}"]}
+            peers = self._peers(cid, run["spec"], pid, run["all_rows"], col.get("sees_others") or [])
+            try:
+                cell = smod.solve(col, item, run["spec"], ev, {}, run["tools"].llm_json, self._stage_rules(run["spec"], pid), peers, True)
+            except Exception as e:
+                cell = self._failed_cell(col, e)
+            self.store.save_request_cell(cid, pid, col["name"], value=cell["value"], status=cell["status"], source=cell.get("source") or "model",
+                                         evidence=cell.get("evidence"), how=cell.get("how"), need=cell.get("need") or "")
         return {}
 
     def _n_citations(self, s) -> dict:
@@ -418,7 +483,7 @@ class Engine:
             if cid in self._cancel or (it["_id"], col["name"]) in run["done"]:
                 return                                   # stopped, or already decided (the architect's own answer, or a resume)
             self.cell_graph.invoke({"cid": cid, "pid": pid, "spec": run["spec"], "item": it, "col": col,
-                                    "others": [o for o in run["rows"] if o["_id"] != it["_id"]],
+                                    "others": [o for o in run["all_rows"] if o["_id"] != it["_id"]],
                                     "plan": run["plans"][col["name"]], "tools": run["tools"],
                                     "link_cache": run["link_cache"], "hint": None, "question": None,
                                     "profile": run["profiles"].get(it["_id"]), "profiles": run["profiles"]})
@@ -436,6 +501,7 @@ class Engine:
             return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}
 
     MAX_PEERS = 40                 # other items shown to a property that compares with them
+    MAX_PEER_VALUE = 400           # characters of one answer shown
 
     def _peers(self, cid: str, spec: dict, pid: str, others: list, names: list) -> str:
         """What the stages before this one decided for the OTHER items of the case, for the properties the owner named: one line per
@@ -447,10 +513,10 @@ class Engine:
         held = {}
         for st in spec.get("stages") or []:
             ph = phase_id(st)
+            for c in self.store.cells(cid, ph):                                  # the stages before, and this one (a late property may read its own stage's)
+                held[(c["item_id"], c["column"])] = c
             if ph == pid:
                 break
-            for c in self.store.cells(cid, ph):
-                held[(c["item_id"], c["column"])] = c
         lines = []
         for o in others[:self.MAX_PEERS]:
             parts = []
@@ -459,7 +525,7 @@ class Engine:
                 if c is None:
                     continue
                 parts.append(f"{n}: " + ("(not assessed)" if c["status"] == "not_assessed" else
-                                         "(not decided)" if c["status"] in ("needs_input", "needs_source") else _show(c["value"])[:200]))
+                                         "(not decided)" if c["status"] in ("needs_input", "needs_source") else _show(c["value"])[:self.MAX_PEER_VALUE]))
             lines.append(f"- {o['_id']} ({str(o.get(title_field) or '')[:80]}): " + ("; ".join(parts) or "(nothing decided)"))
         if len(others) > self.MAX_PEERS:
             lines.append(f"- and {len(others) - self.MAX_PEERS} more, not shown")
@@ -630,7 +696,7 @@ class Engine:
                 if c["name"] not in out and set(c.get("uses") or []) & (base | out):
                     out.add(c["name"])
                     grew = True
-        return out | set(summary_columns(stage))
+        return out | set(summary_columns(stage)) | {c["name"] for c in cols if c.get("scope") == "request" or c.get("derive")}
 
     # ---- review and the next phase --------------------------------------------------
     def approve(self, cid: str, pid: str, background: bool = True) -> dict:

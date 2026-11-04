@@ -67,7 +67,7 @@ def readiness(spec: dict, items: list[dict], tools: gmod.Tools, cache: dict | No
     for stage in spec["stages"]:
         out = []
         for col in stage["output"]["columns"]:
-            if col["name"] == gate_column(spec) or col.get("type") == "citations" or col["name"] in summary_columns(stage):
+            if col["name"] == gate_column(spec) or col.get("type") == "citations" or col["name"] in summary_columns(stage) or col.get("scope") == "request" or col.get("derive"):
                 continue
             plan = pmod.build_plan(col, fields, docs, tools.llm_json, cache)
             out.append(property_report(col, plan, spec, items, tools, docs, link_cache, profiles))

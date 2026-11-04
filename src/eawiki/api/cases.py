@@ -135,7 +135,7 @@ def get_case(cid: str, after: int = 0):
         pid = phase_id(stage)
         phases.append({"id": pid, "name": stage.get("name"), "instructions": stage.get("instructions", ""),
                        "mode": (stage.get("output") or {}).get("mode") or "table",
-                       "columns": [_column_view(c) for c in stage["output"]["columns"]],
+                       "columns": [_column_view(c) for c in stage["output"]["columns"] if c.get("scope") != "request"],      # a property written once for the request is not a column of the demands
                        "state": case["state"].get("phases", {}).get(pid, {"status": "waiting"}),
                        "progress": progress.get(pid, {}), "steps": steps(spec, stage, si == 0),
                        "summary": summary.phase_summary(spec, stage, cells, case["items"], questions)})
@@ -361,7 +361,8 @@ def export(cid: str, phase: str = ""):
     stage = next((s for s in spec["stages"] if phase_id(s) == phase), None) or next(
         (s for s in spec["stages"] if any(c["phase_id"] == phase_id(s) for c in cells)), spec["stages"][0])
     pid = phase_id(stage)
-    cols = [c["name"] for c in stage["output"]["columns"]]
+    cols = [c["name"] for c in stage["output"]["columns"] if c.get("scope") != "request"]
+    whole = {n: c for n, c in store().request_cells(cid, pid).items()}
     by = {(c["item_id"], c["column"]): c for c in cells if c["phase_id"] == pid}
     title = (spec.get("input") or {}).get("title_field") or "title"
     head = ["Demand", "Title"] + cols
@@ -382,6 +383,18 @@ def export(cid: str, phase: str = ""):
     wb = Workbook()
     ws = wb.active
     ws.title = (stage.get("name") or "Case")[:31]
+    if whole:                                                  # what is written once for the whole request goes on a sheet of its own
+        rs = wb.create_sheet("Request")
+        rs.append(["Property", "Text"])
+        for n, c in whole.items():
+            rs.append([n, _show(c["value"]) or c.get("need") or ""])
+        for c in rs[1]:
+            c.font = Font(bold=True)
+        rs.column_dimensions["A"].width = 26
+        rs.column_dimensions["B"].width = 110
+        for row in rs.iter_rows(min_row=2):
+            for c in row:
+                c.alignment = Alignment(wrap_text=True, vertical="top")
     ws.append(head)
     for r in rows:
         ws.append(r)
