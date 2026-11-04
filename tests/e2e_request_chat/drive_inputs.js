@@ -110,6 +110,18 @@ const CHAT = [
     await toDraft(n, n === 1 ? ['D-2026-301'] : ['D-2026-301', 'D-2026-302'], label);
   }
 
+  // 6. a demand detailed enough to pass the first check, as a PDF: read in full, nothing to ask, taken to the draft
+  await fresh();
+  await page.setInputFiles('input[type=file]', path.join(IN, 'valid_demand.pdf'));
+  await page.click('button:has-text("Send")'); await page.waitForSelector('.rc'); await idle(page);
+  m = await msgs(page);
+  check(/I found 1 demand: D-2026-320 \(Supplier onboarding workflow\)/.test(m.join('\n')), '6 valid PDF: found the demand: ' + (m[1] || '').slice(0, 90).replace(/\n/g, ' '));
+  check(/complete/.test(await ready()) && !(await page.$('.rc-gaplist')) && !(await page.$('.rc-slide')), '6 valid PDF: every required field was read, so nothing is asked');
+  await shot(page, '6-valid-pdf');
+  await page.click('.rc-ready button:has-text("Start the case")');
+  await started(1, '6 valid PDF');
+  await toDraft(1, ['D-2026-320'], '6 valid PDF');
+
   // 4. a sheet of one demand: complete, so the case starts without a conversation
   await fresh();
   await page.setInputFiles('input[type=file]', path.join(IN, 'one_demand.xlsx'));

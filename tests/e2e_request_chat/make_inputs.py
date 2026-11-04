@@ -57,6 +57,35 @@ def memo(name):
     SimpleDocTemplate(str(OUT / name), pagesize=A4, invariant=1).build(out)
 
 
+def valid(name):
+    """A demand detailed enough to pass the first check: who is affected, how many, which errors and how often, what the workflow must do, what
+    it must use, the benefit as a baseline and a target, and why the date matters."""
+    P = lambda t: [Paragraph(t, st["Normal"]), Spacer(1, 7)]                               # noqa: E731
+    out = [Paragraph("Demand request: Supplier onboarding workflow", st["Title"])]
+    for k, v in (("Demand ID", "D-2026-320"), ("Demand title", "Supplier onboarding workflow"), ("Date submitted", "2026-09-14"), ("Requesting department", "Procurement"),
+                 ("Requester role", "Head of Supplier Management"), ("Business sponsor", "Chief Procurement Officer")):
+        out.append(Paragraph(f"{k}: {v}", st["Normal"]))
+    out += [Spacer(1, 10), Paragraph("Business need", st["Heading2"])]
+    out += P("Procurement onboards about 40 new suppliers a year, three or four a month. Each onboarding involves four teams: Procurement (company documents, 6 people), "
+             "Finance (bank details, 4 people), Legal (contract terms, 3 people) and Information Security (a data access review, 2 people). All four steps are handled "
+             "by email, so about 15 people work on a supplier with no shared view of where it stands.")
+    out += P("In the last two quarters, 3 of 19 suppliers waited more than six weeks because a document sat unanswered in one person's inbox; our target is 15 working days. "
+             "In the last 12 months two payments went to outdated bank details, about 35,000 each, both recovered only after three weeks. Finance had keyed the details by hand "
+             "from an emailed PDF.")
+    out += P("We need a workflow that (1) opens a supplier record when Procurement accepts a request; (2) routes it through the four checks in order, with Information "
+             "Security only when the supplier will access company data; (3) shows everyone involved the current status and who holds the next step; (4) reminds the owner of a "
+             "step that has waited more than five working days and tells the Head of Supplier Management after ten; and (5) records each approval with its date and approver. "
+             "It must read supplier bank details from the Finance system and contract terms from the Contract Register, so that nobody keys them in again.")
+    out += [Paragraph("Expected outcome", st["Heading2"])]
+    out += P("The median onboarding time falls from 31 working days to under 15, and no supplier waits longer than 20 working days. No payment goes to outdated bank details "
+             "(two in the last year). About 120 hours a year of Procurement and Finance time is saved, roughly 3 hours per supplier now spent chasing documents.")
+    out += [Paragraph("Request type: New solution. Requester urgency: Medium. Target go-live: 2027-03-01.", st["Normal"]), Spacer(1, 7)]
+    out += P("Timing: the annual contract round starts on 1 March 2027. If the workflow is not live by then, the 2027 round will repeat the manual process for about 12 suppliers.")
+    out += P("Systems and data: the Contract Register, the Finance system (supplier master data and bank details) and email. The data involved is supplier company documents and "
+             "bank details, which we classify as Confidential.")
+    SimpleDocTemplate(str(OUT / name), pagesize=A4, invariant=1).build(out)
+
+
 HEAD = ["Demand ID", "Date submitted", "Requesting department", "Requester role", "Business sponsor", "Demand title", "Business need / problem",
         "Expected outcome / benefit", "Request type", "Requester urgency", "Reason for urgency / deadline", "Target go-live", "Systems or data mentioned"]
 
@@ -73,6 +102,7 @@ def sheet(name, demands, blank=()):
 
 pdf("one_demand.pdf", [A])
 memo("one_demand_memo.pdf")
+valid("valid_demand.pdf")
 pdf("two_demands.pdf", [A, B])
 sheet("one_demand.xlsx", [A])
 sheet("two_demands.xlsx", [A, B], blank={("D-2026-302", "Business sponsor"), ("D-2026-302", "Target go-live")})
