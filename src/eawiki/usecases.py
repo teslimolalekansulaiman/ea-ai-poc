@@ -32,6 +32,7 @@ MAX_LOOK_IN = 10
 MAX_GUIDANCE = 2500        # rules, examples and where-to-look text of one property
 MAX_PLAYBOOK = 4000        # the rules that apply to every property of the use case
 MAX_LOOKUPS = 6
+MAX_SEES_OTHERS = 12      # earlier answers of the other items that one property is shown
 # What a demand can mention (the profile groups) and how a lookup may use them.
 PROFILE_GROUPS = ("systems", "data", "processes", "users", "mandates", "projects", "dates", "tools_today", "requested")
 LOOKUP_FROM = PROFILE_GROUPS + ("need", "all_text", "other_demands")
@@ -114,6 +115,9 @@ def _document_errors(where: str, output: dict, cols: list) -> list[str]:
     facts = cfg.get("facts")
     if facts is not None and (not isinstance(facts, list) or any(f not in names for f in facts)):
         errs.append(f"{where}: the document's key lines must be properties of this stage.")
+    internal = cfg.get("internal")
+    if internal is not None and (not isinstance(internal, list) or any(f not in names or f == st for f in internal)):
+        errs.append(f"{where}: the properties kept for the architect (not sent) must be properties of this stage, other than the headline text.")
     return errs
 
 
@@ -173,6 +177,14 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None, e
             for u in uses:
                 if u == c.get("name") or u not in names:
                     errs.append(f"{where}: uses '{u}', which is not another column of this stage.")
+    so = c.get("sees_others")
+    if so is not None:
+        if not isinstance(so, list) or len(so) > MAX_SEES_OTHERS:
+            errs.append(f"{where}: the other items' answers it is shown must be a list of at most {MAX_SEES_OTHERS} properties of earlier stages.")
+        else:
+            for n in so:
+                if n not in (earlier or []):
+                    errs.append(f"{where}: it is shown the other items' answers to '{n}', which is not a property of an earlier stage.")
     return errs
 
 
@@ -250,6 +262,9 @@ def _tidy_descriptions(spec: dict) -> None:
             spec["input"].pop("item_label", None)
     items = list((spec.get("input") or {}).get("item_fields") or [])
     for s in spec.get("stages") or []:
+        doc = (s.get("output") or {}).get("document")
+        if isinstance(doc, dict) and not doc.get("internal"):
+            doc.pop("internal", None)
         items += list((s.get("output") or {}).get("columns") or [])
     for it in items:
         for key in ("description", "how_to_resolve", "info_needed", "info_needed_source", "activity", "where_to_look", "rules", "examples", "collate"):
@@ -270,6 +285,8 @@ def _tidy_descriptions(spec: dict) -> None:
                 it.pop(flag, None)
         if not it.get("uses"):
             it.pop("uses", None)
+        if not it.get("sees_others"):
+            it.pop("sees_others", None)
         if not it.get("lookups"):
             it.pop("lookups", None)
         for lk in it.get("lookups") or []:

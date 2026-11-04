@@ -347,6 +347,16 @@ export default function UseCases() {
           </div>
         </div>}
 
+        {si > 0 && <div className="card" style={card}>
+          <div style={h}>Also shown: what earlier stages decided for the other items</div>
+          <div className="meta" style={{ marginBottom: 6 }}>For a property that compares an item with the rest of the request (for example, whether another item asks for the same thing). It is shown these earlier answers for every other item, as context; it cannot cite them.</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {uc.stages.slice(0, si).flatMap(st => st.output.columns).filter(o => o.name && o.type !== 'citations').map(o => (
+              <button key={o.name} type="button" className={'btn' + ((c.sees_others || []).includes(o.name) ? ' primary' : '')}
+                onClick={() => set(col => { col.sees_others = toggle(col.sees_others || [], o.name) })}>{o.name}</button>))}
+          </div>
+        </div>}
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between', marginBottom: 30 }}>
           <button className="btn" disabled={pos <= 0} onClick={() => setPage({ k: 'prop', si: props[pos - 1].si, ci: props[pos - 1].ci })}>← Previous property</button>
           <button className="btn" style={{ color: 'var(--crit)' }} onClick={() => { if (confirm(`Remove the property "${c.name || 'new property'}"?`)) { patch(d => d.stages[si].output.columns.splice(ci, 1)); setPage({ k: 'stage', si }) } }}>Remove this property</button>
@@ -465,6 +475,16 @@ export default function UseCases() {
                 <input type="checkbox" checked={((s.output.document || {}).facts || []).includes(c.name)}
                   onChange={e => patch(d => { const o = d.stages[sel.si].output; const cur = (o.document || {}).facts || []
                     o.document = { ...o.document, facts: e.target.checked ? [...cur, c.name] : cur.filter(x => x !== c.name) } })} />
+                {c.name}
+              </label>))}
+          </div>
+          <label className="meta" style={lab}>Kept for the architect, not sent (these sections, with what is still to confirm and the sources, come after the message and are left out of the download)</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>
+            {s.output.columns.filter(c => c.name && c.name !== (s.output.document || {}).statement && c.type !== 'citations').map(c => (
+              <label key={c.name} style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+                <input type="checkbox" checked={((s.output.document || {}).internal || []).includes(c.name)}
+                  onChange={e => patch(d => { const o = d.stages[sel.si].output; const cur = (o.document || {}).internal || []
+                    o.document = { ...o.document, internal: e.target.checked ? [...cur, c.name] : cur.filter(x => x !== c.name) } })} />
                 {c.name}
               </label>))}
           </div>

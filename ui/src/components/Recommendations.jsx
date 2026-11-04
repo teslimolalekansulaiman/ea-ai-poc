@@ -72,6 +72,21 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
   const set = (fn) => setDraft(d => { const n = copy(d); fn(n); return n })
   const rows = (t, min = 2) => Math.max(min, (t || '').split('\n').reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 78)), 0))
 
+  const apart = doc.sections.some(x => x.internal)             // the architect's findings are kept apart from the message that is sent
+  const section = (s, i) => (!editing && !s.title && !s.body) ? null : (
+    <section className="rd-sec" key={i}>
+      {editing
+        ? <><input className="rd-in rd-h2" aria-label="Heading" value={s.title} onChange={x => set(n => { n.sections[i].title = x.target.value })} />
+            {s.internal && <span className="cs-pill">Not sent</span>}
+            <textarea className="rd-in" aria-label="Text" rows={rows(s.body)} value={s.body} onChange={x => set(n => { n.sections[i].body = x.target.value })} />
+            <button className="cs-link" onClick={() => set(n => { n.sections.splice(i, 1) })}>Remove this section</button></>
+        : <><h3 className="rd-h">{s.title}</h3>
+            {s.title === 'Evidence'
+              ? <div className="rd-ev">{s.body.split('\n').filter(Boolean).map(b => <button key={b} className="cs-cite" onClick={() => cite.open(b)}>{b}</button>)}</div>
+              : <Rows text={s.body} />}
+            {why(s.column)}</>}
+    </section>)
+
   return (
     <article className="rd-sheet" aria-label={'Recommendation for ' + e.item_id}>
       <div className="rd-top">
@@ -98,24 +113,20 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
                   <input className="rd-in" aria-label="Label" value={f.label} onChange={x => set(n => { n.facts[i].label = x.target.value })} />
                   <input className="rd-in" aria-label="Value" value={f.value} onChange={x => set(n => { n.facts[i].value = x.target.value })} />
                 </div>))}</>
-          : <><h3 className="rd-h">{doc.rec.title}</h3>
+          : <>{apart && <div className="rd-eyebrow">Message to the requester</div>}
+              <h3 className="rd-h">{doc.rec.title}</h3>
               <Rows text={doc.rec.body || 'No recommendation text yet.'} />
               {why(doc.rec.column)}
               {doc.facts.map((f, i) => <div className="rd-fact" key={i}><span>{f.label}:</span> <b>{f.value}</b></div>)}</>}
       </div>
 
-      {doc.sections.map((s, i) => (!editing && !s.title && !s.body) ? null : (
-        <section className="rd-sec" key={i}>
-          {editing
-            ? <><input className="rd-in rd-h2" aria-label="Heading" value={s.title} onChange={x => set(n => { n.sections[i].title = x.target.value })} />
-                <textarea className="rd-in" aria-label="Text" rows={rows(s.body)} value={s.body} onChange={x => set(n => { n.sections[i].body = x.target.value })} />
-                <button className="cs-link" onClick={() => set(n => { n.sections.splice(i, 1) })}>Remove this section</button></>
-            : <><h3 className="rd-h">{s.title}</h3>
-                {s.title === 'Evidence'
-                  ? <div className="rd-ev">{s.body.split('\n').filter(Boolean).map(b => <button key={b} className="cs-cite" onClick={() => cite.open(b)}>{b}</button>)}</div>
-                  : <Rows text={s.body} />}
-                {why(s.column)}</>}
-        </section>))}
+      {doc.sections.map((s, i) => (editing || !s.internal) ? section(s, i) : null)}
+      {!editing && apart && (
+        <div className="rd-arch">
+          <div className="rd-eyebrow">For the architect, not sent</div>
+          <div className="rd-arch-note">The findings behind the message, what is still to confirm, and the sources. They are for you to check; they are not part of what the requester receives or of the download.</div>
+          {doc.sections.map((s, i) => s.internal ? section(s, i) : null)}
+        </div>)}
       {editing && <div><button className="btn sm" onClick={() => set(n => { n.sections.push({ title: 'New section', body: '' }) })}>Add a section</button></div>}
 
       <p className="rd-foot">Built from the answers of the phases before it and the sources listed above. Nothing in it is a decision until it is approved.</p>
@@ -138,7 +149,7 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
           {e.status === 'draft' && <button className="btn primary" disabled={busy} onClick={() => decide('approve')}>Approve</button>}
           {e.status === 'draft' && <button className="btn" disabled={busy} onClick={() => setAsking(true)}>Return with a note</button>}
           {e.status === 'returned' && <button className="btn" disabled={busy} onClick={() => decide('reopen')}>Reopen as a draft</button>}
-          <a className="btn sm rd-dl" href={api.caseDraftExportUrl(caseId, phaseId, e.item_id)}>Download</a>
+          <a className="btn sm rd-dl" href={api.caseDraftExportUrl(caseId, phaseId, e.item_id)} title={apart ? 'The download holds the message only' : undefined}>{apart ? 'Download the message' : 'Download'}</a>
         </div>)}
     </article>
   )

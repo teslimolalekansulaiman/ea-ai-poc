@@ -242,7 +242,7 @@
 .rd-title{margin:0;font-size:24px;line-height:1.2;font-weight:600;text-wrap:balance}
 .rd-meta{margin-top:-10px;font-size:13px;color:var(--fg-muted)}
 .rd-rec{display:flex;flex-direction:column;gap:3px;background:var(--accent-soft);border-radius:var(--radius-sm);padding:14px 16px}
-.rd-rec .rd-text{font-size:17px;line-height:1.45}
+.rd-rec .rd-text{font-size:16px;line-height:1.5}
 .rd-fact{font-size:13.5px;margin-top:3px} .rd-fact span{color:var(--fg-muted)}
 .rd-fact-edit{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px} .rd-fact-edit .rd-in:first-child{flex:1 1 140px;min-width:0} .rd-fact-edit .rd-in:last-child{flex:3 1 220px;min-width:0}
 .rd-sec{display:flex;flex-direction:column;gap:2px}
@@ -320,3 +320,8 @@
 .rc-dot.asked{background:var(--fg-faint);border-color:var(--fg-faint)}
 .rc-dot.on{outline:2px solid var(--accent);outline-offset:2px}
 .rc-ans{resize:vertical;min-height:54px}
+
+/* a draft's message, and the architect's part kept after it */
+.rd-eyebrow{font-size:11.5px;color:var(--fg-faint);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.rd-arch{display:grid;gap:12px;margin-top:6px;padding-top:14px;border-top:2px dashed var(--border-strong)}
+.rd-arch-note{font-size:12.5px;color:var(--fg-muted);max-width:72ch}

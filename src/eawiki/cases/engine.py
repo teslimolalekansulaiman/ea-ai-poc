@@ -435,12 +435,43 @@ class Engine:
         except Exception as e:                                   # one property failing never stops the sheet
             return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}
 
+    MAX_PEERS = 40                 # other items shown to a property that compares with them
+
+    def _peers(self, cid: str, spec: dict, pid: str, others: list, names: list) -> str:
+        """What the stages before this one decided for the OTHER items of the case, for the properties the owner named: one line per
+        item. A property that compares an item with the rest (is it the same need as another?) reads them; they are context, never a
+        source. An item that was not assessed, or whose answer is open, says so."""
+        if not names or not others:
+            return ""
+        title_field = (spec.get("input") or {}).get("title_field") or "title"
+        held = {}
+        for st in spec.get("stages") or []:
+            ph = phase_id(st)
+            if ph == pid:
+                break
+            for c in self.store.cells(cid, ph):
+                held[(c["item_id"], c["column"])] = c
+        lines = []
+        for o in others[:self.MAX_PEERS]:
+            parts = []
+            for n in names:
+                c = held.get((o["_id"], n))
+                if c is None:
+                    continue
+                parts.append(f"{n}: " + ("(not assessed)" if c["status"] == "not_assessed" else
+                                         "(not decided)" if c["status"] in ("needs_input", "needs_source") else _show(c["value"])[:200]))
+            lines.append(f"- {o['_id']} ({str(o.get(title_field) or '')[:80]}): " + ("; ".join(parts) or "(nothing decided)"))
+        if len(others) > self.MAX_PEERS:
+            lines.append(f"- and {len(others) - self.MAX_PEERS} more, not shown")
+        return "\n".join(lines)
+
     def _c_solve(self, s) -> dict:
         if s.get("failed"):
             return {}
         try:
+            peers = self._peers(s["cid"], s["spec"], s["pid"], s.get("others") or [], s["col"].get("sees_others") or [])
             cell = smod.solve(s["col"], s["item"], s["spec"], s["ev"], self._decided(s["cid"], s["pid"], s["item"]["_id"], s["spec"]),
-                              s["tools"].llm_json, self._stage_rules(s["spec"], s["pid"]))
+                              s["tools"].llm_json, self._stage_rules(s["spec"], s["pid"]), peers)
         except Exception as e:
             cell = self._failed_cell(s["col"], e)
         return {"cell": cell}

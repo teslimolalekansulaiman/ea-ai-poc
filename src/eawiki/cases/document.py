@@ -5,8 +5,12 @@ demand, so each demand gets a short document: the headline statement, a few key 
 property. Nothing here is model output. The text is the cells' own, in the order the use case declares, so the document
 and the table cannot disagree; the one model-written passage is whatever the use case names as the statement.
 
-    "output": {"mode": "document", "document": {"statement": "<a text property>", "facts": ["<property>", ...]},
+    "output": {"mode": "document", "document": {"statement": "<a text property>", "facts": ["<property>", ...],
+                                                "internal": ["<property>", ...]},
                "columns": [...]}
+
+`internal` names the properties that are for the architect and not part of what is sent: the draft keeps their sections apart,
+after the message, together with what is still to confirm and the sources. The download holds the message only.
 
 The tag beside the statement is the stage's result row tag. A property graded in code is left out (the grade is for the
 table, not for a page that is going to be read and signed). What is still unconfirmed is listed from the open cells of this
@@ -67,6 +71,7 @@ def compose(spec: dict, stage: dict, item: dict, cells: dict, earlier_open: Opti
     cols = stage["output"]["columns"]
     tag_col = (stage.get("result") or {}).get("row_tag")
     stmt_col = cfg.get("statement") if cfg.get("statement") in {c["name"] for c in cols} else None
+    internal = set(cfg.get("internal") or [])
     fact_cols = [f for f in dict.fromkeys(cfg.get("facts") or []) if f in {c["name"] for c in cols} and f != tag_col]       # the tag opens the key lines already: never twice
     title_field = (spec.get("input") or {}).get("title_field") or "title"
     has = lambda name: _text((cells.get(name) or {}).get("value"))                  # noqa: E731
@@ -87,13 +92,15 @@ def compose(spec: dict, stage: dict, item: dict, cells: dict, earlier_open: Opti
             continue
         v = has(c["name"])
         if v and (cells.get(c["name"]) or {}).get("status") not in OPEN:
-            sections.append({"title": c["name"], "body": v, "column": c["name"]})      # the column is what "how it was decided" is read from
+            sections.append({"title": c["name"], "body": v, "column": c["name"], **({"internal": True} if c["name"] in internal else {})})      # the column is what "how it was decided" is read from
     here = [(c["name"], (cells.get(c["name"]) or {}).get("need", "")) for c in cols if (cells.get(c["name"]) or {}).get("status") in OPEN]
     lines = to_confirm_lines(here, list(earlier_open or []))
+    keep = {"internal": True} if internal else {}                                    # with a message kept apart, what is open and the sources are the architect's too
     if lines:
-        sections.append({"title": TO_CONFIRM, "body": "\n".join(lines)})
+        sections.append({"title": TO_CONFIRM, "body": "\n".join(lines), **keep})
     if sources:
-        sections.append({"title": EVIDENCE, "body": "\n".join(dict.fromkeys(sources))})
+        sections.append({"title": EVIDENCE, "body": "\n".join(dict.fromkeys(sources)), **keep})
+    sections.sort(key=lambda x: bool(x.get("internal")))                              # the message's sections first, then the architect's (a stable sort)
     return {"title": str(item.get(title_field) or item.get("_id") or ""), "meta": str(item.get("_id") or ""),
             "rec": {"title": stage.get("name") or "Recommendation", "body": body, "column": stmt_col or ""}, "facts": facts, "sections": sections}
 
@@ -106,7 +113,8 @@ def clean(doc) -> dict:
     col = lambda x: {"column": x["column"].strip()[:200]} if isinstance(x.get("column"), str) and x["column"].strip() else {}      # noqa: E731
     rec = doc.get("rec") if isinstance(doc.get("rec"), dict) else {}
     facts = [{"label": s(f.get("label")), "value": s(f.get("value"))} for f in doc.get("facts") or [] if isinstance(f, dict)]
-    sections = [{"title": s(x.get("title")), "body": s(x.get("body")), **col(x)} for x in doc.get("sections") or [] if isinstance(x, dict)]
+    sections = [{"title": s(x.get("title")), "body": s(x.get("body")), **col(x), **({"internal": True} if x.get("internal") is True else {})}
+                for x in doc.get("sections") or [] if isinstance(x, dict)]
     facts = [f for f in facts if f["label"] or f["value"]][:MAX_FACTS]
     sections = [x for x in sections if x["title"] or x["body"]][:MAX_SECTIONS]
     return {"title": s(doc.get("title")), "meta": s(doc.get("meta")), "rec": {"title": s(rec.get("title")), "body": s(rec.get("body")), **col(rec)},
@@ -225,13 +233,16 @@ def decide(store, case: dict, pid: str, item_id: str, action: str, note: str = "
     return _entry(store, case, pid, item_id)
 
 
-def render_html(entry: dict) -> str:
-    """The document as a self-contained page, for download. It opens in a browser and in Word."""
+def render_html(entry: dict, include_internal: bool = False) -> str:
+    """The document as a self-contained page, for download. It opens in a browser and in Word. What is for the architect and not sent
+    is left out unless asked for."""
     d, e = entry["doc"], html.escape
     lines = [f"<h1>{e(d['title'])}</h1>", f"<p>{e(d['meta'])} · {e(entry['status'].title())}</p>",
              f"<h2>{e(d['rec']['title'])}</h2><p><b>{e(d['rec']['body'])}</b></p>"]
     lines += [f"<p>{e(f['label'])}: <b>{e(f['value'])}</b></p>" for f in d["facts"]]
     for s in d["sections"]:
+        if s.get("internal") and not include_internal:
+            continue
         lines.append(f"<h2>{e(s['title'])}</h2>" + "".join(f"<p>{e(ln)}</p>" for ln in s["body"].splitlines() if ln.strip()))
     if entry["status"] != "approved":
         lines.append("<p><i>Draft. Nothing in it is a decision until it is approved.</i></p>")
