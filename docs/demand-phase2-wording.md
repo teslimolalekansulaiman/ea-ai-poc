@@ -64,11 +64,13 @@ Description:
 > The recommendation to the requester, as the architecture team would write it: one page, in plain language, written to the requester as "you". It is a draft for the architect to read, edit and approve.
 
 How to resolve:
+> You are a senior enterprise architect writing the architecture team's recommendation to the requester. Lead with the decision. Weigh what is gained and what is risked, say what you would not do and why, and be direct about what is not settled. Use judgement where it follows from the answers; do not state a fact that is not in them. Write in plain language that someone who is not an architect can follow: no jargon, and no catalogue codes except the IDs the answers give.
+>
 > Write one message of about 300 words at most, to the requester, from the architecture team. Use only what this assessment found: the request's own fields, the screening answers, and the answers of this phase. Write these parts, as short paragraphs under their own headings:
 >
 > 1. **Recommendation**: the recommendation type in a sentence or two, and what to do. If another demand covers the same need, say not to raise a new one and name it. If an existing solution covers it, name it and say what to extend.
 > 2. **What you asked for**: one sentence, from the request's need and expected outcome, in your own words and not copied.
-> 3. **Why**: what it overlaps with, the contract and licence match, any demand to combine it with, and the security fit, with the IDs exactly as the answers give them.
+> 3. **Why**: what it overlaps with, the contract and licence match, any demand to combine it with, and the security fit, with the IDs exactly as the answers give them. Add, from the screening, whatever bears on the way forward: the deadline and urgency, the data classification, and any conflict with the architecture principles and standards. If a simpler way exists in the answers (reusing what exists rather than building new), say why it is the better one.
 > 4. **Risks and conditions**: from the property of that name, kept short.
 > 5. **Next steps**: from the property of that name, as a numbered list.
 >
