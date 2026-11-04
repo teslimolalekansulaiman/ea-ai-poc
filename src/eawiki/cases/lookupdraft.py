@@ -141,22 +141,37 @@ def draft(col: dict, spec: dict, si: int, ci: int, docs: list[str], llm_json: Op
     lookups, notes = clean(raw, col, docs, menu, same, have)
     if not lookups and not notes:
         return {"status": "none", "lookups": [], "notes": ["The model found no question this property needs: it is decided from the demand or from earlier answers."]}
-    # the graph relationships, only for a name match, and only where the graph holds edges for them
-    if edge_types and counts is not None and llm_text is not None:
-        if not counts.get("edges"):
-            notes.append("No graph is loaded, so no relationships were drafted.")
+    # the graph relationships, only for a name match, and only where the graph holds edges for them. Every lookup says what became of the
+    # graph, so that a lookup with none is a stated answer and not a silence.
+    can = bool(edge_types) and counts is not None and llm_text is not None
+    if can and not counts.get("edges"):
+        notes.append("No graph is loaded, so no relationships were drafted.")
+        can = False
+    elif not can and any(d["match"] == "name" for d in lookups):
+        notes.append("The graph could not be read here, so no relationships were drafted.")
+    for d in lookups:
+        if d["match"] != "name":
+            d["graph_note"] = "Not read: the graph is read around a name that a question matches."
+            continue
+        if not can:
+            d["graph_note"] = "No relationships drafted (the graph could not be read here)."
+            continue
+        try:
+            got = relsuggest.suggest(col, d, edge_types, counts, llm_text)
+        except Exception:
+            got = {"status": "unavailable", "suggestions": []}
+        if got.get("status") != "ok":
+            d["graph_note"] = "No relationships drafted: the model did not answer. Use “Suggest relationships” on the lookup."
+            continue
+        sug = got.get("suggestions") or []
+        rel = [g for g in sug if g.get("edges")]
+        if rel:
+            d["relations"] = [{"relation": g["relation"], "direction": g["direction"]} for g in rel]
+            d["relations_why"] = [f"{g['relation']} ({g['direction']}, {g['edges']} edges): {g['why']}" for g in rel]
+        elif sug:
+            d["graph_note"] = "Relationships suggested, but the graph holds no edges of them here: " + ", ".join(f"{g['relation']} ({g['direction']})" for g in sug) + "."
         else:
-            for d in lookups:
-                if d["match"] != "name":
-                    continue
-                try:
-                    got = relsuggest.suggest(col, d, edge_types, counts, llm_text)
-                except Exception:
-                    got = {"status": "unavailable", "suggestions": []}
-                rel = [{"relation": g["relation"], "direction": g["direction"]} for g in got.get("suggestions") or [] if g.get("edges")]
-                if rel:
-                    d["relations"] = rel
-                    d["relations_why"] = [f"{g['relation']} ({g['direction']}, {g['edges']} edges): {g['why']}" for g in got["suggestions"] if g.get("edges")]
+            d["graph_note"] = "No relationship judged needed: the question asks what something is, which the documents answer."
     return {"status": "ok" if lookups else "none", "lookups": lookups, "notes": notes}
 
 

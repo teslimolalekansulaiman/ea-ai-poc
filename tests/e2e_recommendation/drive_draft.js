@@ -14,6 +14,13 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('dialog', d => d.accept());
 
+  // the shipped use case already carries questions for this property: start from a copy without them, as an owner's copy before the update would be
+  const seed = await (await page.request.get(`${ORIGIN}/api/usecases/demand-management`)).json();
+  const sf = seed.stages[1].output.columns.find(c => c.name === 'Security fit');
+  delete sf.lookups; delete sf.uses;
+  const put = await page.request.put(`${ORIGIN}/api/usecases/demand-management`, { data: seed });
+  check(put.ok(), 'the property starts without questions (a copy as it was before the starter update)');
+
   await page.goto(`${ORIGIN}/#/usecases`);
   await page.waitForSelector('text=Demand Management');
   await page.locator('.kb-doc', { hasText: 'Demand Management' }).locator('a:has-text("Edit")').click();

@@ -301,3 +301,26 @@ def test_the_stage_route_drafts_for_the_stage_as_the_editor_holds_it(monkeypatch
     assert [d["find"] for d in next(p for p in got["properties"] if p["name"] == "Overlaps with")["lookups"]] == ["what overlaps"] and got["skipped"]
     for bad in ({}, {"use_case": _stage_spec(), "stage": 9}, {"use_case": "no", "stage": 0}):
         assert c.post("/api/usecases/draft-stage-lookups", json=bad).status_code == 400
+
+
+def test_every_drafted_question_says_what_became_of_the_graph():
+    counts = {"edges": 9, "relations": {"is_owned_by": {"total": 5, "out": {"application": 5}, "in": {}}, "supports": {"total": 0, "out": {}, "in": {}}}}
+    by = lambda out: {d["find"]: d for d in out["lookups"]}
+    # a meaning match is never read through the graph, and says so
+    got = by(_draft(GOOD, edge_types=EDGES, counts=counts, llm_text=lambda p: "none"))
+    assert "Not read" in got["what the need corresponds to"]["graph_note"]
+    # the model judged no relationship needed: a stated answer, not a silence
+    assert "No relationship judged needed" in got["who owns each overlapping solution"]["graph_note"]
+    # suggested, but the graph holds no edges of them
+    only_supports = by(_draft(GOOD, edge_types=EDGES, counts=counts, llm_text=lambda p: "supports | out | a link to what it supports"))
+    assert "holds no edges" in only_supports["who owns each overlapping solution"]["graph_note"] and "supports (out)" in only_supports["who owns each overlapping solution"]["graph_note"]
+    assert "relations" not in only_supports["who owns each overlapping solution"]
+    # the model did not answer for the relationships: said, with the way to try again
+    down = by(_draft(GOOD, edge_types=EDGES, counts=counts, llm_text=lambda p: 1 / 0))
+    assert "did not answer" in down["who owns each overlapping solution"]["graph_note"]
+    # a graph that cannot be read here: said once, and on each name question
+    nothing = _draft(GOOD)
+    assert "could not be read here" in " ".join(nothing["notes"]) and "could not be read" in by(nothing)["who owns each overlapping solution"]["graph_note"]
+    # where relationships are kept there is no note to contradict them
+    kept = by(_draft(GOOD, edge_types=EDGES, counts=counts, llm_text=lambda p: "is_owned_by | out | recorded as a link"))
+    assert "graph_note" not in kept["who owns each overlapping solution"] and kept["who owns each overlapping solution"]["relations"]

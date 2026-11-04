@@ -56,6 +56,7 @@ function LookupDraft({ state, current, onDraft, onAdd, onAddAll }) {
             {(d.in || []).length ? ' · in ' + d.in.join(', ') : ''}{(d.types || []).length ? ' · ' + d.types.join(', ') : ''}{d.extract ? ' · reads ' + d.extract : ''}</div>
           {d.why && <div className="meta">Why: {d.why}</div>}
           {(d.relations_why || []).map((w, k) => <div key={k} className="meta">Graph: {w}</div>)}
+          {d.graph_note && <div className="meta">Graph: {d.graph_note}</div>}
           {d.needs_uses && <div className="meta">Adding this also makes the property build on “{d.needs_uses}”, so that answer is decided first.</div>}
           <div><button type="button" className="btn add-draft" disabled={room <= 0} onClick={() => onAdd(i)}>Add this question</button></div>
         </div>))}
@@ -90,7 +91,7 @@ function StageDraft({ state, onDraft, onApply, onClose }) {
               <input type="checkbox" checked={on(k, true)} onChange={() => flip(k, true)} />
               <span><b>{d.find}</b><br /><span className="meta">starts from {d.from.startsWith('result:') ? 'the answer of “' + d.from.slice(7) + '”' : d.from.replace('_', ' ')} · by {d.match}
                 {(d.in || []).length ? ' · in ' + d.in.join(', ') : ''}{d.why ? ' · ' + d.why : ''}
-                {d.needs_uses ? ' · builds on “' + d.needs_uses + '”' : ''}{(d.relations_why || []).length ? ' · graph: ' + d.relations_why.join('; ') : ''}</span></span>
+                {d.needs_uses ? ' · builds on “' + d.needs_uses + '”' : ''}{(d.relations_why || []).length ? ' · graph: ' + d.relations_why.join('; ') : d.graph_note ? ' · graph: ' + d.graph_note : ''}</span></span>
             </label>) })}
           {p.uses_text.map(u => { const k = key(p.column, 'u' + u.name); return (
             <label key={u.name} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 8, alignItems: 'start', fontSize: 13 }}>
@@ -360,7 +361,7 @@ export default function UseCases() {
         if (!col || col.name !== p.name) continue
         p.lookups.forEach((t, i) => {
           if (!on(key(p.column, 'q' + i), true) || (col.lookups || []).length >= 6) return
-          const lk = { ...t }; delete lk.why; delete lk.relations_why; delete lk.needs_uses
+          const lk = { ...t }; delete lk.why; delete lk.relations_why; delete lk.graph_note; delete lk.needs_uses
           col.lookups = [...(col.lookups || []), lk]
           if (t.needs_uses && !(col.uses || []).includes(t.needs_uses)) col.uses = [...(col.uses || []), t.needs_uses]
         })
@@ -386,7 +387,7 @@ export default function UseCases() {
       const col = d.stages[si].output.columns[ci]
       for (const t of take) {
         if ((col.lookups || []).length >= 6) break
-        const lk = { ...t }; delete lk.why; delete lk.relations_why; delete lk.needs_uses; const needs_uses = t.needs_uses
+        const lk = { ...t }; delete lk.why; delete lk.relations_why; delete lk.graph_note; delete lk.needs_uses; const needs_uses = t.needs_uses
         col.lookups = [...(col.lookups || []), lk]
         if (needs_uses && !(col.uses || []).includes(needs_uses)) col.uses = [...(col.uses || []), needs_uses]
       }
