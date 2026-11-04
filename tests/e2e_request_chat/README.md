@@ -32,7 +32,7 @@ node tests/e2e_request_chat/drive_inputs.js      # OUT=<folder> keeps the screen
 Checks, in Chromium, that a case can be started by **chatting** (a typed message with labelled statements: the demand is found, what it
 did not say is asked, the answers go in the sheet, then the case starts), from a **PDF of one demand**, a **PDF of two**, a **sheet of one**
 (complete, so no conversation) and a **sheet of two** (the second misses its sponsor and go-live date, so two questions are asked). Each
-ends with the case started and its first phase run, with the right number of demands. The files are in `inputs/` (rewrite them with
+ends with the case started and its first phase run, with the right number of demands, and then taken on: the screening approved, the recommendation run, and the one draft for the request checked (the overview, a section for each demand, the architect's part apart, the download, one approval). The files are in `inputs/` (rewrite them with
 `make_inputs.py`, which needs reportlab and openpyxl).
 
 The stand-in reads labelled statements by rule: it checks reading each kind of file, splitting demands, the questions and the start, not how

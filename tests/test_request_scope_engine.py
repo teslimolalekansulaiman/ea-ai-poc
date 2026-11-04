@@ -171,3 +171,12 @@ def test_the_architects_own_words_for_a_derived_property_stay():
     assert cells[("D-2026-003", "Handled with")]["value"] == "Alone, I confirmed it"       # not written over
     assert cells[("D-2026-001", "Handled with")]["source"] == "rule"
     assert spec["stages"][1]["name"] == "Recommendation"
+
+
+def test_each_demand_is_one_line_however_many_paragraphs_its_answers_have():
+    e = Engine(CaseStore(), base.fake_tools, workers=1)
+    cid = e.create(copy.deepcopy(base.SPEC), base.ITEMS[:2], "lines")
+    e.store.save_cell(cid, "D-2026-003", "screening", "Domain", value="First paragraph.\n\nSecond paragraph.\n1. A step\n2. Another", status="answered", source="model")
+    out = e._peers(cid, e.store.get_case(cid)["spec"], "recommendation", [{"_id": "D-2026-003", "title": "Second"}, {"_id": "D-2026-004", "title": "Third"}], ["Domain"])
+    assert out.split("\n")[0] == "- D-2026-003 (Second): Domain: First paragraph. Second paragraph. 1. A step 2. Another"
+    assert len(out.split("\n")) == 2 and out.split("\n")[1].startswith("- D-2026-004 (Third)")

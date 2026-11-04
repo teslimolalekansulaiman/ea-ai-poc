@@ -519,7 +519,7 @@ class Engine:
                 if c is None:
                     continue
                 parts.append(f"{n}: " + ("(not assessed)" if c["status"] == "not_assessed" else
-                                         "(not decided)" if c["status"] in ("needs_input", "needs_source") else _show(c["value"])[:self.MAX_PEER_VALUE]))
+                                         "(not decided)" if c["status"] in ("needs_input", "needs_source") else " ".join(_show(c["value"]).split())[:self.MAX_PEER_VALUE]))      # one line: an answer with paragraphs would run into the next item's
             lines.append(f"- {o['_id']} ({str(o.get(title_field) or '')[:80]}): " + ("; ".join(parts) or "(nothing decided)"))
         if len(others) > self.MAX_PEERS:
             lines.append(f"- and {len(others) - self.MAX_PEERS} more, not shown")

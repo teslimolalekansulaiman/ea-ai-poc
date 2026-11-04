@@ -39,6 +39,27 @@ const CHAT = [
     check(c.items && c.items.length === n && c.phases[0].state.status === 'review', `${label}: the case started with ${n} demand${n > 1 ? 's' : ''} and its first phase ran (${c.items ? c.items.map(i => i._id).join(', ') : '?'})`);
     return c;
   };
+  // the case is taken on: the screening approved, the recommendation run, and the one draft for the request is there
+  const toDraft = async (n, ids, label) => {
+    await page.click('button:has-text("Approve and continue to")');
+    await page.waitForSelector('.rd', { timeout: 40000 });
+    check(/One draft for the whole request/.test(await page.innerText('.rd h3')), `${label}: the recommendation phase ends in one draft for the whole request`);
+    check(new RegExp(`The request holds ${n} demand`).test(await page.innerText('.rd-rec .rd-text')), `${label}: it opens with the overview of the request: ` + (await page.innerText('.rd-rec .rd-text')).replace(/\s+/g, ' ').slice(0, 70));
+    const heads = await page.$$eval('.rd-sheet > .rd-sec .rd-h', e => e.map(x => x.textContent));
+    check(heads.length === n && ids.every((id, i) => heads[i].startsWith(id + ' · ')), `${label}: a section for each demand: ` + heads.join(' | '));
+    const body = await page.innerText('.rd-sheet > .rd-sec >> nth=0');
+    check(new RegExp(`extend the existing platform to cover ${ids[0]}`).test(body) && /Next steps/.test(body), `${label}: each section is that demand's own recommendation, with its next steps`);
+    const apart = await page.$$eval('.rd-arch .rd-demand', e => e.map(x => x.textContent));
+    check(ids.every(id => apart.includes(id)) && /For the architect, not sent/i.test(await page.innerText('.rd-arch')), `${label}: the architect's part has each demand's findings, apart and not sent`);
+    const dl = await page.request.get(ORIGIN + await page.getAttribute('.rd-dl', 'href'));
+    const text = await dl.text();
+    check(dl.ok() && ids.every(id => text.includes(id)) && /The request holds/.test(text) && !/Overlaps with|To confirm before approval/.test(text), `${label}: the download holds the overview and every demand's section, not the architect's part`);
+    await page.click('.rd-actions button:has-text("Approve")');
+    await page.waitForSelector('.rd-banner.ok');
+    check(/This is the recommendation for this request/.test(await page.innerText('.rd-banner.ok')) && !/_request/.test(await page.innerText('.rd')), `${label}: nothing internal shows in the text (no "_request")`);
+    check(/^Approved$/.test((await page.innerText('.rd h3')).trim()), `${label}: one approval, and the case is finished`);
+    await shot(page, label.split(' ')[0] + '-draft');
+  };
   const ready = async () => { await page.waitForSelector('.rc-ready', { timeout: 20000 }); return page.innerText('.rc-ready'); };
 
   // 1. chatting: a typed message, what is missing is asked, the answers go in the sheet, then the case starts
@@ -67,6 +88,7 @@ const CHAT = [
   await page.click('.rc-ready button:has-text("Start the case")');
   await started(1, '1 chat');
   await shot(page, '1-chat-case');
+  await toDraft(1, ['D-2026-310'], '1 chat');
 
   // 2 and 3. a PDF of one demand, a PDF of two: read, every required field found, nothing to ask, the case starts
   for (const [n, file, label] of [[1, 'one_demand.pdf', '2 PDF, one demand'], [2, 'two_demands.pdf', '3 PDF, two demands']]) {
@@ -85,6 +107,7 @@ const CHAT = [
     await page.click('.rc-sum > summary');
     await page.click('.rc-ready button:has-text("Start the case")');
     await started(n, label);
+    await toDraft(n, n === 1 ? ['D-2026-301'] : ['D-2026-301', 'D-2026-302'], label);
   }
 
   // 4. a sheet of one demand: complete, so the case starts without a conversation
@@ -93,6 +116,7 @@ const CHAT = [
   await page.click('button:has-text("Send")');
   await started(1, '4 Excel, one demand');
   check(!(await page.$('.rc-chat')), '4 Excel, one demand: a complete sheet needs no conversation');
+  await toDraft(1, ['D-2026-301'], '4 Excel, one demand');
   await shot(page, '4-excel-one');
 
   // 5. a sheet of two demands, the second missing its sponsor and its go-live date: asked, answered together, then the case starts
@@ -112,6 +136,7 @@ const CHAT = [
   await page.click('.rc-ready button:has-text("Start the case")');
   await started(2, '5 Excel, two demands');
   await shot(page, '5-excel-two-case');
+  await toDraft(2, ['D-2026-301', 'D-2026-302'], '5 Excel, two demands');
 
   check(errors.length === 0, 'no errors in the browser console' + (errors.length ? ': ' + errors.slice(0, 3).join(' | ') : ''));
   await browser.close();

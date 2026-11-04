@@ -99,6 +99,33 @@ def model(prompt):
         return {"question": f"What is the {label.lower()} for {', '.join(ids)}?"}
     return None
 
-cases_api.set_engine(Engine(store(), base.fake_tools, workers=2))
+CANNED = {"Overlaps with": ["HR system"], "Consolidate with demand(s)": ["None"], "Contract / licence match": "Covered by the current licence until March 2027.",
+          "Security fit": "Under the existing identity control; a review is still needed.", "Recommended owner": "HR Systems Lead",
+          "Recommendation type": "Enhancement of existing", "Risks and conditions": ["The cyber team has not yet confirmed access control."]}
+
+
+def tools():
+    """The engine's fake tools, with answers for the second stage, so a case started here can be taken to its draft."""
+    t = base.fake_tools()
+    inner = t.llm_json
+
+    def llm(prompt):
+        m = re.search(r"PROPERTY: (.+?)  \[", prompt)
+        name = m.group(1) if m else ""
+        if "INSTRUCTIONS FOR THIS STAGE" in prompt and name in (*CANNED, "Recommendation", "Request overview"):
+            who = re.search(r"\[demand:demand_id\] Demand ID: (\S+)", prompt)
+            who = who.group(1) if who else ""
+            ids = re.findall(r"\[([^\]\s]+:\d+)\]", prompt)
+            n = len(re.findall(r"(?m)^- (?!and )\S+ \(", prompt.split("THE DEMANDS IN THIS REQUEST")[1].split("\n\n")[0])) if "THE DEMANDS IN THIS REQUEST" in prompt else 0
+            value = (f"We recommend you extend the existing platform to cover {who}.\n\nWhy\nThe platform already covers most of it.\n\nRisks and conditions\n"
+                     "The cyber team has not yet confirmed access control.\n\nNext steps\n1. The cyber team reviews access control.") if name == "Recommendation" else \
+                (f"The request holds {n} demand{'s' if n != 1 else ''}, and they are handled separately.") if name == "Request overview" else CANNED[name]
+            return {"value": value, "status": "answered", "evidence": [] if name == "Request overview" else ids[:1], "needs": "", "note": "n"}
+        return inner(prompt)
+    t.llm_json = llm
+    return t
+
+
+cases_api.set_engine(Engine(store(), tools, workers=2))
 req_api.llm_factory = lambda: model
 uvicorn.run(appmod.app, host="127.0.0.1", port=int(os.environ.get("PORT", "8765")), log_level="warning")

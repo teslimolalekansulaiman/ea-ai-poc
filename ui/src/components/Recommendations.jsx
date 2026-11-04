@@ -90,7 +90,7 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
     </section>)
 
   return (
-    <article className="rd-sheet" aria-label={'Recommendation for ' + e.item_id}>
+    <article className="rd-sheet" aria-label={'Recommendation for ' + (e.item_id === '_request' ? 'this request' : e.item_id)}>
       <div className="rd-top">
         <span className={'cs-pill ' + cls}>{label}</span>
         {e.edited && <span className="rd-note">Edited by the architect. The original draft is kept with the record.</span>}
@@ -138,7 +138,7 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
 
       <p className="rd-foot">Built from the answers of the phases before it and the sources listed above. Nothing in it is a decision until it is approved.</p>
 
-      {e.status === 'approved' && <div className="rd-banner ok"><b>Approved{e.decided_at ? ' on ' + when(e.decided_at) : ''}.</b> This is the recommendation for {e.item_id}. The text is locked; running the phase again will not change it.</div>}
+      {e.status === 'approved' && <div className="rd-banner ok"><b>Approved{e.decided_at ? ' on ' + when(e.decided_at) : ''}.</b> This is the recommendation for {e.item_id === '_request' ? 'this request' : e.item_id}. The text is locked; running the phase again will not change it.</div>}
       {e.status === 'returned' && <div className="rd-banner crit"><b>Returned.</b> {e.note}</div>}
 
       {asking && !editing && (
