@@ -1,91 +1,85 @@
-# Demand use case, Phase 2 (Recommendation): proposed wording
+# Demand use case, Phase 2 (Recommendation): proposed wording, version 2
 
-For review. Nothing here is applied yet. It follows the design agreed in the conversation:
+For review. Nothing here is applied yet. This **replaces** the earlier design of one message per demand.
 
-- The draft is the **last** property of Phase 2 (the stage's summary property, like "Screening observation" in Phase 1). It starts only when every other Phase 2 property has finished, and it reads all of Phase 1 and Phase 2.
-- The audience is the **requester**. The length is **one page** (about 300 words). The EA reads, edits and approves it.
-- The draft has two parts: the **message to the requester**, and **for the architect, not sent** (the findings, what is still to confirm, the evidence).
+## The design
 
-## What changes in the property list
+- A request with more than one demand is a group. It gets **one recommendation, in one draft**, approved once. Each demand is still addressed separately inside it.
+- The audience is the **requester** who sent the request. Each demand's section is **100 to 150 words**; the overview is 60 to 120. There is no cap on the number of demands.
+- Demands that ask for the same thing are **placed together** in the draft under a "Combined" heading, the lead first. The others follow in the order they came in the sheet.
+- Findings stay **per demand**, because they differ: Overlaps with, Consolidate with demand(s), Contract / licence match, Security fit, Recommendation type, Recommended owner, Risks and conditions, Next steps.
+- Two properties write the draft, in this order, after all the findings:
+  1. **Recommendation**, per demand: that demand's section.
+  2. **Request overview**, once per request: the opening. It sees every demand's findings and sections.
+- **Handled with** is worked out in code, not by the model: the consolidation answers must agree both ways (if A names B, B names A, or the architect is asked), and the earliest submitted demand leads. Both the sections and the overview read it, so they agree.
 
-| Today | Proposed |
-|---|---|
-| Recommendation (five-word label) | renamed **Recommendation type** (still the stage's tag, and what Confidence is graded from) |
-| Recommended action | removed (becomes the message) |
-| Justification | removed (becomes the "Why" paragraph of the message) |
-| (none) | **Risks and conditions** (list) |
-| (none) | **Next steps** (list) |
-| (none) | **Recommendation** (text, the stage's summary property: the message to the requester) |
-| Overlaps with, Contract / licence match, Security fit, Recommended owner | unchanged (wording already in the repo) |
-| Consolidate with demand(s) | wording changes: it now also reads the other demands' screening answers |
-| Confidence (graded in code), Evidence | unchanged |
+## How the draft is put together (by code)
 
-Run order: Overlaps with, Consolidate with demand(s), Contract / licence match, Security fit; then Recommendation type, Recommended owner, Risks and conditions, Next steps; last, Recommendation.
+1. Request overview.
+2. For each group of combined demands: a "Combined: ..." heading, then the lead's section, then the others'.
+3. Each other demand, in sheet order: its section.
+4. For the architect, not sent: each demand's findings, what is still to confirm, and the evidence.
 
-## Stage instructions (Recommendation)
+The download holds parts 1 to 3 only.
 
-> Check overlap with existing solutions (components, platforms, applications, APIs, prior or running initiatives) and with other demands (consolidate). Check the contract register for licences and renewals that could cover it. Confirm the security fit before recommending reuse. Decide the way forward and the owner, and name the risks and the next steps. The last property, Recommendation, is the message to the requester: it is written only after all the others are done, from them and from the screening. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it does not, say what is needed.
-
-## Consolidate with demand(s) (changed)
+## Handled with (new, per demand, worked out in code)
 
 Description:
-> Other demands in this request that should be handled together with this one because they ask for the same need, for the same users, on the same systems. Their demand IDs, or None.
+> Whether this demand is handled together with others in the request, and which of them leads. Worked out in code, not by the model: from the consolidation answers, which must agree both ways, with the earliest submitted demand leading by default. It reads "Alone", or "Combined with D-2026-003; lead: D-2026-001".
 
-How to resolve:
-> Compare this demand with the screening answers of the other demands in this request (the duplicate answers, the impacted applications and the impacted capabilities), which are listed for you. Write only demand IDs that appear in this request, never one invented or taken from outside it. A match needs the same need and the same systems, not the same words. None when no other demand matches. If the screening left the duplicate question open, say that instead of writing None.
-
-## Recommendation type (renamed from "Recommendation"; wording unchanged)
-
-Values: Reuse, Enhancement, Merge/CR, Link new artefacts, Onboard new requirement. Builds on: Overlaps with, Consolidate with demand(s), Contract / licence match, Security fit. The description and how-to-resolve already in the repo stay as they are.
-
-## Risks and conditions (new, list)
+## Recommendation (per demand: that demand's section)
 
 Description:
-> What could stop or change this recommendation, one item per line: what is not yet confirmed, what must be true before it goes ahead, and what it depends on. Each item says who has to confirm it, as a role.
-
-How to resolve:
-> Take them from what is open in this assessment: a security fit that is not confirmed, a contract or licence that was not checked, an overlapping solution whose status is unclear (for example one listed as not in use), a dependency on something that is only proposed or has no initiative ID, and anything the screening left open. One short line each, with the ID of the solution or contract it concerns. Do not add a risk that none of the answers or sources supports. None when nothing is open.
-
-Builds on: Overlaps with, Consolidate with demand(s), Contract / licence match, Security fit, Recommendation type.
-
-## Next steps (new, list)
-
-Description:
-> What happens next, in order, one item per line, each with the role that does it. Where the requester has something to do, that step says so.
-
-How to resolve:
-> Write the steps that follow from the recommendation type and from the risks above: confirming a status with an owner, a review by the security team, a contract check, combining with another demand, raising a change request. Each names a role taken from the Owners answer or from the Recommended owner, never a person's name. Order them so the first one unblocks the rest. Do not invent a process, a date or a team; if no owner is recorded, say whose confirmation is needed. For a demand that should be combined with another, the first step is to continue under that demand.
-
-Builds on: Recommendation type, Recommended owner, Risks and conditions.
-
-## Recommendation (new, text, the stage's summary property)
-
-Description:
-> The recommendation to the requester, as the architecture team would write it: one page, in plain language, written to the requester as "you". It is a draft for the architect to read, edit and approve.
+> This demand's section of the recommendation to the requester: 100 to 150 words, in plain language, written to the requester as "you". It is a draft for the architect to read, edit and approve as part of the request's one recommendation.
 
 How to resolve:
 > You are a senior enterprise architect writing the architecture team's recommendation to the requester. Lead with the decision. Weigh what is gained and what is risked, say what you would not do and why, and be direct about what is not settled. Use judgement where it follows from the answers; do not state a fact that is not in them. Write in plain language that someone who is not an architect can follow: no jargon, and no catalogue codes except the IDs the answers give.
 >
-> Write one message of about 300 words at most, to the requester, from the architecture team. Use only what this assessment found: the request's own fields, the screening answers, and the answers of this phase. Plain text only, with no symbols or markdown. Write these parts as short paragraphs. The first has no heading; each of the others has a short heading on a line of its own:
-> 1. The recommendation (no heading): the recommendation type in a sentence or two, and what to do. If another demand covers the same need, say not to raise a new one and name it. If an existing solution covers it, name it and say what to extend.
-> 2. What you asked for: one sentence, from the request's need and expected outcome, in your own words and not copied.
-> 3. Why: what it overlaps with, the contract and licence match, any demand to combine it with, and the security fit, with the IDs exactly as the answers give them. Add, from the screening, whatever bears on the way forward: the deadline and urgency, the data classification, and any conflict with the architecture principles and standards. If a simpler way exists in the answers (reusing what exists rather than building new), say why it is the better one.
-> 4. Risks and conditions: from the property of that name, kept short.
-> 5. Next steps: from the property of that name, as a numbered list.
+> Write this demand's section only, 100 to 150 words, to the requester, from the architecture team. Use only what this assessment found for this demand and, where "Handled with" says it is combined, for the demands it is combined with. Plain text only, with no symbols or markdown. Write these parts as short paragraphs. The first has no heading; each of the others has a short heading on a line of its own:
+> 1. The recommendation (no heading): this demand's recommendation type and what to do, in one or two sentences. If the demand is handled with others, say so first. For the lead: which demands are combined into it and what that changes. For any other: that it should not be raised on its own, and that the work continues under the lead, named.
+> 2. Why: two or three sentences: what it overlaps with, the contract and licence match, and the security fit, with the IDs exactly as the answers give them. Add, from the screening, whatever bears on the way forward: the deadline and urgency, the data classification, and any conflict with the architecture principles and standards.
+> 3. Risks and conditions: from the property of that name, at most two lines.
+> 4. Next steps: from the property of that name, a numbered list of at most three.
 >
-> Say plainly what is not yet confirmed. Do not add a fact, an ID, a date, a name, a cost or a regulation that is not in the answers or the sources. Do not recommend new business capabilities. Write roles, never personal names. Do not state a grade or a confidence level. If the recommendation type is not decided, say what is needed instead of writing a message.
+> Say plainly what is not yet confirmed. Do not add a fact, an ID, a date, a name, a cost or a regulation that is not in the answers or the sources. Do not recommend new business capabilities. Write roles, never personal names. Do not state a grade or a confidence level. If the recommendation type is not decided, say what is needed instead of writing the section.
 
-Builds on: every other Phase 2 property (Overlaps with, Consolidate with demand(s), Contract / licence match, Security fit, Recommendation type, Recommended owner, Risks and conditions, Next steps).
+Builds on: every finding of this demand, and Handled with. Sees, for the other demands: Recommendation type, Recommended owner and Handled with.
 
-## Stage settings
+## Request overview (new, once per request, written last)
 
-- Summary property: **Recommendation** (today: Justification).
-- Tag (row tag): **Recommendation type** (today: Recommendation).
-- Draft document: headline text = **Recommendation**; key line = **Recommended owner**.
-- Draft parts (built; `output.document.internal`): the first part, **Message to the requester**, is the headline text and the key line (Recommended owner), under the tag. The second part, **For the architect, not sent**, holds Overlaps with, Consolidate with demand(s), Contract / licence match, Security fit, Risks and conditions and Next steps, then what is still to confirm and the evidence. The download holds the message only.
+Description:
+> The opening of the request's recommendation: how the request as a whole should be handled, in plain language, written to the requester. The demands' own sections follow it.
 
-## What the code now supports (built)
+How to resolve:
+> You are a senior enterprise architect writing the architecture team's recommendation to the requester. Lead with the decision. Weigh what is gained and what is risked, say what you would not do and why, and be direct about what is not settled. Use judgement where it follows from the answers; do not state a fact that is not in them. Write in plain language that someone who is not an architect can follow: no jargon, and no catalogue codes except the IDs the answers give.
+>
+> Write 60 to 120 words of plain text, with no symbols or markdown, to the requester, from the architecture team. Say how many demands the request holds and the overall recommendation, in a sentence or two. Name which demands are handled together and which one leads each group. If the demands should be done in an order, or share a risk or a step, say which and why. Use only the answers shown for the demands of this request. Do not repeat the demands' sections; they follow. Say plainly what is not yet confirmed. Do not add a fact, an ID, a date, a name, a cost or a regulation that is not in the answers or the sources. Do not recommend new business capabilities. Write roles, never personal names. Do not state a grade or a confidence level. If the recommendation type is not decided, say what is needed instead of writing the section.
 
-1. `output.document.internal`: which properties are for the architect and not sent, kept after the message.
-2. `sees_others` on a property: what earlier stages decided for the other demands is shown to it as context ("Consolidate with demand(s)" uses it).
-3. The engine already runs the summary property last, and runs it again after any answer in the stage, so the message is rewritten when an open property is answered. An edited draft is kept as edited and says the results changed.
+Builds on: every demand's findings and Handled with.
+
+## Unchanged
+
+Overlaps with, Contract / licence match, Security fit, Recommended owner, Recommendation type (renamed from "Recommendation"), Risks and conditions, Next steps, Consolidate with demand(s): wording as in the earlier version and in the repo. Consolidate with demand(s) now only proposes the merge; the agreement check and the lead are in code.
+
+## Sample of one demand's section (illustrative)
+
+> D-2026-201 · Send evaluation results to payroll
+>
+> We recommend enhancing the existing link between the HR & Payroll Portal, which hosts Evaluate, and the Payroll System, rather than raising a new demand.
+>
+> Why
+> Both systems already exist (As-Is catalogue 4.19 and 4.29), and Evaluate is built in-house with no third-party licence. The data is classified Internal, and your target date of 31 March 2027 is realistic for an enhancement.
+>
+> Risks and conditions
+> The cyber team has not confirmed access control for the interface. Evaluate is listed as "Not in use", so its status needs confirming.
+>
+> Next steps
+> 1. The portal owner confirms Evaluate's status.
+> 2. The cyber team reviews access control for the interface.
+> 3. Architecture confirms once the security fit is settled.
+
+## What the code must support (to build)
+
+1. A request scope for a property (written once, not per demand), and the request's own cells.
+2. A property worked out in code ("Handled with"): agreement of the consolidation answers, and the lead.
+3. One draft per request: assembly in the order above, one approval, one download.
