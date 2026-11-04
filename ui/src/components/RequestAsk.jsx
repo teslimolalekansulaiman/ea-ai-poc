@@ -135,7 +135,7 @@ export function Ready({ req, busy, onStart, gapsUrl }) {
   if (s.problems > 0) return <div className="rc-q"><div className="cs-need">Two {L.plural} cannot share an ID. Fix the sheet and attach it again, or start over.</div></div>
   return (
     <div className="rc-q rc-ready" role="group" aria-label="Start the case">
-      <div><b>{req.ready ? `All ${many(s.total)} are complete.` : `${s.complete} complete, ${s.incomplete} held for information.`}</b>
+      <div><b>{req.ready ? (s.total === 1 ? `The ${L.singular} is complete.` : `All ${many(s.total)} are complete.`) : `${s.complete} complete, ${s.incomplete} held for information.`}</b>
         <span className="cs-faint"> {req.ready ? 'Nothing is missing.' : `A held ${L.singular} is returned to its requester while the others carry on.`}</span></div>
       <div className="rc-opts">
         {req.ready

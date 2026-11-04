@@ -26,3 +26,4 @@ psycopg[binary]>=3.2              # HISTORY_BACKEND=postgres — chats + runs in
 # google-cloud-aiplatform>=1.60   # EAWIKI_EMBED_BACKEND=vertex
 
 openpyxl>=3.1          # read a sheet of demands (.xlsx) and export a case
+pypdf>=4.0          # reads the text layer of a PDF when the ingestion parser cannot run (attachments in the request chat)

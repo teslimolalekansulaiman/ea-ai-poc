@@ -21,3 +21,19 @@ the text can still start a case as it is.
 
 The stand-in model is rule-based: it checks the screen and the plumbing, not how well a real model reads. `gaps.csv` is a sheet of
 four demands with sponsors and a date missing; `notes.txt` names a sponsor.
+
+## Starting a case five ways
+
+```
+python tests/e2e_request_chat/serve.py &
+node tests/e2e_request_chat/drive_inputs.js      # OUT=<folder> keeps the screenshots
+```
+
+Checks, in Chromium, that a case can be started by **chatting** (a typed message with labelled statements: the demand is found, what it
+did not say is asked, the answers go in the sheet, then the case starts), from a **PDF of one demand**, a **PDF of two**, a **sheet of one**
+(complete, so no conversation) and a **sheet of two** (the second misses its sponsor and go-live date, so two questions are asked). Each
+ends with the case started and its first phase run, with the right number of demands. The files are in `inputs/` (rewrite them with
+`make_inputs.py`, which needs reportlab and openpyxl).
+
+The stand-in reads labelled statements by rule: it checks reading each kind of file, splitting demands, the questions and the start, not how
+well a real model reads a free-form demand.

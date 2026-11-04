@@ -123,6 +123,29 @@ def _docling_text(path: str) -> str:
     return _converter.convert(path).document.export_to_markdown()
 
 
+_pdf_converter = None
+
+
+def _pdf_text(path: str) -> str:
+    """A PDF. The ingestion parser first, with OCR off (a PDF that has a text layer needs none, and a server with no OCR engine would
+    otherwise refuse every PDF); if that cannot run here, the text layer is read directly. A scan has no text layer and yields nothing,
+    which the caller says. Raises ImportError when neither can read it."""
+    global _pdf_converter
+    try:
+        if _pdf_converter is None:
+            from docling.datamodel.base_models import InputFormat
+            from docling.datamodel.pipeline_options import PdfPipelineOptions
+            from docling.document_converter import DocumentConverter, PdfFormatOption
+            _pdf_converter = DocumentConverter(format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=PdfPipelineOptions(do_ocr=False))})
+        text = _pdf_converter.convert(path).document.export_to_markdown()
+        if text.strip():
+            return text
+    except Exception:
+        pass                                                           # the parser could not run here: read the text layer instead
+    from pypdf import PdfReader                                         # ImportError if the server has no way to read a PDF
+    return "\n\n".join((page.extract_text() or "") for page in PdfReader(path).pages)
+
+
 def _clean(text: str) -> str:
     t = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", str(text or "")).replace("\r\n", "\n").replace("\r", "\n")
     return re.sub(r"\n{3,}", "\n\n", t).strip()
@@ -148,7 +171,7 @@ def read(name: str, data: bytes, documents: Optional[Callable] = None) -> dict:
             raise AttachmentError(f"I could not read {shown} as an email.")
     else:
         ext = Path(shown).suffix.lower()
-        reader = documents or _docling_text
+        reader = documents or (_pdf_text if ext == ".pdf" else _docling_text)
         fd, tmp = tempfile.mkstemp(suffix=ext)
         try:
             with os.fdopen(fd, "wb") as f:

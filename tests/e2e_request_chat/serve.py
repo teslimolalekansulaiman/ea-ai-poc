@@ -25,10 +25,45 @@ def block(prompt, head):
 def sources(prompt):
     return {m.group(1): m.group(2) for m in re.finditer(r'SOURCE: (.*?)\n"""\n(.*?)\n"""', prompt, re.S)}
 
+LABELS = {"Demand ID": "demand_id", "Date submitted": "date_submitted", "Requesting department": "department", "Requester role": "requester_role",
+          "Business sponsor": "sponsor", "Demand title": "title", "Request type": "request_type", "Requester urgency": "requester_urgency", "Target go-live": "target_go_live"}
+
+
+def statements(srcs):
+    """What a careful reader would take from labelled statements of a demand (a PDF, a typed message): one item for each 'Demand ID:'
+    block, each value with the exact words it came from. A rule-based stand-in: it checks the plumbing, not how a real model reads."""
+    items = []
+    for name, text in srcs.items():
+        text = re.sub(r"[#*]+ ?", "", text)
+        for block in [p for p in re.split(r"(?m)^(?=\W*Demand request \d+:)", text) if "Demand ID:" in p]:
+            f = {}
+
+            def put(field, value, quote):
+                if value.strip():
+                    f[field] = {"value": value.strip(), "quote": quote.strip(), "source": name}
+            m = re.search(r"Demand request \d+:\s*(.+)", block)
+            if m:
+                put("title", m.group(1), m.group(0))
+            for label, field in LABELS.items():
+                m = re.search(rf"{re.escape(label)}:\s*([^.\n]+)", block)
+                if m:
+                    put(field, m.group(1), m.group(0))
+            for label, field, stop in (("Business need", "business_need", r"Expected outcome|Request type:"), ("Expected outcome", "expected_outcome", r"Request type:")):
+                m = re.search(rf"{label}\s*:?\s*(.*?)(?={stop}|\Z)", block, re.S)
+                if m:
+                    words = " ".join(m.group(1).split())
+                    put(field, words, words)
+            items.append({"fields": f})
+    return items
+
+
 def model(prompt):
     if "list the demands in them" in prompt:                              # reading a message and files
         srcs = sources(prompt)
         msg = srcs.get("your message", "")
+        structured = statements(srcs)
+        if structured:
+            return {"items": structured}
         if "need" not in msg.lower() and not any("sponsor is" in t for t in srcs.values()):      # nothing in it says that something is needed
             return {"items": []}
         fields = {}

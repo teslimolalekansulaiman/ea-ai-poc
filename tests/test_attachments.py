@@ -345,3 +345,35 @@ def test_a_word_file_goes_through_the_route(client, monkeypatch):
     monkeypatch.setattr(req_api, "llm_factory", lambda: fake)
     r = client.post("/api/requests/from-sources", data={"use_case_id": UC}, files=[("files", ("brief.docx", _docx("Complaints get lost.", "We need a fix."), "application/octet-stream"))])
     assert r.status_code == 200 and r.json()["request"]["items"][0]["from"]["business_need"] == {"by": "file", "quote": "Complaints get lost.", "chosen": False, "source": "brief.docx"}
+
+
+# ---- a PDF: the text layer is read, with no OCR engine and no ingestion models --------------------------------------
+
+def _pdf(lines):
+    """A well-formed one-page PDF whose text layer is `lines`; no lines give a page with no text (as a scan has)."""
+    body = ("BT /F1 12 Tf 20 170 Td 14 TL " + " ".join(f"({ln}) Tj T*" for ln in lines) + " ET") if lines else ""
+    objs = ["<</Type/Catalog/Pages 2 0 R>>", "<</Type/Pages/Kids[3 0 R]/Count 1>>",
+            "<</Type/Page/Parent 2 0 R/MediaBox[0 0 400 200]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>",
+            f"<</Length {len(body)}>>\nstream\n{body}\nendstream", "<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>"]
+    out, offsets = "%PDF-1.4\n", []
+    for n, o in enumerate(objs, 1):
+        offsets.append(len(out.encode("latin-1")))
+        out += f"{n} 0 obj\n{o}\nendobj\n"
+    start = len(out.encode("latin-1"))
+    out += f"xref\n0 {len(objs) + 1}\n0000000000 65535 f \n" + "".join(f"{off:010d} 00000 n \n" for off in offsets)
+    out += f"trailer\n<</Root 1 0 R/Size {len(objs) + 1}>>\nstartxref\n{start}\n%%EOF\n"
+    return out.encode("latin-1")
+
+
+def test_a_pdf_with_a_text_layer_is_read_even_where_the_ingestion_parser_cannot_run():
+    pytest.importorskip("pypdf")
+    out = at.read("request.pdf", _pdf(["Demand ID: D-2026-301", "Business sponsor: Director of HR"]))
+    assert out["kind"] == "document" and "Demand ID: D-2026-301" in out["text"] and "Business sponsor: Director of HR" in out["text"]
+
+
+def test_a_pdf_with_no_text_is_said_to_be_a_scan_and_a_damaged_one_to_be_unreadable():
+    pytest.importorskip("pypdf")
+    with pytest.raises(at.AttachmentError, match="No text could be read from scan.pdf. If it is a scan"):
+        at.read("scan.pdf", _pdf([]))
+    with pytest.raises(at.AttachmentError, match="I could not read broken.pdf"):
+        at.read("broken.pdf", b"%PDF-1.4 this is not a pdf at all")

@@ -40,3 +40,4 @@ uvicorn[standard]>=0.54
 certifi>=2024.0        # CA bundle for OpenAI-compatible HTTPS on macOS Python
 openpyxl>=3.1          # eval/gold_to_xlsx.py — export the gold set to Excel
 python-multipart
+pypdf>=4.0          # reads the text layer of a PDF when the ingestion parser cannot run (attachments in the request chat)
