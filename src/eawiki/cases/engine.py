@@ -495,7 +495,7 @@ class Engine:
             return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}
 
     MAX_PEERS = 40                 # other items shown to a property that compares with them
-    MAX_PEER_VALUE = 400           # characters of one answer shown
+    MAX_PEER_VALUE = 1500          # characters of one answer shown (a demand's section runs to about a thousand)
 
     def _peers(self, cid: str, spec: dict, pid: str, others: list, names: list) -> str:
         """What the stages before this one decided for the OTHER items of the case, for the properties the owner named: one line per

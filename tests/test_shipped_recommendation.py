@@ -31,22 +31,24 @@ def _use_cases(monkeypatch):
 def test_the_shipped_stage_is_valid_and_is_the_design_that_was_agreed():
     assert usecases.validate(SPEC) == []
     assert [c["name"] for c in REC["output"]["columns"]] == ["Recommendation type", "Overlaps with", "Consolidate with demand(s)", "Contract / licence match",
-                                                              "Security fit", "Recommended owner", "Risks and conditions", "Next steps", "Handled with",
-                                                              "Recommendation", "Request overview", "Confidence", "Evidence"]
-    assert "Recommended action" not in COLS and "Justification" not in COLS                  # they became paragraphs of the demand's section
+                                                              "Security fit", "Recommended owner", "Risks and conditions", "Handled with",
+                                                              "Recommendation", "Request overview", "Evidence"]
+    assert not {"Recommended action", "Justification", "Next steps", "Confidence"} & set(COLS)      # the first two became the demand's section; its steps are written there, last
     assert REC["summary_columns"] == ["Recommendation"] and REC["result"]["row_tag"] == "Recommendation type"
     section, overview, handled = COLS["Recommendation"], COLS["Request overview"], COLS["Handled with"]
     assert section["type"] == "text" and section["evidence_required"] is False and section.get("scope") is None
     assert section["sees_others"] == ["Recommendation type", "Recommended owner", "Handled with"]
-    assert set(section["uses"]) >= {*FINDINGS, "Recommendation type", "Recommended owner", "Risks and conditions", "Next steps", "Handled with"}
+    assert set(section["uses"]) >= {*FINDINGS, "Recommendation type", "Recommended owner", "Risks and conditions", "Handled with"} and "Next steps" not in section["uses"]
+    assert overview["sees_others"] == ["Recommendation type", "Recommended owner", "Handled with", "Risks and conditions", "Recommendation"]      # each demand's section too, to give the steps that span them
     assert overview["scope"] == "request" and overview["evidence_required"] is False
     assert handled["derive"] == {"kind": "groups", "from": "Consolidate with demand(s)", "lead_by": "date_submitted"} and not handled.get("uses")
-    for col, words in ((section, ("100 to 150 words", "to the requester", "no heading", "Plain text only")), (overview, ("60 to 120 words", "Name which demands are handled together"))):
+    for col, words in ((section, ("100 to 150 words", "to the requester", "no heading", "Plain text only")), (overview, ("60 to 120 words", "Name which demands are handled together", "steps that span the request"))):
         for must in ("senior enterprise architect", "roles, never personal names", "Do not state a grade", *words):
             assert must.lower() in col["how_to_resolve"].lower(), must
+    assert "continue under the lead" in section["how_to_resolve"] and "For the lead of a group, the steps are for the whole group" in section["how_to_resolve"]
     assert REC["output"]["mode"] == "document"
     assert REC["output"]["document"] == {"scope": "request", "statement": "Request overview", "item_text": "Recommendation",
-                                         "internal": ["Recommendation type", *FINDINGS, "Recommended owner", "Risks and conditions", "Next steps", "Handled with"]}
+                                         "internal": ["Recommendation type", *FINDINGS, "Recommended owner", "Risks and conditions", "Handled with"]}
     assert COLS["Consolidate with demand(s)"]["sees_others"] == ["Is duplicate", "Duplicate demand number (in the sheet)", "Impacted application", "Impacted business capability"]
 
 
@@ -63,7 +65,7 @@ def _run(items=3):
             seen.setdefault((name, who), prompt)
             canned = {"Recommendation type": "Enhancement", "Overlaps with": ["HR Portal"], "Contract / licence match": "None found", "Security fit": "Open",
                       "Consolidate with demand(s)": ["D-2026-003"] if who == "D-2026-001" else ["None"], "Recommended owner": "HR Systems Lead",
-                      "Risks and conditions": ["Security fit not confirmed"], "Next steps": ["The owner confirms the status"],
+                      "Risks and conditions": ["Security fit not confirmed"],
                       "Recommendation": f"Section for {who}.", "Request overview": OVERVIEW}
             if name in canned:
                 ids = re.findall(r"\[([^\]\s]+:\d+)\]", prompt)
@@ -90,11 +92,12 @@ def test_each_demands_section_and_then_the_overview_are_written_last_from_everyt
     first_section = min(i for i, n in enumerate(names) if n == "Recommendation")
     assert names.count("Recommendation") == 3 and names.count("Request overview") == 1
     assert first_section > last_finding and names.index("Request overview") > max(i for i, n in enumerate(names) if n == "Recommendation")
-    assert max(names.index(n) for n in FINDINGS) < min(names.index("Recommendation type"), names.index("Recommended owner")) < names.index("Risks and conditions") < names.index("Next steps")
+    assert max(names.index(n) for n in FINDINGS) < min(names.index("Recommendation type"), names.index("Recommended owner")) < names.index("Risks and conditions")
     # a demand's section reads that demand's whole picture: the request, both stages, who it is combined with, and the others
     p = seen[("Recommendation", "D-2026-001")]
     assert "ONE demand" in p and "senior enterprise architect" in p
-    assert "Recommendation type: Enhancement" in p and "Risks and conditions: Security fit not confirmed" in p and "Next steps: The owner confirms the status" in p
+    decided = p[p.index("ALREADY DECIDED"):p.index("EVIDENCE:")]
+    assert "Recommendation type: Enhancement" in decided and "Risks and conditions: Security fit not confirmed" in decided and "Next steps" not in decided
     assert "Handled with: Combined with D-2026-003; lead: D-2026-001" in p and re.search(r"Screening & Impact Assessment / Demand type: ", p)
     others = p.split("THE OTHER DEMANDS IN THIS REQUEST")[1].split("\n\n")[0]
     assert "- D-2026-003 (" in others and "- D-2026-001 (" not in others and "Handled with: Combined with D-2026-001" in others
@@ -104,6 +107,7 @@ def test_each_demands_section_and_then_the_overview_are_written_last_from_everyt
     block = o.split("THE DEMANDS IN THIS REQUEST")[1].split("\n\n")[0]
     assert re.findall(r"^- (D-2026-\d+) \(", block, re.M) == ["D-2026-001", "D-2026-003", "D-2026-004"]
     assert "Handled with: Alone" in block and "Combined with D-2026-003; lead: D-2026-001" in block and "Risks and conditions: Security fit not confirmed" in block
+    assert "Recommendation: Section for D-2026-003." in block                              # each demand's own section, written before the overview
     # consolidation was shown the other demands' screening answers
     cons = seen[("Consolidate with demand(s)", "D-2026-001")]
     assert re.search(r"^- D-2026-003 \(.*?\): Is duplicate: ", cons.split("THE OTHER DEMANDS IN THIS REQUEST")[1], re.M)
@@ -130,4 +134,4 @@ def test_the_draft_is_one_for_the_request_with_the_findings_kept_apart_and_left_
 def test_answering_a_property_of_the_stage_writes_the_derived_and_request_wide_properties_again():
     deps = eng.Engine._dependants(REC, "Security fit")
     assert {"Recommendation", "Request overview", "Handled with"} <= deps
-    assert {"Recommendation type", "Risks and conditions", "Next steps"} <= eng.Engine._dependants(REC, "Overlaps with")
+    assert {"Recommendation type", "Risks and conditions"} <= eng.Engine._dependants(REC, "Overlaps with")

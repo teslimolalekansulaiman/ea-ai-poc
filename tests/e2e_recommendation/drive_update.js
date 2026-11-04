@@ -32,7 +32,7 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (
   check(true, 'applying marks it applied');
   const after = await (await page.request.get(`${ORIGIN}/api/usecases/demand-management`)).json();
   const names = after.stages[1].output.columns.map(c => c.name);
-  check(['Recommendation type', 'Risks and conditions', 'Next steps', 'Handled with', 'Recommendation', 'Request overview'].every(n => names.includes(n)) && !names.includes('Recommended action') && !names.includes('Justification'), 'the stored use case has the new properties: ' + names.join(', '));
+  check(['Recommendation type', 'Risks and conditions', 'Handled with', 'Recommendation', 'Request overview'].every(n => names.includes(n)) && !['Recommended action', 'Justification', 'Next steps', 'Confidence'].some(n => names.includes(n)), 'the stored use case has the new properties: ' + names.join(', '));
   check(after.stages[1].summary_columns[0] === 'Recommendation' && after.stages[1].output.mode === 'document' && after.stages[1].output.document.scope === 'request', 'each demand\'s section is the summary property, and the stage is one draft for the whole request');
   await page.screenshot({ path: path.join(OUT, 'update-2-applied.png') });
 

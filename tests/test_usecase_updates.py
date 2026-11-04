@@ -41,7 +41,8 @@ def test_the_shipped_update_brings_an_older_copy_to_the_shipped_design(store):
     [u] = up.available(UC)
     assert u["id"] == UPDATE and not u["applied"] and u["errors"] == [] and u["changes"]
     assert any("renamed 'Recommendation type'" in c for c in u["changes"]) and any("'Recommended action' is removed" in c for c in u["changes"])
-    assert all(any(f"'{n}' is added" in c for c in u["changes"]) for n in ("Risks and conditions", "Next steps", "Handled with", "Recommendation", "Request overview"))
+    assert all(any(f"'{n}' is added" in c for c in u["changes"]) for n in ("Risks and conditions", "Handled with", "Recommendation", "Request overview"))
+    assert any("'Confidence' is removed" in c for c in u["changes"]) and not any("Next steps" in c for c in u["changes"])         # it was never in this copy
     before = usecases.get(UC)
     out = up.apply(UC, UPDATE)
     now = usecases.get(UC)

@@ -39,8 +39,7 @@ OVERVIEW = ("Please do not raise D-2026-003 on its own: continue under D-2026-00
             "Both can start once the cyber team has confirmed access control.")
 CANNED = {"Overlaps with": ["HR system"], "Contract / licence match": "Covered by the current licence until March 2027.",
           "Security fit": "Under the existing identity control; a review is still needed.", "Recommended owner": "HR Systems Lead",
-          "Recommendation type": "Enhancement", "Risks and conditions": ["The cyber team has not yet confirmed access control."],
-          "Next steps": ["The cyber team reviews access control."]}
+          "Recommendation type": "Enhancement", "Risks and conditions": ["The cyber team has not yet confirmed access control."]}
 
 
 def tools():
