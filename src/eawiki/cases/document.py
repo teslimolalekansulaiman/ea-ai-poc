@@ -67,7 +67,7 @@ def compose(spec: dict, stage: dict, item: dict, cells: dict, earlier_open: Opti
     cols = stage["output"]["columns"]
     tag_col = (stage.get("result") or {}).get("row_tag")
     stmt_col = cfg.get("statement") if cfg.get("statement") in {c["name"] for c in cols} else None
-    fact_cols = [f for f in cfg.get("facts") or [] if f in {c["name"] for c in cols}]
+    fact_cols = [f for f in dict.fromkeys(cfg.get("facts") or []) if f in {c["name"] for c in cols} and f != tag_col]       # the tag opens the key lines already: never twice
     title_field = (spec.get("input") or {}).get("title_field") or "title"
     has = lambda name: _text((cells.get(name) or {}).get("value"))                  # noqa: E731
     body = has(stmt_col) if stmt_col else ""

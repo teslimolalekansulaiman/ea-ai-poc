@@ -256,3 +256,11 @@ def test_the_trail_route_answers_and_a_missing_demand_is_404():
     ok = c.get(f"/api/cases/{cid}/phases/{PID}/documents/{ID}/trail")
     assert ok.status_code == 200 and "Recommended action" in ok.json()["columns"]
     assert c.get(f"/api/cases/{cid}/phases/{PID}/documents/nope/trail").status_code == 404
+
+
+def test_a_property_is_never_listed_twice_in_the_key_lines():
+    stage = copy.deepcopy(STAGE)
+    stage["output"]["document"] = {"statement": "Recommended action", "facts": ["Recommendation", "Recommended owner", "Recommended owner"]}      # the row tag, and a repeat
+    cells = {"Recommendation": _cell("Enhancement"), "Recommended action": _cell("Do it."), "Recommended owner": _cell("HR Lead")}
+    d = document.compose(SPEC, stage, {"_id": ID, "title": "T"}, cells)
+    assert [f["label"] for f in d["facts"]] == ["Recommendation", "Recommended owner"]
