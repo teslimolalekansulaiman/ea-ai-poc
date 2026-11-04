@@ -53,6 +53,7 @@ export function RequestIntake({ uc, L, beginCase }) {
   const [pre, setPre] = useState([])                // the conversation before any demand was found: what the person said, and what the agent answered
   const said = pre.filter(m => m.role === 'user' && m.said).map(m => m.text)       // the person's words so far, read together with the next message
   const [sending, setSending] = useState(null)       // what the person just sent, shown while the agent reads it
+  const [at, setAt] = useState(0)                     // the page of the answer sheet being shown: what is typed in the message box answers that question
   const [sheet, setSheet] = useState(false)           // with too many open questions to swipe through at first, the person chose to go through them
   const fileRef = useRef(null)
   const scroller = useRef(null)
@@ -75,8 +76,8 @@ export function RequestIntake({ uc, L, beginCase }) {
 
   useEffect(() => { const el = scroller.current; if (el) el.scrollTop = el.scrollHeight }, [count, sending, busy, pre.length])
 
-  const open = (r) => { setSp({ request: r.id }, { replace: true }); setReq(r); setText(''); setFiles([]); setSheet(false) }
-  const reset = () => { setReq(null); setFiles([]); setText(''); setErr(''); setPre([]); setSheet(false); setSp({}, { replace: true }) }
+  const open = (r) => { setSp({ request: r.id }, { replace: true }); setReq(r); setText(''); setFiles([]); setSheet(false); setAt(0) }
+  const reset = () => { setReq(null); setFiles([]); setText(''); setErr(''); setPre([]); setSheet(false); setAt(0); setSp({}, { replace: true }) }
   const guard = async (fn) => { setErr(''); setBusy(true); try { await fn() } catch (e) { setErr(String(e.message || e)) } finally { setBusy(false) } }
 
   const start = () => guard(async () => {
@@ -111,12 +112,15 @@ export function RequestIntake({ uc, L, beginCase }) {
     nav('/cases/' + r.id, { state: { unmatched: r.unmatched } })
   })
 
-  // What the person typed in the message box is read against everything that is missing, unless the agent is waiting to hear which
-  // demands a value is for. Answers to the questions themselves go through the sheet, in one go.
+  // The message box answers the question on the page of the sheet that is showing, and reads anything else the person says too; with
+  // the list showing (too many questions for the sheet) it is read against everything that is missing. Answers through the sheet's own
+  // boxes go in one go.
   const ask = (r) => {
     const qs = r.questions || []
     const scopeQ = r.pending && r.pending.kind === 'scope' && r.pending.items && r.pending.items.length ? r.pending : null
-    return { qs, scopeQ }
+    const showList = !scopeQ && qs.length > 0 && !r.stepwise && !sheet
+    const showSheet = !scopeQ && qs.length > 0 && !showList
+    return { qs, scopeQ, showList, showSheet, focus: showSheet ? qs[Math.min(at, qs.length - 1)] : null }
   }
   const exchange = async (shown, call) => {
     setErr(''); setBusy(true); setSending(shown)
@@ -129,10 +133,10 @@ export function RequestIntake({ uc, L, beginCase }) {
     if (!t && !files.length) return
     const f = files
     const a = ask(req)
-    const wide = f.length > 0 || (!a.scopeQ && a.qs.length > 0)
+    const wide = f.length > 0 || (!a.scopeQ && a.qs.length > 0 && !a.focus)
     setText(''); setFiles([])
     const ok = await exchange(t || 'Attached: ' + f.map(x => x.name).join(', '),
-      () => wide ? api.requestSources(req.id, t, f) : api.requestMessage(req.id, { text: t }))
+      () => wide ? api.requestSources(req.id, t, f) : api.requestMessage(req.id, a.focus ? { text: t, field: a.focus.field } : { text: t }))
     if (!ok) { setText(t); setFiles(f) }
   }
   const answer = (body, shown) => {                      // a button: the question it is for travels beside it
@@ -151,9 +155,8 @@ export function RequestIntake({ uc, L, beginCase }) {
   if (req) {
     const a = ask(req)
     const L = req.item_label
-    const showList = !a.scopeQ && a.qs.length > 0 && !req.stepwise && !sheet
-    const showSheet = !a.scopeQ && a.qs.length > 0 && !showList
-    const hint = a.scopeQ ? 'Say which, or use the buttons…' : a.qs.length ? 'Or tell me everything you know about what is missing, or attach a file…' : 'Anything to add or correct?'
+    const { showList, showSheet } = a
+    const hint = a.scopeQ ? 'Say which, or use the buttons…' : a.focus ? `Answer “${a.focus.label}”, or write anything else you know…` : a.qs.length ? 'Tell me everything you know about what is missing, or attach a file…' : 'Anything to add or correct?'
     return (
       <div className="rc">
         <section className="rc-chat" aria-label="Conversation with the request agent">
@@ -167,9 +170,9 @@ export function RequestIntake({ uc, L, beginCase }) {
           </div>
           <RequestSummary req={req} busy={busy} onSave={saveValue} />
           {a.scopeQ && <ScopeQuestion key={a.scopeQ.field + a.scopeQ.items.join(',')} q={a.scopeQ} busy={busy} onAnswer={answer} />}
-          {showSheet && <AnswerSheet qs={a.qs} L={L} busy={busy} onSend={sendSheet} />}
+          {showSheet && <AnswerSheet qs={a.qs} L={L} busy={busy} onSend={sendSheet} at={at} setAt={setAt} />}
           {showList &&
-            <Gaps qs={a.qs} L={L} busy={busy} onOne={() => setSheet(true)} onAttach={() => fileRef.current && fileRef.current.click()}
+            <Gaps qs={a.qs} L={L} busy={busy} onOne={() => { setSheet(true); setAt(0) }} onAttach={() => fileRef.current && fileRef.current.click()}
               onDeclineAll={() => answer({ decline_all: true }, 'Ask the requesters for all of these')} />}
           {!a.scopeQ && a.qs.length === 0 && req.items.length > 0 && <Ready req={req} busy={busy} onStart={go} gapsUrl={api.requestGapsUrl(req.id)} />}
           <div className="rc-comp">

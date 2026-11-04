@@ -35,6 +35,7 @@ from eawiki.cases import request as rq
 
 MAX_TEXT = 20000
 MIN_QUOTE = 3
+MAX_DIRECT = 200              # the longest reply that is stored as typed when it is itself the answer
 MAX_CALLS = 3                 # model calls in one turn
 MAX_QUESTION = 400
 MAX_MESSAGES = 100
@@ -196,6 +197,19 @@ def extract(spec: dict, sources, model: Callable) -> dict:
 
 # ---- reading a reply ------------------------------------------------------------------------------------------------
 
+def _direct_entry(by: dict, field: str, text: str):
+    """The reply stored exactly as typed, for when the model says the whole reply is the answer. Code only checks its shape: one line, a
+    reasonable length, and on the pick list when the field has one. Whether it is an answer was the model's call."""
+    t = (text or "").strip()
+    f = by.get(field)
+    if f is None or not t or "\n" in t or len(t) > MAX_DIRECT or len(t) > rq.MAX_VALUE:
+        return None
+    if f.get("type") == "enum":
+        hit = next((x for x in f.get("values") or [] if x.lower() == t.lower()), None)
+        return {"value": hit, "quote": t, "chosen": False, "source": MESSAGE} if hit else None
+    return {"value": t, "quote": t, "chosen": False, "source": MESSAGE}
+
+
 def _interpret_prompt(spec: dict, q: dict, titles: dict, text: str, carry: Optional[dict]) -> str:
     f = next(x for x in completeness.input_fields(spec) if x["name"] == q["field"])
     pick = f" [one of: {'; '.join(f['values'])}]" if f.get("values") else ""
@@ -217,14 +231,15 @@ THEIR REPLY:
 {_fence(text)}
 
 RULES:
-- "value": what they give for the field, when they give one. "quote": the exact words of the reply it comes from, copied letter for letter.
+- "value": what they give for the field, when they give one, copied from the words of the reply: do not expand an abbreviation or rephrase. "quote": the exact words of the reply it comes from, copied letter for letter.
+- "is_answer": true only when the whole reply is itself what they give for the field (a short phrase, an abbreviation or a name, even if misspelt). False when it is a question, a comment, or says they do not know.
 - "applies_to": "all" if the reply says it is for all of them, a list of the ids it names, or "unclear" if it gives one value without saying which.
 - "per_demand": when they give different values for different ones: [{{"id": "...", "value": "...", "quote": "..."}}].
 - "ask_requesters": true if they say to ask the requester or that they do not know, or a list of the ids that applies to.
 - "also": other fields of the {_plural(spec)} that the reply states: [{{"id": "...", "field": "...", "value": "...", "quote": "..."}}].
 - Never guess. Leave out what the reply does not say.
 
-JSON: {{"value": "...", "quote": "...", "applies_to": "all", "per_demand": [], "ask_requesters": false, "also": []}}"""
+JSON: {{"value": "...", "quote": "...", "is_answer": false, "applies_to": "all", "per_demand": [], "ask_requesters": false, "also": []}}"""
 
 
 def interpret(spec: dict, q: dict, titles: dict, text: str, model: Callable, carry: Optional[dict] = None) -> dict:
@@ -250,8 +265,12 @@ def interpret(spec: dict, q: dict, titles: dict, text: str, model: Callable, car
                 take(p["id"], field, entry)
             else:
                 out["dropped"].append({"field": field, "reason": why})
-    if raw.get("value") not in (None, "") or carry:
+    ask = raw.get("ask_requesters")
+    direct = _direct_entry(by, field, text) if raw.get("is_answer") is True and not carry and not (ask is True or isinstance(ask, list)) else None
+    if raw.get("value") not in (None, "") or carry or direct:
         entry, why = (_verify(by, field, raw, text) if raw.get("value") not in (None, "") else (carry, ""))
+        if entry is None and direct:                                                  # the model took the reply to be the answer itself: it counts as typed
+            entry, why = direct, ""
         if entry is None:
             out["dropped"].append({"field": field, "reason": why})
         else:
@@ -267,7 +286,6 @@ def interpret(spec: dict, q: dict, titles: dict, text: str, model: Callable, car
                     take(i, field, entry)
             elif len(qids) > 1 and not any(a["field"] == field for a in out["assignments"]):
                 out["scope_unclear"], out["carry"] = True, {"value": entry["value"], "quote": entry["quote"]}
-    ask = raw.get("ask_requesters")
     if ask is True or isinstance(ask, list):
         ids = qids if ask is True else [i for i in ask if i in qids]
         out["declines"] += [(i, field) for i in ids if (i, field) not in taken]
@@ -354,11 +372,11 @@ def _summary(changes: list, declined: list, dropped: list, read_failed: bool, la
         parts.append("I added " + "; ".join(f"{label}: {value} for {_names(ids)}" + (f" (from {src})" if src and src != MESSAGE else "")
                                             for (label, value, src), ids in groups.items()) + ".")
     if declined:
-        labels = list(dict.fromkeys(d["label"] for d in declined))
-        parts.append("I will mark " + ", ".join(labels) + " as something to ask the requester for.")
+        asked = list(dict.fromkeys(d["label"] for d in declined))
+        parts.append("I will mark " + ", ".join(asked) + " as something to ask the requester for.")
     gone = list(dict.fromkeys((labels or {}).get(d.get("field"), d.get("field")) for d in dropped if d.get("field")))
     if gone:
-        parts.append("I left " + ", ".join(gone) + " empty: I could not find support for it in what you wrote.")
+        parts.append("I could not use that for " + ", ".join(gone) + f", so {'it is' if len(gone) == 1 else 'they are'} still open.")
     return " ".join(parts)
 
 
@@ -681,7 +699,7 @@ def turn(store, rid: str, llm: Optional[Callable], *, text: Optional[str] = None
     head = _summary(changes, declined, dropped, failed, {f["name"]: f["label"] for f in v2["fields"]})
     if user_text == "" and answer is None and not changes:
         head = ""
-    tail = _tail(question, v2, brief=bool(changes or declined))
+    tail = _tail(question, v2, brief=bool(changes or declined or dropped))
     probs = [p for i in v2["items"] for p in i["problems"]]
     reply = " ".join(x for x in (head, tail, " ".join(dict.fromkeys(probs))) if x)
     _save(store, rid, v, user_text, reply, question)

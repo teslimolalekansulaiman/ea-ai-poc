@@ -241,7 +241,7 @@ def test_what_cannot_be_checked_is_dropped_and_said():
     rid = _sponsor_request()
     out = ag.turn(store(), rid, Fake({"value": "Chief Operating Officer", "quote": "the COO of the group", "applies_to": "all"}), text="Somebody senior")
     assert out["changes"] == [] and out["dropped"][0]["field"] == "sponsor"
-    assert "I left Business sponsor empty: I could not find support for it in what you wrote." in out["reply"] and out["question"]["field"] == "sponsor"
+    assert "I could not use that for Business sponsor, so it is still open." in out["reply"] and out["question"]["field"] == "sponsor"
     out2 = ag.turn(store(), rid, Fake({"value": "COO", "quote": "COO", "applies_to": ["D-9", "D-3"]}), text="COO for D-9")   # demands that are not being asked about
     assert out2["changes"] == []
 
@@ -470,3 +470,33 @@ def test_when_there_is_no_demand_yet_the_agent_says_what_it_needs_from_the_use_c
     # a model that fails is told apart from a message with nothing in it
     down = ag.start_from_message(store(), SPEC, Fake(RuntimeError("down")), "We need a system.")
     assert down["reply"].startswith("I could not read that.") and "Please try again in a moment" in down["reply"] and "To assess" not in down["reply"]
+
+
+# ---- a direct answer counts as typed ----------------------------------------------------------------------------------
+
+def test_when_the_model_says_the_whole_reply_is_the_answer_it_is_stored_exactly_as_typed():
+    rid = _sponsor_request()
+    # the model expanded the abbreviation, which the words do not contain: the value cannot count, but the reply itself is the answer
+    out = ag.turn(store(), rid, Fake({"value": "Chief Financial Officer", "quote": "cfo", "is_answer": True, "applies_to": "all"}), text="cfo")
+    assert out["dropped"] == [] and {c["value"] for c in out["changes"]} == {"cfo"} and {c["id"] for c in out["changes"]} == {"D-1", "D-2"}
+    by = _by(out)
+    assert by["D-1"]["values"]["sponsor"] == "cfo" and by["D-1"]["from"]["sponsor"]["by"] == "message" and by["D-1"]["from"]["sponsor"]["quote"] == "cfo"
+    # without the model's yes the reply is not taken, however short
+    rid2 = _sponsor_request()
+    out2 = ag.turn(store(), rid2, Fake({"value": "Chief Operating Officer", "quote": "the COO of the group", "applies_to": "all"}), text="Somebody senior")
+    assert out2["changes"] == [] and out2["dropped"][0]["field"] == "sponsor"
+    # asking the requester wins over a stray yes
+    rid3 = _sponsor_request()
+    out3 = ag.turn(store(), rid3, Fake({"value": "x", "quote": "ask finance", "is_answer": True, "ask_requesters": True, "applies_to": "all"}), text="not sure, ask finance")
+    assert out3["changes"] == [] and {d["id"] for d in out3["declined"]} == {"D-1", "D-2"}
+    assert "I will mark Business sponsor as something to ask the requester for." in out3["reply"] and "I could not use that for Business sponsor" in out3["reply"]      # both said, no crash
+    # the shape is checked in code: more than a line, or a pick list word that is not on the list, is not stored
+    rid4 = _sponsor_request()
+    long = "cfo\nand some more words"
+    assert ag.turn(store(), rid4, Fake({"value": "Chief Financial Officer", "quote": "cfo", "is_answer": True, "applies_to": "all"}), text=long)["changes"] == []
+
+
+def test_a_reply_that_could_not_be_used_says_so_briefly_and_does_not_list_everything_again():
+    rid = _request([_item("D-1", sponsor="", department="")])
+    out = ag.turn(store(), rid, Fake({"value": "Chief Operating Officer", "quote": "the COO of the group", "applies_to": "all"}), text="Somebody senior")
+    assert out["reply"] == "I could not use that for Requesting department, so it is still open. 2 left."

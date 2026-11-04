@@ -252,7 +252,7 @@ def test_a_file_added_to_a_request_fills_the_gaps_it_states_and_names_itself():
     assert by["D-1"]["values"]["sponsor"] == "the Chief Operating Officer" and by["D-1"]["from"]["sponsor"]["source"] == "notes.txt" and by["D-1"]["from"]["sponsor"]["by"] == "file"
     assert by["D-2"]["values"]["sponsor"] == "" and by["D-3"]["values"]["sponsor"] == "Chief Customer Officer" and by["D-1"]["values"]["title"] == "Tracker"
     assert out["reply"].startswith("I read notes.txt. I added Business sponsor: the Chief Operating Officer for D-1 (from notes.txt).")
-    assert "I left Business sponsor empty" in out["reply"] and out["question"]["field"] == "sponsor" and out["question"]["items"] == ["D-2"]
+    assert "I could not use that for Business sponsor, so it is still open." in out["reply"] and out["question"]["field"] == "sponsor" and out["question"]["items"] == ["D-2"]
     assert out["request"]["sources"][0]["name"] == "notes.txt" and out["request"]["files"] == ["notes.txt"] and [c["id"] for c in out["changes"]] == ["D-1"]
     assert "Printers" in fake.prompts[0] and "D-3" not in fake.prompts[0].split("WHAT IS MISSING")[1].split("RULES")[0]       # only the demands with gaps are listed
 

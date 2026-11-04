@@ -108,14 +108,17 @@ const SPARSE = 'We need a complaint tracking system to log, assign and follow up
   m = await msgs(page); check(/required details are still missing|missing for|business sponsor/i.test(m.join('\n')), 'a sheet with gaps gets its questions in the chat: ' + (m[0] || '').slice(0, 80).replace(/\n/g, ' '));
   check(await page.locator('.rc-slide').count() === 1 && await page.locator('.rc-dot').count() === 2 && !!(await page.$('.rc-scope')), 'two pages, with the demands each answer is for');
   await shot(page, '8-sheet');
+  await page.click('button[aria-label="Next question"]');
+  check(/Target go-live/.test(await page.innerText('.rc-slide')), 'the second page is the go-live question');
+  await page.fill(MSG, '2027-09-01'); await page.press(MSG, 'Enter'); await idle(page);
+  m = await msgs(page); check(/Target go-live: 2027-09-01/.test(m.join('\n')), 'typing in the message box answers the question on the page showing');
 
   // 9. attach a file mid-chat: it is read for the gaps and named; then answer what is left, from the sheet
   await page.setInputFiles('.rc input[type=file]', path.join(D, 'notes.txt'));
   await page.click('.rc-comp button:has-text("Send")'); await idle(page);
   m = await msgs(page); check(/from notes\.txt/.test(m.join('\n')), 'a file added mid-chat fills gaps and names itself');
-  await page.waitForSelector('.rc-ans'); await page.fill('.rc-ans', '2027-06-30');
-  await page.click('button:has-text("Send 1 answer")'); await page.waitForSelector('.rc-ready'); await idle(page);
-  check(/Start the case/.test(await page.innerText('.rc-ready')), 'the last answer sent from the sheet leaves nothing to ask');
+  await page.waitForSelector('.rc-ready'); await idle(page);
+  check(/Start the case/.test(await page.innerText('.rc-ready')), 'with the answer typed and the file read, nothing is left to ask');
   await shot(page, '9-attached');
 
   // 10. text with no demand in it: the exchange stays in the chat, the next message adds to it, and the old way is still there

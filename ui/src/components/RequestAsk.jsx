@@ -26,8 +26,7 @@ const BLANK = { value: '', ask: false, picked: null }     // picked: null means 
 
 // The open questions as pages: each has its own answer box (or buttons for a pick list), drafts are kept while the person swipes
 // between them, and one button sends everything answered. A question left alone stays open.
-export function AnswerSheet({ qs, L, busy, onSend }) {
-  const [at, setAt] = useState(0)
+export function AnswerSheet({ qs, L, busy, onSend, at, setAt }) {
   const [drafts, setDrafts] = useState({})              // field -> { value, ask, picked }
   const box = useRef(null)
   const i = Math.min(at, qs.length - 1)
