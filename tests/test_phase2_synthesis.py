@@ -13,7 +13,7 @@ from eawiki import usecases  # noqa: E402
 from eawiki.cases.engine import Engine  # noqa: E402
 from eawiki.cases.store import CaseStore  # noqa: E402
 
-SPEC = base.SPEC
+SPEC = base.SPEC_P2
 
 
 @pytest.fixture(autouse=True)

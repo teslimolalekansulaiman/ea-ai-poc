@@ -731,12 +731,12 @@
     {
       "id": "recommendation",
       "name": "Recommendation",
-      "instructions": "Check overlap with existing solutions (components, platforms, applications, APIs, prior/running initiatives) and with other demands (consolidate). Check the contract register for licences/renewals that could cover it. Confirm security fit before recommending reuse. Recommend the way forward and the demand owner, and justify by what it overlaps with. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it doesn't, say what is needed.",
+      "instructions": "Check overlap with existing solutions (components, platforms, applications, APIs, prior or running initiatives) and with other demands (consolidate). Check the contract register for licences and renewals that could cover it. Confirm the security fit before recommending reuse. Decide the way forward and the owner, and name the risks and the next steps. The last property, Recommendation, is the message to the requester: it is written only after all the others are done, from them and from the screening. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it does not, say what is needed.",
       "output": {
         "mode": "document",
         "columns": [
           {
-            "name": "Recommendation",
+            "name": "Recommendation type",
             "type": "enum",
             "values": [
               "Reuse",
@@ -755,19 +755,6 @@
             ]
           },
           {
-            "name": "Recommended action",
-            "type": "text",
-            "description": "What the architecture team recommends doing with this demand, in one or two plain sentences addressed to the requester.",
-            "how_to_resolve": "State the way forward in words, using what is already decided for this demand: the Recommendation, what it overlaps with, any demand to consolidate with, the contract and the security fit. If another demand covers the same need, say not to raise a new demand and name that one. If an existing solution covers it, name it and say what to extend. Do not recommend new business capabilities. Say only what the sources support; if they do not settle it, say what is needed.",
-            "uses": [
-              "Recommendation",
-              "Overlaps with",
-              "Consolidate with demand(s)",
-              "Contract / licence match",
-              "Security fit"
-            ]
-          },
-          {
             "name": "Overlaps with",
             "type": "list",
             "description": "Existing solutions this demand overlaps with: applications, platforms, components, APIs and prior or running initiatives, main one first, each with its catalogue or contract ID. None when you checked and found no overlap.",
@@ -777,7 +764,13 @@
             "name": "Consolidate with demand(s)",
             "type": "list",
             "description": "Other demands in this request that should be handled together with this one because they ask for the same need, for the same users, on the same systems. Their demand IDs, or None.",
-            "how_to_resolve": "Take the IDs from the screening's duplicate answers for this demand (Is duplicate, Duplicate demand number). Write only demand IDs that appear in this request, never one invented or taken from outside it. None when the screening found no duplicate. If the screening left the duplicate question open, say that rather than writing None."
+            "how_to_resolve": "Compare this demand with the screening answers of the other demands in this request (the duplicate answers, the impacted applications and the impacted capabilities), which are listed for you. Write only demand IDs that appear in this request, never one invented or taken from outside it. A match needs the same need and the same systems, not the same words. None when no other demand matches. If the screening left the duplicate question open, say that instead of writing None.",
+            "sees_others": [
+              "Is duplicate",
+              "Duplicate demand number (in the sheet)",
+              "Impacted application",
+              "Impacted business capability"
+            ]
           },
           {
             "name": "Contract / licence match",
@@ -801,17 +794,51 @@
             ]
           },
           {
-            "name": "Justification",
-            "type": "text",
-            "description": "Why this is recommended, in plain sentences for the architect: what it overlaps with, what the contract and the security fit show, and what is still to be confirmed.",
-            "how_to_resolve": "Explain the recommendation from the answers above and the sources behind them, and nothing else: do not add a reason that none of them gives. Say what is still open, so the architect knows what to confirm before approving.",
+            "name": "Risks and conditions",
+            "type": "list",
+            "description": "What could stop or change this recommendation, one item per line: what is not yet confirmed, what must be true before it goes ahead, and what it depends on. Each item says who has to confirm it, as a role.",
+            "how_to_resolve": "Take them from what is open in this assessment: a security fit that is not confirmed, a contract or licence that was not checked, an overlapping solution whose status is unclear (for example one listed as not in use), a dependency on something that is only proposed or has no initiative ID, and anything the screening left open. One short line each, with the ID of the solution or contract it concerns. Do not add a risk that none of the answers or sources supports. None when nothing is open.",
             "uses": [
-              "Recommendation",
               "Overlaps with",
               "Consolidate with demand(s)",
               "Contract / licence match",
-              "Security fit"
-            ]
+              "Security fit",
+              "Recommendation type"
+            ],
+            "evidence_required": false,
+            "blank_ok": true,
+            "activity": "Weighing the risks and conditions"
+          },
+          {
+            "name": "Next steps",
+            "type": "list",
+            "description": "What happens next, in order, one item per line, each with the role that does it. Where the requester has something to do, that step says so.",
+            "how_to_resolve": "Write the steps that follow from the recommendation type and from the risks above: confirming a status with an owner, a review by the security team, a contract check, combining with another demand, raising a change request. Each names a role taken from the Owners answer or from the Recommended owner, never a person's name. Order them so the first one unblocks the rest. Do not invent a process, a date or a team; if no owner is recorded, say whose confirmation is needed. For a demand that should be combined with another, the first step is to continue under that demand.",
+            "uses": [
+              "Recommendation type",
+              "Recommended owner",
+              "Risks and conditions"
+            ],
+            "evidence_required": false,
+            "activity": "Setting out the next steps"
+          },
+          {
+            "name": "Recommendation",
+            "type": "text",
+            "description": "The recommendation to the requester, as the architecture team would write it: one page, in plain language, written to the requester as \"you\". It is a draft for the architect to read, edit and approve.",
+            "how_to_resolve": "You are a senior enterprise architect writing the architecture team's recommendation to the requester. Lead with the decision. Weigh what is gained and what is risked, say what you would not do and why, and be direct about what is not settled. Use judgement where it follows from the answers; do not state a fact that is not in them. Write in plain language that someone who is not an architect can follow: no jargon, and no catalogue codes except the IDs the answers give.\n\nWrite one message of about 300 words at most, to the requester, from the architecture team. Use only what this assessment found: the request's own fields, the screening answers, and the answers of this phase. Plain text only, with no symbols or markdown. Write these parts as short paragraphs. The first has no heading; each of the others has a short heading on a line of its own:\n1. The recommendation (no heading): the recommendation type in a sentence or two, and what to do. If another demand covers the same need, say not to raise a new one and name it. If an existing solution covers it, name it and say what to extend.\n2. What you asked for: one sentence, from the request's need and expected outcome, in your own words and not copied.\n3. Why: what it overlaps with, the contract and licence match, any demand to combine it with, and the security fit, with the IDs exactly as the answers give them. Add, from the screening, whatever bears on the way forward: the deadline and urgency, the data classification, and any conflict with the architecture principles and standards. If a simpler way exists in the answers (reusing what exists rather than building new), say why it is the better one.\n4. Risks and conditions: from the property of that name, kept short.\n5. Next steps: from the property of that name, as a numbered list.\n\nSay plainly what is not yet confirmed. Do not add a fact, an ID, a date, a name, a cost or a regulation that is not in the answers or the sources. Do not recommend new business capabilities. Write roles, never personal names. Do not state a grade or a confidence level. If the recommendation type is not decided, say what is needed instead of writing a message.",
+            "uses": [
+              "Overlaps with",
+              "Consolidate with demand(s)",
+              "Contract / licence match",
+              "Security fit",
+              "Recommendation type",
+              "Recommended owner",
+              "Risks and conditions",
+              "Next steps"
+            ],
+            "evidence_required": false,
+            "activity": "Writing the recommendation"
           },
           {
             "name": "Confidence",
@@ -829,18 +856,25 @@
           }
         ],
         "document": {
-          "statement": "Recommended action",
+          "statement": "Recommendation",
           "facts": [
-            "Recommended owner",
-            "Consolidate with demand(s)"
+            "Recommended owner"
+          ],
+          "internal": [
+            "Overlaps with",
+            "Consolidate with demand(s)",
+            "Contract / licence match",
+            "Security fit",
+            "Risks and conditions",
+            "Next steps"
           ]
         }
       },
       "summary_columns": [
-        "Justification"
+        "Recommendation"
       ],
       "result": {
-        "row_tag": "Recommendation",
+        "row_tag": "Recommendation type",
         "kpis": [],
         "decisions": [],
         "questions": [

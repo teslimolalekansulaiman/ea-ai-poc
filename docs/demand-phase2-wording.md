@@ -66,13 +66,12 @@ Description:
 How to resolve:
 > You are a senior enterprise architect writing the architecture team's recommendation to the requester. Lead with the decision. Weigh what is gained and what is risked, say what you would not do and why, and be direct about what is not settled. Use judgement where it follows from the answers; do not state a fact that is not in them. Write in plain language that someone who is not an architect can follow: no jargon, and no catalogue codes except the IDs the answers give.
 >
-> Write one message of about 300 words at most, to the requester, from the architecture team. Use only what this assessment found: the request's own fields, the screening answers, and the answers of this phase. Write these parts, as short paragraphs under their own headings:
->
-> 1. **Recommendation**: the recommendation type in a sentence or two, and what to do. If another demand covers the same need, say not to raise a new one and name it. If an existing solution covers it, name it and say what to extend.
-> 2. **What you asked for**: one sentence, from the request's need and expected outcome, in your own words and not copied.
-> 3. **Why**: what it overlaps with, the contract and licence match, any demand to combine it with, and the security fit, with the IDs exactly as the answers give them. Add, from the screening, whatever bears on the way forward: the deadline and urgency, the data classification, and any conflict with the architecture principles and standards. If a simpler way exists in the answers (reusing what exists rather than building new), say why it is the better one.
-> 4. **Risks and conditions**: from the property of that name, kept short.
-> 5. **Next steps**: from the property of that name, as a numbered list.
+> Write one message of about 300 words at most, to the requester, from the architecture team. Use only what this assessment found: the request's own fields, the screening answers, and the answers of this phase. Plain text only, with no symbols or markdown. Write these parts as short paragraphs. The first has no heading; each of the others has a short heading on a line of its own:
+> 1. The recommendation (no heading): the recommendation type in a sentence or two, and what to do. If another demand covers the same need, say not to raise a new one and name it. If an existing solution covers it, name it and say what to extend.
+> 2. What you asked for: one sentence, from the request's need and expected outcome, in your own words and not copied.
+> 3. Why: what it overlaps with, the contract and licence match, any demand to combine it with, and the security fit, with the IDs exactly as the answers give them. Add, from the screening, whatever bears on the way forward: the deadline and urgency, the data classification, and any conflict with the architecture principles and standards. If a simpler way exists in the answers (reusing what exists rather than building new), say why it is the better one.
+> 4. Risks and conditions: from the property of that name, kept short.
+> 5. Next steps: from the property of that name, as a numbered list.
 >
 > Say plainly what is not yet confirmed. Do not add a fact, an ID, a date, a name, a cost or a regulation that is not in the answers or the sources. Do not recommend new business capabilities. Write roles, never personal names. Do not state a grade or a confidence level. If the recommendation type is not decided, say what is needed instead of writing a message.
 
@@ -83,10 +82,10 @@ Builds on: every other Phase 2 property (Overlaps with, Consolidate with demand(
 - Summary property: **Recommendation** (today: Justification).
 - Tag (row tag): **Recommendation type** (today: Recommendation).
 - Draft document: headline text = **Recommendation**; key line = **Recommended owner**.
-- Draft parts (needs a small new setting): the first part, **Message to the requester**, is the headline text. The second part, **For the architect: not sent**, holds the findings (Overlaps with, Consolidate with demand(s), Contract / licence match, Security fit), what is still to confirm, and the evidence.
+- Draft parts (built; `output.document.internal`): the first part, **Message to the requester**, is the headline text and the key line (Recommended owner), under the tag. The second part, **For the architect, not sent**, holds Overlaps with, Consolidate with demand(s), Contract / licence match, Security fit, Risks and conditions and Next steps, then what is still to confirm and the evidence. The download holds the message only.
 
-## Needs a code change (not wording)
+## What the code now supports (built)
 
-1. A document setting that chooses which properties appear as sections, and the two parts.
-2. The other demands' screening answers made visible to "Consolidate with demand(s)".
-3. When an answer changes after the draft was written, rewrite the draft, unless the architect has already edited it, and say so on screen.
+1. `output.document.internal`: which properties are for the architect and not sent, kept after the message.
+2. `sees_others` on a property: what earlier stages decided for the other demands is shown to it as context ("Consolidate with demand(s)" uses it).
+3. The engine already runs the summary property last, and runs it again after any answer in the stage, so the message is rewritten when an open property is answered. An edited draft is kept as edited and says the results changed.

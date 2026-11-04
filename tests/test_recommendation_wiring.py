@@ -14,7 +14,7 @@ from eawiki.cases import grade, solve as smod  # noqa: E402
 from eawiki.cases.engine import Engine  # noqa: E402
 from eawiki.cases.store import CaseStore  # noqa: E402
 
-SPEC = base.SPEC
+SPEC = base.SPEC_P2
 REC = SPEC["stages"][1]
 S1 = SPEC["stages"][0]["name"]            # the first stage, as the second stage names it
 ID = "D-2026-001"

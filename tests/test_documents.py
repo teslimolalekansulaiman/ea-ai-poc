@@ -16,7 +16,7 @@ from eawiki.cases import document  # noqa: E402
 from eawiki.cases.engine import Engine  # noqa: E402
 from eawiki.cases.store import CaseStore  # noqa: E402
 
-SPEC = base.SPEC
+SPEC = base.SPEC_P2
 STAGE = SPEC["stages"][1]
 PID = "recommendation"
 ID = "D-2026-001"

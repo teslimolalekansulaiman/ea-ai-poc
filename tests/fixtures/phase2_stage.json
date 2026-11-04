@@ -1,0 +1,123 @@
+{
+  "id": "recommendation",
+  "name": "Recommendation",
+  "instructions": "Check overlap with existing solutions (components, platforms, applications, APIs, prior/running initiatives) and with other demands (consolidate). Check the contract register for licences/renewals that could cover it. Confirm security fit before recommending reuse. Recommend the way forward and the demand owner, and justify by what it overlaps with. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it doesn't, say what is needed.",
+  "output": {
+    "mode": "document",
+    "columns": [
+      {
+        "name": "Recommendation",
+        "type": "enum",
+        "values": [
+          "Reuse",
+          "Enhancement",
+          "Merge/CR",
+          "Link new artefacts",
+          "Onboard new requirement"
+        ],
+        "description": "The way forward for this demand, as one of the five words below. Choose the one that fits what the other answers of this phase show.\n\nReuse: something we already own meets the need as it is; the demand uses it and nothing changes.\nEnhancement: something we already own would meet the need with a change to it (a new feature or an extension).\nMerge/CR: the demand covers the same need as another demand in this request, or as work already running; it is combined with that one, or handled as a change request on it, instead of being raised on its own.\nLink new artefacts: the need is not met as it is, but what it adds relates to artefacts that exist (applications, data, capabilities, contracts); register what is new and link it to them.\nOnboard new requirement: nothing we own or have in flight covers it and there is nothing to combine it with; take it in as a new requirement.",
+        "how_to_resolve": "Decide from what is already decided for this demand: what it overlaps with, any demand to consolidate with, the contract and licence match and the security fit. Another demand with the same need: Merge/CR. An existing solution that covers the need as it is: Reuse. One that covers it with a change: Enhancement. Overlap with artefacts that exist, with new ones to register: Link new artefacts. No overlap and nothing to combine with: Onboard new requirement. If the overlap is not settled, do not choose by guessing: answer needs_input and say what is needed. Never choose Reuse while the security fit is open.",
+        "uses": [
+          "Overlaps with",
+          "Consolidate with demand(s)",
+          "Contract / licence match",
+          "Security fit"
+        ]
+      },
+      {
+        "name": "Recommended action",
+        "type": "text",
+        "description": "What the architecture team recommends doing with this demand, in one or two plain sentences addressed to the requester.",
+        "how_to_resolve": "State the way forward in words, using what is already decided for this demand: the Recommendation, what it overlaps with, any demand to consolidate with, the contract and the security fit. If another demand covers the same need, say not to raise a new demand and name that one. If an existing solution covers it, name it and say what to extend. Do not recommend new business capabilities. Say only what the sources support; if they do not settle it, say what is needed.",
+        "uses": [
+          "Recommendation",
+          "Overlaps with",
+          "Consolidate with demand(s)",
+          "Contract / licence match",
+          "Security fit"
+        ]
+      },
+      {
+        "name": "Overlaps with",
+        "type": "list",
+        "description": "Existing solutions this demand overlaps with: applications, platforms, components, APIs and prior or running initiatives, main one first, each with its catalogue or contract ID. None when you checked and found no overlap.",
+        "how_to_resolve": "Start from what the screening decided for this demand: the impacted applications and any duplicate with an existing artefact. Add an existing solution only when it serves the same need for the same users, not when it shares a word with the demand. Name each as the catalogue names it, with its ID. A solution that does not exist yet is not listed. If nothing was found, write None; if the catalogue could not be checked, say what is needed."
+      },
+      {
+        "name": "Consolidate with demand(s)",
+        "type": "list",
+        "description": "Other demands in this request that should be handled together with this one because they ask for the same need, for the same users, on the same systems. Their demand IDs, or None.",
+        "how_to_resolve": "Take the IDs from the screening's duplicate answers for this demand (Is duplicate, Duplicate demand number). Write only demand IDs that appear in this request, never one invented or taken from outside it. None when the screening found no duplicate. If the screening left the duplicate question open, say that rather than writing None."
+      },
+      {
+        "name": "Contract / licence match",
+        "type": "text",
+        "description": "Whether a contract or licence in the contract register already covers this need, with its contract ID and the renewal or end date where the register gives one. None found when the register was checked and nothing matches.",
+        "how_to_resolve": "Look in the contract register for the overlapping solutions and the systems the demand names. Give the contract ID and the dates only as the register states them. Do not infer a licence scope from the product's name. None found when it was checked and nothing matches; if the register could not be checked, say what is needed."
+      },
+      {
+        "name": "Security fit",
+        "type": "text",
+        "description": "Whether the existing solution, or the approach the demand takes, fits the security controls that apply, in one or two plain sentences, and what is still to be confirmed. This is a general fit; the detailed assessment is with the security and infrastructure teams.",
+        "how_to_resolve": "Build on the screening's data classification and linked security capabilities for this demand. Say what fits and what is not yet confirmed. Do not declare a solution secure on its own: where the sources do not settle it, answer needs_source and say which control or standard has to be checked."
+      },
+      {
+        "name": "Recommended owner",
+        "type": "text",
+        "description": "The role that should own this demand from here: the owner role of the main solution or capability it overlaps with. A role only, never a personal name.",
+        "how_to_resolve": "Take the owner role from the screening's Owners answer and from the catalogue entry of the main overlapping solution. Write a role, never a name. If no solution overlaps, take the owner role of the capability the demand impacts. If no role is recorded, say what is needed.",
+        "uses": [
+          "Overlaps with"
+        ]
+      },
+      {
+        "name": "Justification",
+        "type": "text",
+        "description": "Why this is recommended, in plain sentences for the architect: what it overlaps with, what the contract and the security fit show, and what is still to be confirmed.",
+        "how_to_resolve": "Explain the recommendation from the answers above and the sources behind them, and nothing else: do not add a reason that none of them gives. Say what is still open, so the architect knows what to confirm before approving.",
+        "uses": [
+          "Recommendation",
+          "Overlaps with",
+          "Consolidate with demand(s)",
+          "Contract / licence match",
+          "Security fit"
+        ]
+      },
+      {
+        "name": "Confidence",
+        "type": "enum",
+        "values": [
+          "High",
+          "Medium",
+          "Low"
+        ],
+        "graded": true
+      },
+      {
+        "name": "Evidence",
+        "type": "citations"
+      }
+    ],
+    "document": {
+      "statement": "Recommended action",
+      "facts": [
+        "Recommended owner",
+        "Consolidate with demand(s)"
+      ]
+    }
+  },
+  "summary_columns": [
+    "Justification"
+  ],
+  "result": {
+    "row_tag": "Recommendation",
+    "kpis": [],
+    "decisions": [],
+    "questions": [
+      {
+        "text": "Which demands can reuse something we already own?",
+        "if": "always"
+      }
+    ]
+  }
+}

@@ -19,6 +19,11 @@ from eawiki.cases.engine import Engine, levels  # noqa: E402
 from eawiki.cases.store import CaseStore  # noqa: E402
 
 SPEC = json.loads((ROOT / "use_cases" / "demand-management.json").read_text(encoding="utf-8"))
+# The second stage as it stood when the mechanics below were written. The tests that exercise the document, the grade and the
+# stage-to-stage reading use this fixed copy, so they keep testing the mechanism when the shipped wording moves on.
+import copy as _copy  # noqa: E402
+SPEC_P2 = _copy.deepcopy(SPEC)
+SPEC_P2["stages"][1] = json.loads((ROOT / "tests" / "fixtures" / "phase2_stage.json").read_text(encoding="utf-8"))
 ITEMS = intake.parse_file(SPEC, "x.csv", (ROOT / "use_cases" / "samples" / "demand-management-inputs.csv").read_bytes())["items"]
 ITEMS.append({"demand_id": "D-2026-006", "title": "VPN not working for remote staff", "business_need": "VPN drops every 20 minutes",
               "expected_outcome": "Stable VPN", "department": "IT", "requester_role": "Analyst", "sponsor": "CIO",
