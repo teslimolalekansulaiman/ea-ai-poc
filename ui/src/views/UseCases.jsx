@@ -352,11 +352,33 @@ export default function UseCases() {
           </div>
         </div>}
 
+        <div className="card" style={card}>
+          <div style={h}>Worked out</div>
+          <select style={inp} aria-label="Worked out" value={c.scope === 'request' ? 'request' : 'item'}
+            onChange={e => set(col => { if (e.target.value === 'request') col.scope = 'request'; else delete col.scope })}>
+            <option value="item">For each item, on its own</option>
+            <option value="request">Once for the whole request, from every item (it is written last)</option>
+          </select>
+          <label className="meta" style={lab}>Or written in code, not by the model: the groups the items form</label>
+          <select style={inp} aria-label="Groups formed from" value={(c.derive || {}).from || ''}
+            onChange={e => set(col => { if (e.target.value) col.derive = { kind: 'groups', from: e.target.value, lead_by: (col.derive || {}).lead_by || '' }; else delete col.derive })}>
+            <option value="">Not derived: the model writes it</option>
+            {s.output.columns.filter(o => o.type === 'list' && o.name && o.name !== c.name).map(o => <option key={o.name} value={o.name}>Formed from the items named in: {o.name}</option>)}
+          </select>
+          {c.derive && <select style={{ ...inp, marginTop: 6 }} aria-label="The lead is the earliest by" value={c.derive.lead_by || ''}
+            onChange={e => set(col => { col.derive = { ...col.derive, lead_by: e.target.value } })}>
+            <option value="">The lead is the first in the order the items came in</option>
+            {(uc.input.item_fields || []).filter(f => f.name).map(f => <option key={f.name} value={f.name}>The lead is the earliest by: {f.label || f.name}</option>)}
+          </select>}
+        </div>
+
         {si > 0 && <div className="card" style={card}>
           <div style={h}>Also shown: what earlier stages decided for the other items</div>
           <div className="meta" style={{ marginBottom: 6 }}>For a property that compares an item with the rest of the request (for example, whether another item asks for the same thing). It is shown these earlier answers for every other item, as context; it cannot cite them.</div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {uc.stages.slice(0, si).flatMap(st => st.output.columns).filter(o => o.name && o.type !== 'citations').map(o => (
+            {[...uc.stages.slice(0, si).flatMap(st => st.output.columns),
+              ...((c.scope === 'request' || (s.summary_columns || []).includes(c.name)) ? s.output.columns.filter((o, oi) => oi !== ci) : [])]
+              .filter(o => o.name && o.type !== 'citations').map(o => (
               <button key={o.name} type="button" className={'btn' + ((c.sees_others || []).includes(o.name) ? ' primary' : '')}
                 onClick={() => set(col => { col.sees_others = toggle(col.sees_others || [], o.name) })}>{o.name}</button>))}
           </div>
@@ -465,13 +487,32 @@ export default function UseCases() {
           <option value="table">A table: one row per item</option>
           <option value="document">A document per item: a draft to read, edit and approve</option>
         </select>
+        <label className="meta" style={lab}>Summary property (written last, after every other property of the stage)</label>
+        <select style={inp} aria-label="Summary property" value={(s.summary_columns || [])[0] || ''}
+          onChange={e => patch(d => { if (e.target.value) d.stages[sel.si].summary_columns = [e.target.value]; else delete d.stages[sel.si].summary_columns })}>
+          <option value="">None</option>
+          {s.output.columns.filter(c => c.name && c.type !== 'citations' && c.scope !== 'request').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+        </select>
         {s.output.mode === 'document' && (<>
+          <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13, marginTop: 8 }}>
+            <input type="checkbox" checked={(s.output.document || {}).scope === 'request'}
+              onChange={e => patch(d => { const o = d.stages[sel.si].output; o.document = { ...o.document, scope: e.target.checked ? 'request' : undefined } })} />
+            One draft for the whole request: its opening is a property worked out once per request, then a section for each item
+          </label>
+          {(s.output.document || {}).scope === 'request' && (<>
+            <label className="meta" style={lab}>Each item&apos;s section (a text property worked out for each item)</label>
+            <select style={inp} aria-label="Each item's section" value={(s.output.document || {}).item_text || ''}
+              onChange={e => patch(d => { const o = d.stages[sel.si].output; o.document = { ...o.document, item_text: e.target.value || undefined } })}>
+              <option value="">Choose…</option>
+              {s.output.columns.filter(c => c.name && (c.type === 'text' || c.type === 'textarea') && c.scope !== 'request').map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+            </select>
+          </>)}
           <div className="meta" style={{ margin: '6px 0' }}>The draft opens with the headline text, then the key lines; every other property becomes a section, in the order below. What is still unconfirmed and the sources are added at the end. A property graded in code is left out of the draft.</div>
           <label className="meta" style={lab}>Headline text (the sentence or two the draft opens with)</label>
           <select style={inp} value={(s.output.document || {}).statement || ''}
             onChange={e => patch(d => { const o = d.stages[sel.si].output; o.document = { ...o.document, statement: e.target.value || undefined } })}>
             <option value="">None: open with the stage’s summary property</option>
-            {s.output.columns.filter(c => c.type === 'text' && c.name).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+            {s.output.columns.filter(c => c.type === 'text' && c.name && ((s.output.document || {}).scope === 'request' ? c.scope === 'request' : c.scope !== 'request')).map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
           </select>
           <label className="meta" style={lab}>Key lines (shown under the headline, after the tag)</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px' }}>

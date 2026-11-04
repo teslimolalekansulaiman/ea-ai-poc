@@ -87,7 +87,10 @@ def validate(spec: dict, relation_names=None) -> list[str]:
         cols = ((s.get("output") or {}).get("columns")) or []
         names = [c.get("name") for c in cols]
         for c in cols:
-            errs += _column_errors(f"Stage {i}: column '{c.get('name', '?')}'", c, names, relation_names, earlier)
+            errs += _column_errors(f"Stage {i}: column '{c.get('name', '?')}'", c, names, relation_names, earlier, s.get("summary_columns") or [])
+            errs += _derive_errors(f"Stage {i}: column '{c.get('name', '?')}'", c, cols, spec)
+            if c.get("scope") == "request" and c.get("name") in (s.get("summary_columns") or []):
+                errs.append(f"Stage {i}: column '{c.get('name', '?')}' is worked out once per request, so it cannot also be the stage's summary property.")
             if c.get("graded") and (not (s.get("result") or {}).get("row_tag") or (s.get("result") or {}).get("row_tag") not in names):
                 errs.append(f"Stage {i}: column '{c.get('name', '?')}' is graded from the stage's headline answer, so the stage's result needs a row tag that is one of its columns.")
         earlier = earlier + [n for n in names if n not in earlier]
@@ -112,6 +115,18 @@ def _document_errors(where: str, output: dict, cols: list) -> list[str]:
     st = cfg.get("statement")
     if st is not None and (st not in names or names[st].get("type") not in ("text", "textarea")):
         errs.append(f"{where}: the document's headline text must be a text property of this stage.")
+    sc = cfg.get("scope")
+    if sc not in (None, "item", "request"):
+        errs.append(f"{where}: the document is one per item or one for the whole request, not '{sc}'.")
+    if sc == "request":
+        if st is None or (names.get(st) or {}).get("scope") != "request":
+            errs.append(f"{where}: a document for the whole request opens with a headline text worked out once per request.")
+        it = cfg.get("item_text")
+        if it not in names or names[it].get("type") not in ("text", "textarea") or names[it].get("scope") == "request":
+            errs.append(f"{where}: a document for the whole request needs, for each item's section, a text property worked out for each item.")
+        for f in cfg.get("internal") or []:
+            if (names.get(f) or {}).get("scope") == "request":
+                errs.append(f"{where}: '{f}' is worked out once per request, so it cannot be kept per item for the architect.")
     facts = cfg.get("facts")
     if facts is not None and (not isinstance(facts, list) or any(f not in names for f in facts)):
         errs.append(f"{where}: the document's key lines must be properties of this stage.")
@@ -132,7 +147,7 @@ def _description_errors(where: str, item: dict) -> list[str]:
     return []
 
 
-def _column_errors(where: str, c: dict, names: list[str], relation_names=None, earlier: Optional[list] = None) -> list[str]:
+def _column_errors(where: str, c: dict, names: list[str], relation_names=None, earlier: Optional[list] = None, summary: Optional[list] = None) -> list[str]:
     """The guidance fields of an output column: how to resolve it, where to look, whether a
     cited source is needed, what to ask for when it is missing, and what it builds on."""
     errs = _description_errors(where, c)
@@ -182,9 +197,37 @@ def _column_errors(where: str, c: dict, names: list[str], relation_names=None, e
         if not isinstance(so, list) or len(so) > MAX_SEES_OTHERS:
             errs.append(f"{where}: the other items' answers it is shown must be a list of at most {MAX_SEES_OTHERS} properties of earlier stages.")
         else:
+            late = c.get("scope") == "request" or c.get("name") in (summary or [])      # worked out after every other property of its stage, for every item
+            ok = list(earlier or []) + ([n for n in names if n != c.get("name")] if late else [])
             for n in so:
-                if n not in (earlier or []):
-                    errs.append(f"{where}: it is shown the other items' answers to '{n}', which is not a property of an earlier stage.")
+                if n not in ok:
+                    errs.append(f"{where}: it is shown the other items' answers to '{n}', which is not a property of an earlier stage"
+                                + ("." if late else ", and only a summary property, or one worked out once per request, may see its own stage's."))
+    sc = c.get("scope")
+    if sc is not None and sc not in ("item", "request"):
+        errs.append(f"{where}: it is worked out for each item or once for the whole request, not '{sc}'.")
+    if sc == "request" and (c.get("type") not in ("text", "textarea", "list") or c.get("graded") or c.get("derive")):
+        errs.append(f"{where}: a property worked out once per request is text or a list, and neither graded nor derived in code.")
+    return errs
+
+
+def _derive_errors(where: str, c: dict, cols: list, spec: dict) -> list[str]:
+    """A property worked out in code from another: today, the groups the items form (see cases/groups.py)."""
+    d = c.get("derive")
+    if d is None:
+        return []
+    names = {x.get("name"): x for x in cols}
+    fields = {f.get("name") for f in (spec.get("input") or {}).get("item_fields") or []}
+    if not isinstance(d, dict) or d.get("kind") != "groups":
+        return [f"{where}: it can only be derived as 'groups'."]
+    errs = []
+    src = names.get(d.get("from"))
+    if src is None or src.get("type") != "list" or d.get("from") == c.get("name"):
+        errs.append(f"{where}: the groups are formed from a list property of this stage that names other items.")
+    if d.get("lead_by") not in (None, "") and d["lead_by"] not in fields:
+        errs.append(f"{where}: the lead is chosen by an input field of the use case, and '{d['lead_by']}' is not one.")
+    if c.get("type") not in ("text", "textarea") or c.get("graded") or c.get("scope") == "request" or c.get("uses"):
+        errs.append(f"{where}: a derived property is plain text, not graded, not per request, and builds on nothing.")
     return errs
 
 
@@ -263,8 +306,12 @@ def _tidy_descriptions(spec: dict) -> None:
     items = list((spec.get("input") or {}).get("item_fields") or [])
     for s in spec.get("stages") or []:
         doc = (s.get("output") or {}).get("document")
-        if isinstance(doc, dict) and not doc.get("internal"):
-            doc.pop("internal", None)
+        if isinstance(doc, dict):
+            for k in ("internal", "item_text"):
+                if not doc.get(k):
+                    doc.pop(k, None)
+            if doc.get("scope") in (None, "", "item"):
+                doc.pop("scope", None)
         items += list((s.get("output") or {}).get("columns") or [])
     for it in items:
         for key in ("description", "how_to_resolve", "info_needed", "info_needed_source", "activity", "where_to_look", "rules", "examples", "collate"):
@@ -287,6 +334,10 @@ def _tidy_descriptions(spec: dict) -> None:
             it.pop("uses", None)
         if not it.get("sees_others"):
             it.pop("sees_others", None)
+        if it.get("scope") in (None, "", "item"):
+            it.pop("scope", None)
+        if not it.get("derive"):
+            it.pop("derive", None)
         if not it.get("lookups"):
             it.pop("lookups", None)
         for lk in it.get("lookups") or []:
