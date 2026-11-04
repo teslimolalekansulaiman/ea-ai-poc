@@ -226,7 +226,7 @@ def test_files_alone_can_start_a_request_and_a_file_with_no_demand_makes_none():
     out = ag.start_from_sources(store(), SPEC, Fake({"items": [{"fields": {"business_need": F("a complaint tracking system", "a complaint tracking system", "only.txt")}}]}, {"question": "x"}), "", [mail])
     assert out["request"]["messages"][0]["text"] == "Attached: only.txt" and out["reply"].startswith("I read only.txt. I found 1 demand:")
     none = ag.start_from_sources(store(), SPEC, Fake({"items": []}), "", [_file("hello.txt", "Hello.")])
-    assert none["request"] is None and "I read hello.txt and could not find any demands in them." in none["reply"]
+    assert none["request"] is None and "I read hello.txt but could not pick out a demand from them" in none["reply"]
     with pytest.raises(ag.AgentError, match="attach a file"):
         ag.start_from_sources(store(), SPEC, Fake(), "  ", [])
     notes = ag.start_from_sources(store(), SPEC, Fake({"items": []}), "", [{**_file("long.txt", "x" * 50), "truncated": True, "notes": ["Only the first 50 characters of long.txt were read."]}])

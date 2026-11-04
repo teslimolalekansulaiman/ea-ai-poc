@@ -122,7 +122,7 @@ const SPARSE = 'We need a complaint tracking system to log, assign and follow up
   await page.goto(BASE); await page.waitForSelector(MSG);
   await page.fill(MSG, 'demand use case'); await page.press(MSG, 'Enter'); await page.waitForSelector('.rc .rc-msgs'); await idle(page);
   m = await msgs(page);
-  check(m.length === 2 && /demand use case/.test(m[0]) && /could not find any demands/.test(m[1]), 'text with no demand stays in the chat: your words, then the agent\'s answer');
+  check(m.length === 2 && /demand use case/.test(m[0]) && /could not pick out a demand/.test(m[1]) && /To assess a demand I need:\n• Demand ID/.test(m[1]), 'text with no demand stays in the chat: your words, then the agent\'s answer');
   check((await page.inputValue(MSG)) === '', 'and the box is cleared, as in any chat');
   await shot(page, '10-nothing-found');
   await page.fill(MSG, 'We need a way to log complaints.'); await page.press(MSG, 'Enter'); await page.waitForSelector('.rc-sum'); await idle(page);

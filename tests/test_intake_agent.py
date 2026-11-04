@@ -116,7 +116,7 @@ def test_a_message_becomes_a_request_with_the_words_behind_each_value():
 
 def test_a_message_with_no_demand_makes_no_request():
     out = ag.start_from_message(store(), SPEC, Fake({"items": []}), "Hello there, how are you?")
-    assert out["request"] is None and "could not find any demands" in out["reply"] and out["question"] is None
+    assert out["request"] is None and out["reply"].startswith("I could not pick out a demand from that yet, but I can help you raise one.") and out["question"] is None
     down = ag.start_from_message(store(), SPEC, Fake(RuntimeError("model down")), "We need a system.")
     assert down["request"] is None and down["reply"].startswith("I could not read that.")
     with pytest.raises(ag.AgentError):
@@ -459,3 +459,14 @@ def test_the_answer_sheet_route():
     assert ok.status_code == 200 and ok.json()["request"]["items"][0]["values"]["sponsor"] == "CFO"
     assert c.post(f"/api/requests/{rid}/messages", json={"answers": [{"field": "sponsor", "value": "x", "scope": "all"}]}).status_code == 400      # settled now
     assert c.post(f"/api/requests/{rid}/messages", json={"answers": []}).status_code == 400
+
+
+def test_when_there_is_no_demand_yet_the_agent_says_what_it_needs_from_the_use_cases_own_required_fields():
+    out = ag.start_from_message(store(), SPEC, Fake({"items": []}), "I want to make a demand request")
+    labels = [f.get("label") or f["name"] for f in rq.completeness.input_fields(SPEC) if f.get("required")]
+    assert labels and "To assess a demand I need:\n" + "\n".join("• " + x for x in labels) + "\n\n" in out["reply"]
+    assert "Tell me what is needed, who is asking for it and why, in your own words, or attach an email, a document or a sheet" in out["reply"]
+    assert "I will fill in what you give me and ask for the rest." in out["reply"]
+    # a model that fails is told apart from a message with nothing in it
+    down = ag.start_from_message(store(), SPEC, Fake(RuntimeError("down")), "We need a system.")
+    assert down["reply"].startswith("I could not read that.") and "Please try again in a moment" in down["reply"] and "To assess" not in down["reply"]

@@ -391,6 +391,19 @@ def _file_meta(files: list) -> list:
     return [{"name": f["name"], "kind": f["kind"], "chars": f["chars"], "truncated": f["truncated"], "notes": list(f["notes"]), "text": f["text"]} for f in files]
 
 
+def _nothing_found(spec: dict, ok: bool, read: str, files: bool, text: bool, notes: str) -> str:
+    """What the agent says when there is no demand to start from yet: plainly, and with what it needs, so the person knows what to give.
+    The words for the item and its required details come from the use case."""
+    one, req = _singular(spec), [f.get("label") or f["name"] for f in completeness.input_fields(spec) if f.get("required")]
+    if not ok:
+        return " ".join(x for x in ("I could not read that.", notes, f"Please try again in a moment, or attach the {one} as a file.") if x)
+    first = (f"I read {read} but could not pick out a {one} from {'them' if files and not text else 'it'}, though I can help you raise one."
+             if files else f"I could not pick out a {one} from that yet, but I can help you raise one.")
+    ask = "Tell me what is needed, who is asking for it and why, in your own words, or attach an email, a document or a sheet and I will read it."
+    need = (f"To assess a {one} I need:\n" + "\n".join("• " + x for x in req) + "\n\nYou do not need all of them now: I will fill in what you give me and ask for the rest.") if req else ""
+    return "\n\n".join(x for x in (first, notes, ask, need) if x)
+
+
 def start_from_sources(store, spec: dict, llm: Optional[Callable], text: str, files=()) -> dict:
     """A request from what a person wrote and the files they attached (already read to text: see attachments.read).
     {request, reply, question, changes, dropped, calls}. With no demand in any of it, no request is made."""
@@ -409,8 +422,7 @@ def start_from_sources(store, spec: dict, llm: Optional[Callable], text: str, fi
     read = _names(([MESSAGE] if text else []) + [f["name"] for f in files])
     shown = " ".join(notes)
     if not ex["demands"]:
-        why = "I could not read that." if not ex["ok"] else f"I read {read} and could not find any {plural} in {'it' if not files and text else 'them'}."
-        return {"request": None, "reply": f"{why} {shown} Say what is needed, who asks for it and why.".replace("  ", " "), "question": None, "changes": [],
+        return {"request": None, "reply": _nothing_found(spec, ex["ok"], read, bool(files), bool(text), shown), "question": None, "changes": [],
                 "dropped": ex["dropped"], "calls": model.calls}
     title_field, need_field = inp.get("title_field") or "title", inp.get("batch_text_field") or "business_need"
     items, changes = [], []
