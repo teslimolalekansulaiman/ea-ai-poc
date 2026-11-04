@@ -1,6 +1,6 @@
-"""The Demand use case's second stage as it ships: the message to the requester is the last property, written from everything
-before it, and the draft keeps the architect's findings apart from it. These tests read the shipped file, not a fixture, so a change
-to its design is a change to a test."""
+"""The Demand use case's second stage as it ships: one recommendation for the whole request, in one draft. Each demand has its own
+section; one overview opens the draft; both are written last, from everything before them, and the draft keeps the architect's
+findings apart. These tests read the shipped file, not a fixture, so a change to its design is a change to a test."""
 import copy
 import re
 import sys
@@ -13,13 +13,14 @@ import pytest  # noqa: E402
 from eawiki import usecases  # noqa: E402
 from eawiki.cases import document, engine as eng  # noqa: E402
 from eawiki.cases.engine import Engine  # noqa: E402
-from eawiki.cases.store import CaseStore  # noqa: E402
+from eawiki.cases.store import REQUEST_ID, CaseStore  # noqa: E402
 
 SPEC = base.SPEC                                   # the shipped use case
 REC = SPEC["stages"][1]
 COLS = {c["name"]: c for c in REC["output"]["columns"]}
 FINDINGS = ["Overlaps with", "Consolidate with demand(s)", "Contract / licence match", "Security fit"]
-MESSAGE = "Please do not raise a new demand. We recommend extending the existing link.\n\nWhat you asked for\nA way to send results.\n\nNext steps\n1. The owner confirms."
+OVERVIEW = "Handle the three demands together where they overlap."
+PID = "recommendation"
 
 
 @pytest.fixture(autouse=True)
@@ -29,37 +30,44 @@ def _use_cases(monkeypatch):
 
 def test_the_shipped_stage_is_valid_and_is_the_design_that_was_agreed():
     assert usecases.validate(SPEC) == []
+    assert [c["name"] for c in REC["output"]["columns"]] == ["Recommendation type", "Overlaps with", "Consolidate with demand(s)", "Contract / licence match",
+                                                              "Security fit", "Recommended owner", "Risks and conditions", "Next steps", "Handled with",
+                                                              "Recommendation", "Request overview", "Confidence", "Evidence"]
+    assert "Recommended action" not in COLS and "Justification" not in COLS                  # they became paragraphs of the demand's section
     assert REC["summary_columns"] == ["Recommendation"] and REC["result"]["row_tag"] == "Recommendation type"
-    assert [c["name"] for c in REC["output"]["columns"]] == ["Recommendation type", *FINDINGS[:1], "Consolidate with demand(s)", "Contract / licence match",
-                                                              "Security fit", "Recommended owner", "Risks and conditions", "Next steps", "Recommendation",
-                                                              "Confidence", "Evidence"]
-    assert "Recommended action" not in COLS and "Justification" not in COLS              # they became paragraphs of the message
-    msg = COLS["Recommendation"]
-    assert msg["type"] == "text" and msg["evidence_required"] is False
-    assert set(msg["uses"]) == {"Overlaps with", "Consolidate with demand(s)", "Contract / licence match", "Security fit", "Recommendation type",
-                                "Recommended owner", "Risks and conditions", "Next steps"}                  # every other property of the stage
-    text = msg["how_to_resolve"]
-    for must in ("senior enterprise architect", "to the requester", "about 300 words", "roles, never personal names", "Do not state a grade"):
-        assert must.lower() in text.lower()
-    assert REC["output"]["document"] == {"statement": "Recommendation", "facts": ["Recommended owner"],
-                                         "internal": [*FINDINGS, "Risks and conditions", "Next steps"]}
+    section, overview, handled = COLS["Recommendation"], COLS["Request overview"], COLS["Handled with"]
+    assert section["type"] == "text" and section["evidence_required"] is False and section.get("scope") is None
+    assert section["sees_others"] == ["Recommendation type", "Recommended owner", "Handled with"]
+    assert set(section["uses"]) >= {*FINDINGS, "Recommendation type", "Recommended owner", "Risks and conditions", "Next steps", "Handled with"}
+    assert overview["scope"] == "request" and overview["evidence_required"] is False
+    assert handled["derive"] == {"kind": "groups", "from": "Consolidate with demand(s)", "lead_by": "date_submitted"} and not handled.get("uses")
+    for col, words in ((section, ("100 to 150 words", "to the requester", "no heading", "Plain text only")), (overview, ("60 to 120 words", "Name which demands are handled together"))):
+        for must in ("senior enterprise architect", "roles, never personal names", "Do not state a grade", *words):
+            assert must.lower() in col["how_to_resolve"].lower(), must
+    assert REC["output"]["mode"] == "document"
+    assert REC["output"]["document"] == {"scope": "request", "statement": "Request overview", "item_text": "Recommendation",
+                                         "internal": ["Recommendation type", *FINDINGS, "Recommended owner", "Risks and conditions", "Next steps", "Handled with"]}
     assert COLS["Consolidate with demand(s)"]["sees_others"] == ["Is duplicate", "Duplicate demand number (in the sheet)", "Impacted application", "Impacted business capability"]
 
 
-def test_the_message_is_written_last_and_from_everything_before_it():
+def _run(items=3):
     order, seen = [], {}
 
     def llm(prompt):
         m = re.search(r"PROPERTY: (.+?)  \[", prompt)
         name = m.group(1) if m else ""
         if name in COLS and "INSTRUCTIONS FOR THIS STAGE" in prompt:
-            order.append(name)
-            seen[name] = prompt
-            canned = {"Recommendation type": "Enhancement", "Recommendation": MESSAGE, "Risks and conditions": ["Security fit not confirmed"],
-                      "Next steps": ["The owner confirms the status"], "Overlaps with": ["HR Portal"], "Consolidate with demand(s)": ["None"],
-                      "Contract / licence match": "None found", "Security fit": "Open", "Recommended owner": "HR Systems Lead"}
+            who = re.search(r"\[demand:demand_id\] Demand ID: (\S+)", prompt)
+            who = who.group(1) if who else REQUEST_ID
+            order.append((name, who))
+            seen.setdefault((name, who), prompt)
+            canned = {"Recommendation type": "Enhancement", "Overlaps with": ["HR Portal"], "Contract / licence match": "None found", "Security fit": "Open",
+                      "Consolidate with demand(s)": ["D-2026-003"] if who == "D-2026-001" else ["None"], "Recommended owner": "HR Systems Lead",
+                      "Risks and conditions": ["Security fit not confirmed"], "Next steps": ["The owner confirms the status"],
+                      "Recommendation": f"Section for {who}.", "Request overview": OVERVIEW}
             if name in canned:
-                return {"value": canned[name], "status": "answered", "evidence": re.findall(r"\[([^\]\s]+:\d+)\]", prompt)[:1], "needs": "", "note": "n"}
+                ids = re.findall(r"\[([^\]\s]+:\d+)\]", prompt)
+                return {"value": canned[name], "status": "answered", "evidence": [] if name == "Request overview" else ids[:1], "needs": "", "note": "n"}
         return base.fake_llm(prompt)
 
     def tools():
@@ -68,56 +76,58 @@ def test_the_message_is_written_last_and_from_everything_before_it():
         return t
 
     e = Engine(CaseStore(), tools, workers=2)
-    cid = e.create(SPEC, base.ITEMS[:2], "shipped")
+    cid = e.create(copy.deepcopy(SPEC), base.ITEMS[:items], "shipped")
     e.run_phase(cid, "screening")
     e.approve(cid, "screening", background=False)
-    first = {n: order.index(n) for n in order}
-    # the message is solved after every other property it builds on, once per demand
-    assert order.count("Recommendation") == 2
-    last_other = max(i for i, n in enumerate(order) if n != "Recommendation")
-    assert min(i for i, n in enumerate(order) if n == "Recommendation") > last_other, first
-    # ...and in the order the dependencies set: findings, then the type and owner, then risks, then the steps
-    assert max(order.index(n) for n in FINDINGS) < min(order.index("Recommendation type"), order.index("Recommended owner")) \
-        < order.index("Risks and conditions") < order.index("Next steps")
-    p = seen["Recommendation"]
-    assert "senior enterprise architect" in p
+    return e, cid, order, seen
+
+
+def test_each_demands_section_and_then_the_overview_are_written_last_from_everything_before():
+    e, cid, order, seen = _run()
+    names = [n for n, _ in order]
+    # the findings first, in the order the dependencies set; then each demand's section; the overview last, and once
+    last_finding = max(i for i, n in enumerate(names) if n not in ("Recommendation", "Request overview"))
+    first_section = min(i for i, n in enumerate(names) if n == "Recommendation")
+    assert names.count("Recommendation") == 3 and names.count("Request overview") == 1
+    assert first_section > last_finding and names.index("Request overview") > max(i for i, n in enumerate(names) if n == "Recommendation")
+    assert max(names.index(n) for n in FINDINGS) < min(names.index("Recommendation type"), names.index("Recommended owner")) < names.index("Risks and conditions") < names.index("Next steps")
+    # a demand's section reads that demand's whole picture: the request, both stages, who it is combined with, and the others
+    p = seen[("Recommendation", "D-2026-001")]
+    assert "ONE demand" in p and "senior enterprise architect" in p
     assert "Recommendation type: Enhancement" in p and "Risks and conditions: Security fit not confirmed" in p and "Next steps: The owner confirms the status" in p
-    assert "Recommended owner: HR Systems Lead" in p and re.search(r"Screening & Impact Assessment / Demand type: ", p)            # this phase, and the screening
-    # a property that compares with the rest was shown the other demands; the message was not
-    assert "THE OTHER DEMANDS IN THIS REQUEST" in seen["Consolidate with demand(s)"] and "THE OTHER DEMANDS IN THIS REQUEST" not in p
-    assert re.search(r"^- D-2026-\d+ \(.*?\): Is duplicate: ", seen["Consolidate with demand(s)"].split("THE OTHER DEMANDS IN THIS REQUEST")[1], re.M)
+    assert "Handled with: Combined with D-2026-003; lead: D-2026-001" in p and re.search(r"Screening & Impact Assessment / Demand type: ", p)
+    others = p.split("THE OTHER DEMANDS IN THIS REQUEST")[1].split("\n\n")[0]
+    assert "- D-2026-003 (" in others and "- D-2026-001 (" not in others and "Handled with: Combined with D-2026-001" in others
+    # the overview reads every demand, with their sections, and is told it is writing for the whole request
+    o = seen[("Request overview", REQUEST_ID)]
+    assert "ONE request, which holds several demands" in o and "ALREADY DECIDED FOR THIS DEMAND" not in o
+    block = o.split("THE DEMANDS IN THIS REQUEST")[1].split("\n\n")[0]
+    assert re.findall(r"^- (D-2026-\d+) \(", block, re.M) == ["D-2026-001", "D-2026-003", "D-2026-004"]
+    assert "Handled with: Alone" in block and "Combined with D-2026-003; lead: D-2026-001" in block and "Risks and conditions: Security fit not confirmed" in block
+    # consolidation was shown the other demands' screening answers
+    cons = seen[("Consolidate with demand(s)", "D-2026-001")]
+    assert re.search(r"^- D-2026-003 \(.*?\): Is duplicate: ", cons.split("THE OTHER DEMANDS IN THIS REQUEST")[1], re.M)
 
 
-def test_the_draft_is_the_message_with_the_findings_kept_apart_and_left_out_of_the_download():
-    def llm(prompt):
-        m = re.search(r"PROPERTY: (.+?)  \[", prompt)
-        canned = {"Recommendation": MESSAGE, "Recommendation type": "Enhancement", "Recommended owner": "HR Systems Lead"}
-        if m and m.group(1) in canned and "INSTRUCTIONS FOR THIS STAGE" in prompt:
-            return {"value": canned[m.group(1)], "status": "answered", "evidence": re.findall(r"\[([^\]\s]+:\d+)\]", prompt)[:1], "needs": "", "note": "n"}
-        return base.fake_llm(prompt)
-
-    def tools():
-        t = base.fake_tools()
-        t.llm_json = llm
-        return t
-
-    e = Engine(CaseStore(), tools, workers=2)
-    cid = e.create(copy.deepcopy(SPEC), base.ITEMS[:1], "draft")
-    e.run_phase(cid, "screening")
-    e.approve(cid, "screening", background=False)
+def test_the_draft_is_one_for_the_request_with_the_findings_kept_apart_and_left_out_of_the_download():
+    e, cid, order, seen = _run()
     case = e.store.get_case(cid)
-    d = document.listing(e.store, case, "recommendation")[0]["doc"]
-    assert d["rec"]["body"] == MESSAGE and d["rec"]["column"] == "Recommendation"
-    kinds = {s["title"]: bool(s.get("internal")) for s in d["sections"]}
-    assert all(kinds[t] for t in FINDINGS if t in kinds) and kinds.get("Risks and conditions") and kinds.get("Next steps")
-    assert [f["label"] for f in d["facts"]][:1] == ["Recommendation type"] and "Recommended owner" in [f["label"] for f in d["facts"]]
-    assert "Confidence" not in kinds                                                      # graded in code, for the table
-    page = document.render_html({"doc": d, "status": "draft"})
-    assert "Please do not raise a new demand" in page                                       # the message is what is downloaded
-    assert all(t not in page for t in [*FINDINGS, "Risks and conditions", document.TO_CONFIRM, document.EVIDENCE])
+    [entry] = document.listing(e.store, case, PID)
+    d = entry["doc"]
+    assert entry["item_id"] == REQUEST_ID and d["rec"]["body"] == OVERVIEW and d["rec"]["title"] == "Recommendation for this request"
+    msg = [s for s in d["sections"] if not s.get("internal")]
+    assert [s["title"].split(" · ")[0] for s in msg] == ["D-2026-001", "D-2026-003", "D-2026-004"]
+    assert [s.get("group") for s in msg] == ["Combined: D-2026-001, D-2026-003"] * 2 + [None]
+    assert [s["body"] for s in msg] == ["Section for D-2026-001.", "Section for D-2026-003.", "Section for D-2026-004."]
+    apart = {s["title"] for s in d["sections"] if s.get("internal")}
+    assert {"D-2026-001 · Security fit", "D-2026-001 · Recommendation type", "D-2026-004 · Handled with", document.TO_CONFIRM} <= apart
+    assert not any("Confidence" in t for t in apart)                                      # graded in code, for the table
+    page = document.render_html(entry)
+    assert OVERVIEW in page and "Combined: D-2026-001, D-2026-003" in page and "Section for D-2026-004." in page
+    assert all(t not in page for t in [*FINDINGS, "Handled with", document.TO_CONFIRM, document.EVIDENCE])
 
 
-def test_answering_a_property_of_the_stage_writes_the_message_again():
-    stage = REC
-    assert "Recommendation" in eng.Engine._dependants(stage, "Security fit")             # the engine reruns the summary after any answer in the stage
-    assert {"Recommendation type", "Risks and conditions", "Next steps", "Recommendation"} <= eng.Engine._dependants(stage, "Overlaps with")
+def test_answering_a_property_of_the_stage_writes_the_derived_and_request_wide_properties_again():
+    deps = eng.Engine._dependants(REC, "Security fit")
+    assert {"Recommendation", "Request overview", "Handled with"} <= deps
+    assert {"Recommendation type", "Risks and conditions", "Next steps"} <= eng.Engine._dependants(REC, "Overlaps with")

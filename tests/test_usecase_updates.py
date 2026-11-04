@@ -18,7 +18,7 @@ from eawiki.api.app import app  # noqa: E402
 SEED = base.SPEC                                       # the use case as it ships now
 OLD = base.SPEC_P2                                     # the use case as it stood before the update: what a database copy holds
 UC = "demand-management"
-UPDATE = "recommendation-message"
+UPDATE = "recommendation-request-draft"
 S = "Recommendation"
 
 
@@ -41,7 +41,7 @@ def test_the_shipped_update_brings_an_older_copy_to_the_shipped_design(store):
     [u] = up.available(UC)
     assert u["id"] == UPDATE and not u["applied"] and u["errors"] == [] and u["changes"]
     assert any("renamed 'Recommendation type'" in c for c in u["changes"]) and any("'Recommended action' is removed" in c for c in u["changes"])
-    assert any("'Risks and conditions' is added" in c for c in u["changes"])
+    assert all(any(f"'{n}' is added" in c for c in u["changes"]) for n in ("Risks and conditions", "Next steps", "Handled with", "Recommendation", "Request overview"))
     before = usecases.get(UC)
     out = up.apply(UC, UPDATE)
     now = usecases.get(UC)
@@ -50,11 +50,13 @@ def test_the_shipped_update_brings_an_older_copy_to_the_shipped_design(store):
     assert _names(now) == _names(SEED)                                                   # the same properties, in the same order
     a, b = now["stages"][1], SEED["stages"][1]
     assert a["summary_columns"] == b["summary_columns"] and a["result"]["row_tag"] == b["result"]["row_tag"] and a["output"]["document"] == b["output"]["document"]
-    assert a["output"]["mode"] == "document" and "The last property, Recommendation," in a["instructions"]
+    assert a["output"]["mode"] == "document" and "The last two properties" in a["instructions"]
     cons = next(c for c in a["output"]["columns"] if c["name"] == "Consolidate with demand(s)")
     assert cons["sees_others"] == next(c for c in b["output"]["columns"] if c["name"] == "Consolidate with demand(s)")["sees_others"]
-    new = next(c for c in a["output"]["columns"] if c["name"] == "Recommendation")
-    assert new["type"] == "text" and "senior enterprise architect" in new["how_to_resolve"]
+    new = {c["name"]: c for c in a["output"]["columns"]}
+    assert new["Recommendation"]["type"] == "text" and "senior enterprise architect" in new["Recommendation"]["how_to_resolve"]
+    assert new["Request overview"]["scope"] == "request" and new["Handled with"]["derive"]["kind"] == "groups"
+    assert new["Recommendation"]["sees_others"] == ["Recommendation type", "Recommended owner", "Handled with"]
     assert [x["applied"] for x in up.available(UC)] == [True]                           # offered once
     with pytest.raises(up.UpdateError):
         up.apply(UC, UPDATE)
@@ -75,7 +77,7 @@ def test_the_owners_own_wording_is_kept_and_only_empty_wording_is_filled(store):
     cols = {c["name"]: c for c in now["stages"][1]["output"]["columns"]}
     assert cols["Security fit"]["description"] == "MY OWN WORDS"
     assert cols["Recommended owner"]["how_to_resolve"] == next(c for c in SEED["stages"][1]["output"]["columns"] if c["name"] == "Recommended owner")["how_to_resolve"]
-    assert now["stages"][1]["instructions"].startswith("My stage instructions.\n\n") and "The last property, Recommendation," in now["stages"][1]["instructions"]
+    assert now["stages"][1]["instructions"].startswith("My stage instructions.\n\n") and "The last two properties" in now["stages"][1]["instructions"]
 
 
 def test_a_property_the_owner_already_has_is_never_touched(store):
@@ -146,4 +148,18 @@ def test_the_routes_list_apply_and_refuse(store):
     assert ok.status_code == 200 and ok.json()["changes"]
     assert c.post(f"/api/usecases/{UC}/updates/{UPDATE}").status_code == 400              # already applied
     assert c.get(f"/api/usecases/{UC}/updates").json()["updates"][0]["applied"] is True
-    assert json.loads(json.dumps(c.get(f"/api/usecases/{UC}").json()))["stages"][1]["summary_columns"] == ["Recommendation"]
+    got = c.get(f"/api/usecases/{UC}").json()["stages"][1]
+    assert got["summary_columns"] == ["Recommendation"] and got["output"]["document"]["scope"] == "request"
+
+
+def test_a_property_the_copy_does_not_have_is_left_out_of_what_a_property_is_shown_and_said_not_a_failure(store):
+    spec = usecases.get(UC)
+    spec["stages"][0]["output"]["columns"] = [c for c in spec["stages"][0]["output"]["columns"] if c["name"] != "Impacted business capability"]
+    for c in spec["stages"][0]["output"]["columns"]:
+        c["uses"] = [x for x in c.get("uses") or [] if x != "Impacted business capability"]
+    usecases.save(spec, UC)
+    [u] = up.available(UC)
+    assert u["errors"] == [] and any("not shown the other demands' 'Impacted business capability'" in k for k in u["kept"])
+    up.apply(UC, UPDATE)
+    cons = next(c for c in usecases.get(UC)["stages"][1]["output"]["columns"] if c["name"] == "Consolidate with demand(s)")
+    assert cons["sees_others"] == ["Is duplicate", "Duplicate demand number (in the sheet)", "Impacted application"]

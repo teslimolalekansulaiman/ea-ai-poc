@@ -78,8 +78,10 @@ Overlaps with, Contract / licence match, Security fit, Recommended owner, Recomm
 > 2. The cyber team reviews access control for the interface.
 > 3. Architecture confirms once the security fit is settled.
 
-## What the code must support (to build)
+## What the code supports (built)
 
-1. A request scope for a property (written once, not per demand), and the request's own cells.
-2. A property worked out in code ("Handled with"): agreement of the consolidation answers, and the lead.
-3. One draft per request: assembly in the order above, one approval, one download.
+1. A property worked out once for the whole request (`scope: "request"`), kept apart from the demands' cells.
+2. A property worked out in code (`derive: groups`): "Handled with". Items named in either direction are linked, the earliest submitted leads, and where the answers disagree it is said.
+3. A late property (a summary or request-wide one) can be shown the other demands' answers of its own stage (`sees_others`).
+4. One draft for the whole request (`output.document.scope: "request"`): the overview, a section for each demand with the combined demands together, the architect's part apart, one approval, a download of the message only.
+5. The Phase 2 update (`use_cases/updates/demand-management/recommendation-request-draft.json`), applied from Config, Edit, History: it keeps wording you have written and fills only what is empty.

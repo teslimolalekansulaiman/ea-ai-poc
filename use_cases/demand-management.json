@@ -731,7 +731,7 @@
     {
       "id": "recommendation",
       "name": "Recommendation",
-      "instructions": "Check overlap with existing solutions (components, platforms, applications, APIs, prior or running initiatives) and with other demands (consolidate). Check the contract register for licences and renewals that could cover it. Confirm the security fit before recommending reuse. Decide the way forward and the owner, and name the risks and the next steps. The last property, Recommendation, is the message to the requester: it is written only after all the others are done, from them and from the screening. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it does not, say what is needed.",
+      "instructions": "Check overlap with existing solutions (components, platforms, applications, APIs, prior or running initiatives) and with other demands (consolidate). Check the contract register for licences and renewals that could cover it. Confirm the security fit before recommending reuse. Decide the way forward and the owner, and name the risks and the next steps. The last two properties are the recommendation to the requester: each demand's own section, then one overview of the whole request. They are written only after all the others are done, from them and from the screening. Do NOT recommend new business capabilities. Answer only what the knowledge base supports; for anything it does not, say what is needed.",
       "output": {
         "mode": "document",
         "columns": [
@@ -823,10 +823,21 @@
             "activity": "Setting out the next steps"
           },
           {
+            "name": "Handled with",
+            "type": "text",
+            "description": "Whether this demand is handled together with others in the request, and which of them leads. Worked out in code, not by the model: from the consolidation answers, an item named in either direction is linked, and the earliest submitted demand leads. It reads \"Alone\", or \"Combined with D-2026-003; lead: D-2026-001\".",
+            "derive": {
+              "kind": "groups",
+              "from": "Consolidate with demand(s)",
+              "lead_by": "date_submitted"
+            },
+            "activity": "Working out which demands are handled together"
+          },
+          {
             "name": "Recommendation",
             "type": "text",
-            "description": "The recommendation to the requester, as the architecture team would write it: one page, in plain language, written to the requester as \"you\". It is a draft for the architect to read, edit and approve.",
-            "how_to_resolve": "You are a senior enterprise architect writing the architecture team's recommendation to the requester. Lead with the decision. Weigh what is gained and what is risked, say what you would not do and why, and be direct about what is not settled. Use judgement where it follows from the answers; do not state a fact that is not in them. Write in plain language that someone who is not an architect can follow: no jargon, and no catalogue codes except the IDs the answers give.\n\nWrite one message of about 300 words at most, to the requester, from the architecture team. Use only what this assessment found: the request's own fields, the screening answers, and the answers of this phase. Plain text only, with no symbols or markdown. Write these parts as short paragraphs. The first has no heading; each of the others has a short heading on a line of its own:\n1. The recommendation (no heading): the recommendation type in a sentence or two, and what to do. If another demand covers the same need, say not to raise a new one and name it. If an existing solution covers it, name it and say what to extend.\n2. What you asked for: one sentence, from the request's need and expected outcome, in your own words and not copied.\n3. Why: what it overlaps with, the contract and licence match, any demand to combine it with, and the security fit, with the IDs exactly as the answers give them. Add, from the screening, whatever bears on the way forward: the deadline and urgency, the data classification, and any conflict with the architecture principles and standards. If a simpler way exists in the answers (reusing what exists rather than building new), say why it is the better one.\n4. Risks and conditions: from the property of that name, kept short.\n5. Next steps: from the property of that name, as a numbered list.\n\nSay plainly what is not yet confirmed. Do not add a fact, an ID, a date, a name, a cost or a regulation that is not in the answers or the sources. Do not recommend new business capabilities. Write roles, never personal names. Do not state a grade or a confidence level. If the recommendation type is not decided, say what is needed instead of writing a message.",
+            "description": "This demand's section of the recommendation to the requester: 100 to 150 words, in plain language, written to the requester as \"you\". It is a draft for the architect to read, edit and approve as part of the request's one recommendation.",
+            "how_to_resolve": "You are a senior enterprise architect writing the architecture team's recommendation to the requester. Lead with the decision. Weigh what is gained and what is risked, say what you would not do and why, and be direct about what is not settled. Use judgement where it follows from the answers; do not state a fact that is not in them. Write in plain language that someone who is not an architect can follow: no jargon, and no catalogue codes except the IDs the answers give.\n\nWrite this demand's section only, 100 to 150 words, to the requester, from the architecture team. Use only what this assessment found for this demand and, where \"Handled with\" says it is combined, for the demands it is combined with. Plain text only, with no symbols or markdown. Write these parts as short paragraphs. The first has no heading; each of the others has a short heading on a line of its own:\n1. The recommendation (no heading): this demand's recommendation type and what to do, in one or two sentences. If the demand is handled with others, say so first. For the lead: which demands are combined into it and what that changes. For any other: that it should not be raised on its own, and that the work continues under the lead, named.\n2. Why: two or three sentences: what it overlaps with, the contract and licence match, and the security fit, with the IDs exactly as the answers give them. Add, from the screening, whatever bears on the way forward: the deadline and urgency, the data classification, and any conflict with the architecture principles and standards.\n3. Risks and conditions: from the property of that name, at most two lines.\n4. Next steps: from the property of that name, a numbered list of at most three.\n\nSay plainly what is not yet confirmed. Do not add a fact, an ID, a date, a name, a cost or a regulation that is not in the answers or the sources. Do not recommend new business capabilities. Write roles, never personal names. Do not state a grade or a confidence level. If the recommendation type is not decided, say what is needed instead of writing the section.",
             "uses": [
               "Overlaps with",
               "Consolidate with demand(s)",
@@ -835,10 +846,32 @@
               "Recommendation type",
               "Recommended owner",
               "Risks and conditions",
+              "Next steps",
+              "Handled with"
+            ],
+            "sees_others": [
+              "Recommendation type",
+              "Recommended owner",
+              "Handled with"
+            ],
+            "evidence_required": false,
+            "activity": "Writing each demand's recommendation"
+          },
+          {
+            "name": "Request overview",
+            "type": "text",
+            "scope": "request",
+            "description": "The opening of the request's recommendation: how the request as a whole should be handled, in plain language, written to the requester. The demands' own sections follow it.",
+            "how_to_resolve": "You are a senior enterprise architect writing the architecture team's recommendation to the requester. Lead with the decision. Weigh what is gained and what is risked, say what you would not do and why, and be direct about what is not settled. Use judgement where it follows from the answers; do not state a fact that is not in them. Write in plain language that someone who is not an architect can follow: no jargon, and no catalogue codes except the IDs the answers give.\n\nWrite 60 to 120 words of plain text, with no symbols or markdown, to the requester, from the architecture team. Say how many demands the request holds and the overall recommendation, in a sentence or two. Name which demands are handled together and which one leads each group. If the demands should be done in an order, or share a risk or a step, say which and why. Use only the answers shown for the demands of this request. Do not repeat the demands' sections; they follow. Say plainly what is not yet confirmed. Do not add a fact, an ID, a date, a name, a cost or a regulation that is not in the answers or the sources. Do not recommend new business capabilities. Write roles, never personal names. Do not state a grade or a confidence level. If the recommendation type is not decided, say what is needed instead of writing the section.",
+            "sees_others": [
+              "Recommendation type",
+              "Recommended owner",
+              "Handled with",
+              "Risks and conditions",
               "Next steps"
             ],
             "evidence_required": false,
-            "activity": "Writing the recommendation"
+            "activity": "Writing the request overview"
           },
           {
             "name": "Confidence",
@@ -856,17 +889,19 @@
           }
         ],
         "document": {
-          "statement": "Recommendation",
-          "facts": [
-            "Recommended owner"
-          ],
+          "scope": "request",
+          "statement": "Request overview",
+          "item_text": "Recommendation",
           "internal": [
+            "Recommendation type",
             "Overlaps with",
             "Consolidate with demand(s)",
             "Contract / licence match",
             "Security fit",
+            "Recommended owner",
             "Risks and conditions",
-            "Next steps"
+            "Next steps",
+            "Handled with"
           ]
         }
       },

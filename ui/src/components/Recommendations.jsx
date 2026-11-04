@@ -82,7 +82,7 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
             {s.internal && <span className="cs-pill">Not sent</span>}
             <textarea className="rd-in" aria-label="Text" rows={rows(s.body)} value={s.body} onChange={x => set(n => { n.sections[i].body = x.target.value })} />
             <button className="cs-link" onClick={() => set(n => { n.sections.splice(i, 1) })}>Remove this section</button></>
-        : <><h3 className="rd-h">{s.title}</h3>
+        : <><h3 className="rd-h">{s.internal && s.item && s.title.startsWith(s.item + ' · ') ? s.title.slice(s.item.length + 3) : s.title}</h3>
             {s.title === 'Evidence'
               ? <div className="rd-ev">{s.body.split('\n').filter(Boolean).map(b => <button key={b} className="cs-cite" onClick={() => cite.open(b)}>{b}</button>)}</div>
               : <Rows text={s.body} />}
@@ -131,7 +131,8 @@ function Sheet({ caseId, phaseId, entry, onSaved, onDecided, busy, setBusy, setE
         <div className="rd-arch">
           <div className="rd-eyebrow">For the architect, not sent</div>
           <div className="rd-arch-note">The findings behind the message, what is still to confirm, and the sources. They are for you to check; they are not part of what the requester receives or of the download.</div>
-          {doc.sections.map((s, i) => s.internal ? section(s, i) : null)}
+          {doc.sections.map((s, i) => s.internal ? (
+            <Fragment key={i}>{s.item && (i === 0 || !doc.sections[i - 1].internal || doc.sections[i - 1].item !== s.item) && <h4 className="rd-demand">{s.item}</h4>}{section(s, i)}</Fragment>) : null)}
         </div>)}
       {editing && <div><button className="btn sm" onClick={() => set(n => { n.sections.push({ title: 'New section', body: '' }) })}>Add a section</button></div>}
 

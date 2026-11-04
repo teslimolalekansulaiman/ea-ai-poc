@@ -150,6 +150,13 @@ def plan(spec: dict, update: dict) -> dict:
                     errors.append(f"{sn}: there is no property '{op['name']}' to fill in.")
                     continue
                 for k, v in op["fields"].items():
+                    if k == "sees_others":                                         # only the properties this copy has: a missing one is left out, and said
+                        have = {x.get("name") for st in new["stages"] for x in _cols(st)} - {op["name"]}
+                        gone = [n for n in v if n not in have]
+                        v = [n for n in v if n in have]
+                        kept += [f"{sn}: '{op['name']}' is not shown the other demands' '{n}': your copy has no such property." for n in gone]
+                        if not v:
+                            continue
                     if _empty(c.get(k)):
                         c[k] = copy.deepcopy(v)
                         changes.append(f"{sn}: '{op['name']}': {k.replace('_', ' ')} was empty and is filled in.")

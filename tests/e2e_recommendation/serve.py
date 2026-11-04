@@ -30,13 +30,17 @@ from eawiki.cases.engine import Engine  # noqa: E402
 from eawiki.cases.store import store  # noqa: E402
 
 
-MESSAGE = ("Please do not raise a new demand. We recommend you extend the existing platform to cover this need.\n\n"
-           "What you asked for\nA mobile way to book leave.\n\nWhy\nThe platform already covers most of it, and the current licence runs until March 2027.\n\n"
-           "Risks and conditions\nThe cyber team has not yet confirmed access control.\n\nNext steps\n1. The cyber team reviews access control.")
-CANNED = {"Overlaps with": ["HR system"], "Consolidate with demand(s)": ["None"], "Contract / licence match": "Covered by the current licence until March 2027.",
+def _section(who):
+    return (f"We recommend you extend the existing platform to cover {who}.\n\nWhy\nThe platform already covers most of it, and the current licence runs until March 2027.\n\n"
+            "Risks and conditions\nThe cyber team has not yet confirmed access control.\n\nNext steps\n1. The cyber team reviews access control.")
+
+
+OVERVIEW = ("Please do not raise D-2026-003 on its own: continue under D-2026-001, which asks for the same thing. D-2026-004 is separate. "
+            "Both can start once the cyber team has confirmed access control.")
+CANNED = {"Overlaps with": ["HR system"], "Contract / licence match": "Covered by the current licence until March 2027.",
           "Security fit": "Under the existing identity control; a review is still needed.", "Recommended owner": "HR Systems Lead",
           "Recommendation type": "Enhancement", "Risks and conditions": ["The cyber team has not yet confirmed access control."],
-          "Next steps": ["The cyber team reviews access control."], "Recommendation": MESSAGE}
+          "Next steps": ["The cyber team reviews access control."]}
 
 
 def tools():
@@ -47,8 +51,12 @@ def tools():
         m = re.search(r"PROPERTY: (.+?)  \[", prompt)
         name = m.group(1) if m else ""
         ids = re.findall(r"\[([^\]\s]+:\d+)\]", prompt)
-        if name in CANNED and "INSTRUCTIONS FOR THIS STAGE" in prompt:                # only the second stage's properties
-            return {"value": CANNED[name], "status": "answered", "evidence": ids[:1], "needs": "", "note": "n"}
+        who = re.search(r"\[demand:demand_id\] Demand ID: (\S+)", prompt)
+        who = who.group(1) if who else ""
+        if "INSTRUCTIONS FOR THIS STAGE" in prompt and name in (*CANNED, "Consolidate with demand(s)", "Recommendation", "Request overview"):    # only the second stage's properties
+            value = (["D-2026-003"] if who == "D-2026-001" else ["None"]) if name == "Consolidate with demand(s)" else \
+                _section(who) if name == "Recommendation" else OVERVIEW if name == "Request overview" else CANNED[name]
+            return {"value": value, "status": "answered", "evidence": [] if name == "Request overview" else ids[:1], "needs": "", "note": "n"}
         return inner(prompt)
     t.llm_json = llm
     return t
