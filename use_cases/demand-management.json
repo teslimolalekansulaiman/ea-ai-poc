@@ -758,7 +758,42 @@
             "name": "Overlaps with",
             "type": "list",
             "description": "Existing solutions this demand overlaps with: applications, platforms, components, APIs and prior or running initiatives, main one first, each with its catalogue or contract ID. None when you checked and found no overlap.",
-            "how_to_resolve": "Start from what the screening decided for this demand: the impacted applications and any duplicate with an existing artefact. Add an existing solution only when it serves the same need for the same users, not when it shares a word with the demand. Name each as the catalogue names it, with its ID. A solution that does not exist yet is not listed. If nothing was found, write None; if the catalogue could not be checked, say what is needed."
+            "how_to_resolve": "Start from what the screening decided for this demand: the impacted applications and any duplicate with an existing artefact. Add an existing solution only when it serves the same need for the same users, not when it shares a word with the demand. Name each as the catalogue names it, with its ID. A solution that does not exist yet is not listed. If nothing was found, write None; if the catalogue could not be checked, say what is needed.",
+            "lookups": [
+              {
+                "find": "which existing applications or platforms serve the same need as each impacted application, and what state each is in",
+                "from": "result:Impacted application",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Technology Catalog"
+                ],
+                "types": [
+                  "application",
+                  "technology"
+                ],
+                "extract": "the solution, its ID and its status (live, planned or retiring)"
+              },
+              {
+                "find": "which existing initiatives or projects already cover what the demand asks for",
+                "from": "need",
+                "match": "meaning",
+                "in": [
+                  "Initiative Portfolio"
+                ],
+                "extract": "the initiative, its ID and what it covers"
+              },
+              {
+                "find": "which existing solutions each impacted business capability is already served by",
+                "from": "result:Impacted business capability",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Business Architecture"
+                ],
+                "extract": "the solution and its ID"
+              }
+            ]
           },
           {
             "name": "Consolidate with demand(s)",
@@ -770,19 +805,92 @@
               "Duplicate demand number (in the sheet)",
               "Impacted application",
               "Impacted business capability"
+            ],
+            "lookups": [
+              {
+                "find": "whether another demand in this request asks for the same need, for the same users, on the same systems, even if it is worded differently",
+                "from": "other_demands",
+                "match": "compare",
+                "in": []
+              }
             ]
           },
           {
             "name": "Contract / licence match",
             "type": "text",
             "description": "Whether a contract or licence in the contract register already covers this need, with its contract ID and the renewal or end date where the register gives one. None found when the register was checked and nothing matches.",
-            "how_to_resolve": "Look in the contract register for the overlapping solutions and the systems the demand names. Give the contract ID and the dates only as the register states them. Do not infer a licence scope from the product's name. None found when it was checked and nothing matches; if the register could not be checked, say what is needed."
+            "how_to_resolve": "Look in the contract register for the overlapping solutions and the systems the demand names. Give the contract ID and the dates only as the register states them. Do not infer a licence scope from the product's name. None found when it was checked and nothing matches; if the register could not be checked, say what is needed.",
+            "lookups": [
+              {
+                "find": "which contract or licence covers each overlapping solution",
+                "from": "result:Overlaps with",
+                "match": "name",
+                "in": [
+                  "Contract Register"
+                ],
+                "types": [
+                  "application",
+                  "technology"
+                ],
+                "extract": "the contract ID, what it covers and its renewal or end date"
+              },
+              {
+                "find": "which contract or licence covers each system the demand names",
+                "from": "systems",
+                "match": "name",
+                "in": [
+                  "Contract Register"
+                ],
+                "extract": "the contract ID, what it covers and its renewal or end date"
+              }
+            ],
+            "uses": [
+              "Overlaps with"
+            ]
           },
           {
             "name": "Security fit",
             "type": "text",
             "description": "Whether the existing solution, or the approach the demand takes, fits the security controls that apply, in one or two plain sentences, and what is still to be confirmed. This is a general fit; the detailed assessment is with the security and infrastructure teams.",
-            "how_to_resolve": "Build on the screening's data classification and linked security capabilities for this demand. Say what fits and what is not yet confirmed. Do not declare a solution secure on its own: where the sources do not settle it, answer needs_source and say which control or standard has to be checked."
+            "how_to_resolve": "Build on the screening's data classification and linked security capabilities for this demand. Say what fits and what is not yet confirmed. Do not declare a solution secure on its own: where the sources do not settle it, answer needs_source and say which control or standard has to be checked.",
+            "lookups": [
+              {
+                "find": "what the standard requires for the data classification this demand involves",
+                "from": "result:Data classification",
+                "match": "meaning",
+                "in": [
+                  "Standards"
+                ]
+              },
+              {
+                "find": "the controls linked to each security capability the screening named",
+                "from": "result:Linked security capability",
+                "match": "name",
+                "in": [
+                  "Security Control Catalog"
+                ],
+                "types": [
+                  "security"
+                ],
+                "extract": "the control, its owner role and its status"
+              },
+              {
+                "find": "which security controls each overlapping solution is covered by",
+                "from": "result:Overlaps with",
+                "match": "name",
+                "in": [
+                  "Application to Security Control Matrix",
+                  "Security Control Catalog"
+                ],
+                "types": [
+                  "application"
+                ],
+                "extract": "the controls named"
+              }
+            ],
+            "uses": [
+              "Overlaps with"
+            ]
           },
           {
             "name": "Recommended owner",
@@ -791,6 +899,43 @@
             "how_to_resolve": "Take the owner role from the screening's Owners answer and from the catalogue entry of the main overlapping solution. Write a role, never a name. If no solution overlaps, take the owner role of the capability the demand impacts. If no role is recorded, say what is needed.",
             "uses": [
               "Overlaps with"
+            ],
+            "lookups": [
+              {
+                "find": "who owns each overlapping solution",
+                "from": "result:Overlaps with",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Contract Register"
+                ],
+                "types": [
+                  "application",
+                  "technology"
+                ],
+                "extract": "the owner role",
+                "relations": [
+                  {
+                    "relation": "is_owned_by",
+                    "direction": "out"
+                  }
+                ]
+              },
+              {
+                "find": "who owns each business capability the demand impacts",
+                "from": "result:Impacted business capability",
+                "match": "name",
+                "in": [
+                  "Business Architecture"
+                ],
+                "extract": "the owner unit or role",
+                "relations": [
+                  {
+                    "relation": "is_owned_by",
+                    "direction": "out"
+                  }
+                ]
+              }
             ]
           },
           {
@@ -807,7 +952,23 @@
             ],
             "evidence_required": false,
             "blank_ok": true,
-            "activity": "Weighing the risks and conditions"
+            "activity": "Weighing the risks and conditions",
+            "lookups": [
+              {
+                "find": "whether any overlapping solution is retiring, not in use, or has no initiative behind it",
+                "from": "result:Overlaps with",
+                "match": "name",
+                "in": [
+                  "Application Catalog",
+                  "Initiative Portfolio"
+                ],
+                "types": [
+                  "application",
+                  "technology"
+                ],
+                "extract": "its status and lifecycle"
+              }
+            ]
           },
           {
             "name": "Handled with",

@@ -1,0 +1,204 @@
+{
+  "id": "recommendation-starter-lookups",
+  "title": "Starter questions for the Recommendation properties",
+  "note": "Gives the properties of the Recommendation stage the questions they put to the knowledge base, which a case otherwise guesses from the wording on each run: what overlaps, which contract covers it, which controls apply, who owns the solutions and the capabilities the demand affects (read from the graph's 'is owned by'), and what is open. A question starts from the answer of an earlier property, so where it starts from a property of this stage that property is made to build on it. A property that already has questions of your own is left as it is, and a question that cannot work in your copy (it starts from a property you do not have) is left out, and said. Read each question afterwards under Lookups: they are a starting point to edit, not a final set.",
+  "ops": [
+    {
+      "op": "fill_property",
+      "stage": "Recommendation",
+      "name": "Overlaps with",
+      "fields": {
+        "lookups": [
+          {
+            "find": "which existing applications or platforms serve the same need as each impacted application, and what state each is in",
+            "from": "result:Impacted application",
+            "match": "name",
+            "in": [
+              "Application Catalog",
+              "Technology Catalog"
+            ],
+            "types": [
+              "application",
+              "technology"
+            ],
+            "extract": "the solution, its ID and its status (live, planned or retiring)"
+          },
+          {
+            "find": "which existing initiatives or projects already cover what the demand asks for",
+            "from": "need",
+            "match": "meaning",
+            "in": [
+              "Initiative Portfolio"
+            ],
+            "extract": "the initiative, its ID and what it covers"
+          },
+          {
+            "find": "which existing solutions each impacted business capability is already served by",
+            "from": "result:Impacted business capability",
+            "match": "name",
+            "in": [
+              "Application Catalog",
+              "Business Architecture"
+            ],
+            "extract": "the solution and its ID"
+          }
+        ]
+      }
+    },
+    {
+      "op": "fill_property",
+      "stage": "Recommendation",
+      "name": "Consolidate with demand(s)",
+      "fields": {
+        "lookups": [
+          {
+            "find": "whether another demand in this request asks for the same need, for the same users, on the same systems, even if it is worded differently",
+            "from": "other_demands",
+            "match": "compare",
+            "in": []
+          }
+        ]
+      }
+    },
+    {
+      "op": "fill_property",
+      "stage": "Recommendation",
+      "name": "Contract / licence match",
+      "fields": {
+        "lookups": [
+          {
+            "find": "which contract or licence covers each overlapping solution",
+            "from": "result:Overlaps with",
+            "match": "name",
+            "in": [
+              "Contract Register"
+            ],
+            "types": [
+              "application",
+              "technology"
+            ],
+            "extract": "the contract ID, what it covers and its renewal or end date"
+          },
+          {
+            "find": "which contract or licence covers each system the demand names",
+            "from": "systems",
+            "match": "name",
+            "in": [
+              "Contract Register"
+            ],
+            "extract": "the contract ID, what it covers and its renewal or end date"
+          }
+        ]
+      }
+    },
+    {
+      "op": "fill_property",
+      "stage": "Recommendation",
+      "name": "Security fit",
+      "fields": {
+        "lookups": [
+          {
+            "find": "what the standard requires for the data classification this demand involves",
+            "from": "result:Data classification",
+            "match": "meaning",
+            "in": [
+              "Standards"
+            ]
+          },
+          {
+            "find": "the controls linked to each security capability the screening named",
+            "from": "result:Linked security capability",
+            "match": "name",
+            "in": [
+              "Security Control Catalog"
+            ],
+            "types": [
+              "security"
+            ],
+            "extract": "the control, its owner role and its status"
+          },
+          {
+            "find": "which security controls each overlapping solution is covered by",
+            "from": "result:Overlaps with",
+            "match": "name",
+            "in": [
+              "Application to Security Control Matrix",
+              "Security Control Catalog"
+            ],
+            "types": [
+              "application"
+            ],
+            "extract": "the controls named"
+          }
+        ]
+      }
+    },
+    {
+      "op": "fill_property",
+      "stage": "Recommendation",
+      "name": "Recommended owner",
+      "fields": {
+        "lookups": [
+          {
+            "find": "who owns each overlapping solution",
+            "from": "result:Overlaps with",
+            "match": "name",
+            "in": [
+              "Application Catalog",
+              "Contract Register"
+            ],
+            "types": [
+              "application",
+              "technology"
+            ],
+            "extract": "the owner role",
+            "relations": [
+              {
+                "relation": "is_owned_by",
+                "direction": "out"
+              }
+            ]
+          },
+          {
+            "find": "who owns each business capability the demand impacts",
+            "from": "result:Impacted business capability",
+            "match": "name",
+            "in": [
+              "Business Architecture"
+            ],
+            "extract": "the owner unit or role",
+            "relations": [
+              {
+                "relation": "is_owned_by",
+                "direction": "out"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "op": "fill_property",
+      "stage": "Recommendation",
+      "name": "Risks and conditions",
+      "fields": {
+        "lookups": [
+          {
+            "find": "whether any overlapping solution is retiring, not in use, or has no initiative behind it",
+            "from": "result:Overlaps with",
+            "match": "name",
+            "in": [
+              "Application Catalog",
+              "Initiative Portfolio"
+            ],
+            "types": [
+              "application",
+              "technology"
+            ],
+            "extract": "its status and lifecycle"
+          }
+        ]
+      }
+    }
+  ]
+}

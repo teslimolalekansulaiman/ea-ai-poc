@@ -7,7 +7,10 @@ careful with the owner's own work:
   rename_property   a property keeps its answers' meaning under a new name; everything that refers to it follows
   remove_property   a property goes, and so does every reference to it
   ensure_property   a property is added when it is not there; one that is there is never touched
-  fill_property     wording and settings the owner has not written are filled in; what they wrote is kept, and said so
+  fill_property     wording and settings the owner has not written are filled in; what they wrote is kept, and said so. Lookups
+                    (the questions a property puts to the knowledge base) are filled the same way, and only those that can work in
+                    this copy: one that starts from a property the copy lacks, or from one that builds on this property, is left out
+                    and said, and one that starts from another property of the stage makes this one build on it
   upgrade_property  wording or a setting that is still exactly what an earlier update wrote is replaced by the new one; anything
                     the owner has changed since is kept, and said so
   replace_text      a sentence an earlier update added to a stage's text is replaced by the new one, if it is still there
@@ -108,6 +111,24 @@ def _replace_refs(spec: dict, stage: dict, old: str, new: Optional[str]) -> None
                 doc[key] = swap(doc[key])
 
 
+def _usable_lookups(spec: dict, stage: dict, col: dict, lookups: list) -> tuple[list, list[str]]:
+    """The lookups of an update that can work in this copy, and a line for each that cannot."""
+    from eawiki.cases.lookupdraft import _depends                       # which properties of the stage a property builds on, however far
+    before = {c.get("name") for st in spec["stages"][: spec["stages"].index(stage)] for c in _cols(st)}
+    same = {c.get("name") for c in _cols(stage)}
+    out, notes = [], []
+    for lk in lookups:
+        frm = str(lk.get("from") or "")
+        src = frm[len(usecases.RESULT_PREFIX):] if frm.startswith(usecases.RESULT_PREFIX) else ""
+        if src and src not in before and src not in same:
+            notes.append(f"{stage.get('name')}: '{col['name']}': the question “{lk['find'][:70]}” was not added: your copy has no property '{src}'.")
+        elif src and src in same and (src == col["name"] or col["name"] in _depends(_cols(stage), src)):
+            notes.append(f"{stage.get('name')}: '{col['name']}': the question “{lk['find'][:70]}” was not added: '{src}' builds on this property.")
+        else:
+            out.append(lk)
+    return out, notes
+
+
 def _set_path(obj: dict, path: str, value) -> bool:
     """Set a dotted path; True when it changed."""
     keys = path.split(".")
@@ -160,7 +181,19 @@ def plan(spec: dict, update: dict) -> dict:
                         kept += [f"{sn}: '{op['name']}' is not shown the other demands' '{n}': your copy has no such property." for n in gone]
                         if not v:
                             continue
-                    if _empty(c.get(k)):
+                    if k == "lookups" and _empty(c.get(k)):
+                        v, why = _usable_lookups(new, stage, c, v)
+                        kept += why
+                        if not v:
+                            continue
+                        c[k] = copy.deepcopy(v)
+                        changes.append(f"{sn}: '{op['name']}': {len(v)} question{'s' if len(v) != 1 else ''} to put to the knowledge base {'are' if len(v) != 1 else 'is'} added.")
+                        for lk in v:                                                # starting from an answer of this stage means building on it
+                            src = str(lk.get("from") or "")[len(usecases.RESULT_PREFIX):] if str(lk.get("from") or "").startswith(usecases.RESULT_PREFIX) else ""
+                            if src and src in {x.get("name") for x in _cols(stage)} and src not in (c.get("uses") or []):
+                                c["uses"] = [*(c.get("uses") or []), src]
+                                changes.append(f"{sn}: '{op['name']}' now builds on '{src}', so that answer is decided first.")
+                    elif _empty(c.get(k)):
                         c[k] = copy.deepcopy(v)
                         changes.append(f"{sn}: '{op['name']}': {k.replace('_', ' ')} was empty and is filled in.")
                     elif c.get(k) != v:

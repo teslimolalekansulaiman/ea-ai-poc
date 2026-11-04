@@ -20,6 +20,7 @@ OLD = base.SPEC_P2                                     # the use case as it stoo
 UC = "demand-management"
 UPDATE = "recommendation-request-draft"
 FOLLOW = "recommendation-steps-in-sections"
+STARTER = "recommendation-starter-lookups"
 S = "Recommendation"
 
 
@@ -64,7 +65,7 @@ def test_the_shipped_update_brings_an_older_copy_to_the_shipped_design(store):
     assert new["Recommendation"]["type"] == "text" and "senior enterprise architect" in new["Recommendation"]["how_to_resolve"]
     assert new["Request overview"]["scope"] == "request" and new["Handled with"]["derive"]["kind"] == "groups"
     assert new["Recommendation"]["sees_others"] == ["Recommendation type", "Recommended owner", "Handled with"]
-    assert [(x["id"], x["applied"]) for x in up.available(UC)] == [(UPDATE, True), (FOLLOW, False)]       # offered once; the follow-up has nothing to do here
+    assert [(x["id"], x["applied"]) for x in up.available(UC)] == [(UPDATE, True), (STARTER, False), (FOLLOW, False)]       # offered once; the follow-up has nothing to do here
     assert _one(FOLLOW)["changes"] == [] and _one(FOLLOW)["errors"] == []
     with pytest.raises(up.UpdateError):
         up.apply(UC, UPDATE)
@@ -149,13 +150,13 @@ def test_a_step_that_does_not_make_sense_is_reported_not_guessed():
 def test_the_routes_list_apply_and_refuse(store):
     c = TestClient(app)
     got = c.get(f"/api/usecases/{UC}/updates").json()["updates"]
-    assert [u["id"] for u in got] == [UPDATE, FOLLOW] and got[0]["changes"] and not got[0]["applied"]
+    assert [u["id"] for u in got] == [UPDATE, STARTER, FOLLOW] and got[0]["changes"] and not got[0]["applied"]
     assert c.get("/api/usecases/nope/updates").status_code == 404
     assert c.post(f"/api/usecases/{UC}/updates/nope").status_code == 404
     ok = c.post(f"/api/usecases/{UC}/updates/{UPDATE}")
     assert ok.status_code == 200 and ok.json()["changes"]
     assert c.post(f"/api/usecases/{UC}/updates/{UPDATE}").status_code == 400              # already applied
-    assert c.get(f"/api/usecases/{UC}/updates").json()["updates"][0]["applied"] is True and c.get(f"/api/usecases/{UC}/updates").json()["updates"][1]["changes"] == []
+    assert c.get(f"/api/usecases/{UC}/updates").json()["updates"][0]["applied"] is True and c.get(f"/api/usecases/{UC}/updates").json()["updates"][2]["changes"] == []
     got = c.get(f"/api/usecases/{UC}").json()["stages"][1]
     assert got["summary_columns"] == ["Recommendation"] and got["output"]["document"]["scope"] == "request"
 
@@ -218,3 +219,93 @@ def test_an_upgrade_does_not_bring_back_a_property_the_owner_removed(store):
     spec["stages"][1]["output"]["document"] = {"scope": "item", "statement": "Recommended owner"} if False else {}
     plan = up.plan(spec, next(x for x in up.shipped(UC) if x["id"] == FOLLOW))
     assert not any("Request overview" in c and "up to date" in c for c in plan["changes"])
+
+
+# ---- starter questions for the second stage ---------------------------------------------------------------------------------
+
+ASKING = ["Overlaps with", "Consolidate with demand(s)", "Contract / licence match", "Security fit", "Recommended owner", "Risks and conditions"]
+
+
+def _without_questions(spec=None):
+    spec = copy.deepcopy(spec or SEED)
+    for c in spec["stages"][1]["output"]["columns"]:
+        c.pop("lookups", None)
+        if c["name"] in ("Contract / licence match", "Security fit"):
+            c.pop("uses", None)
+    return spec
+
+
+def _starter():
+    return json.loads((base.ROOT / "use_cases" / "updates" / UC / f"{STARTER}.json").read_text(encoding="utf-8"))      # the file, whatever folder other tests left in place
+
+
+def _cols(spec):
+    return {c["name"]: c for c in spec["stages"][1]["output"]["columns"]}
+
+
+def test_the_starter_questions_fill_the_properties_that_ask_and_make_them_build_on_what_they_start_from():
+    p = up.plan(_without_questions(), _starter())
+    assert p["errors"] == [] and p["kept"] == []
+    cols = _cols(p["spec"])
+    assert [n for n in cols if cols[n].get("lookups")] == ASKING                               # the ones that decide from the demand or earlier answers ask nothing
+    assert all(0 < len(cols[n]["lookups"]) <= usecases.MAX_LOOKUPS for n in ASKING)
+    assert {"Overlaps with"} <= set(cols["Contract / licence match"]["uses"]) and {"Overlaps with"} <= set(cols["Security fit"]["uses"])
+    owner = cols["Recommended owner"]["lookups"]
+    assert [lk["from"] for lk in owner] == ["result:Overlaps with", "result:Impacted business capability"]
+    assert all(lk["relations"] == [{"relation": "is_owned_by", "direction": "out"}] and lk["match"] == "name" for lk in owner)   # the graph's owner edge
+    assert [lk["match"] for lk in cols["Consolidate with demand(s)"]["lookups"]] == ["compare"]
+    assert usecases.validate(p["spec"], usecases.relation_names()) == []
+
+
+def test_the_shipped_use_case_already_has_them_so_the_update_has_nothing_to_change():
+    p = up.plan(copy.deepcopy(SEED), _starter())
+    assert p["changes"] == [] and p["errors"] == []
+
+
+def test_questions_the_owner_wrote_are_kept_and_so_is_what_they_build_on():
+    spec = _without_questions()
+    mine = [{"find": "my own question", "from": "need", "match": "meaning", "in": []}]
+    _cols(spec)["Security fit"]["lookups"] = copy.deepcopy(mine)
+    p = up.plan(spec, _starter())
+    cols = _cols(p["spec"])
+    assert cols["Security fit"]["lookups"] == mine and "uses" not in cols["Security fit"]
+    assert any("Security fit" in k and "lookups" in k for k in p["kept"]) and cols["Overlaps with"]["lookups"]
+
+
+def test_a_question_that_cannot_work_in_this_copy_is_left_out_and_said():
+    spec = up.plan(_without_questions(), {"ops": [{"op": "rename_property", "stage": "Screening & Impact Assessment", "from": "Impacted business capability", "to": "Capability I renamed"}]})["spec"]
+    p = up.plan(spec, _starter())
+    cols = _cols(p["spec"])
+    assert p["errors"] == []
+    assert [lk["from"] for lk in cols["Recommended owner"]["lookups"]] == ["result:Overlaps with"]
+    assert not any(lk["from"] == "result:Impacted business capability" for c in cols.values() for lk in c.get("lookups") or [])
+    assert sum("has no property 'Impacted business capability'" in k for k in p["kept"]) == 2         # Overlaps with, Recommended owner
+
+
+def test_a_question_that_would_start_a_loop_is_left_out_and_said():
+    spec = _without_questions()
+    _cols(spec)["Overlaps with"]["uses"] = ["Contract / licence match"]                          # the owner made it build on the contract
+    p = up.plan(spec, _starter())
+    cols = _cols(p["spec"])
+    assert p["errors"] == []
+    assert not any(lk["from"] == "result:Overlaps with" for lk in cols["Contract / licence match"].get("lookups") or [])
+    assert any("builds on this property" in k and "Contract / licence match" in k for k in p["kept"])
+    assert "Overlaps with" not in (cols["Contract / licence match"].get("uses") or [])
+
+
+def test_a_copy_still_on_the_older_stage_is_told_what_it_lacks_and_nothing_is_stored(store):
+    out = up.plan(copy.deepcopy(OLD), _starter())
+    assert out["errors"] and "there is no property 'Risks and conditions' to fill in" in " ".join(out["errors"])
+
+
+def test_the_starter_questions_are_applied_once_from_the_screen(store):
+    spec = _without_questions()
+    usecases.save(spec, UC, note="a copy before the starter questions")
+    c = TestClient(app)
+    got = {u["id"]: u for u in c.get(f"/api/usecases/{UC}/updates").json()["updates"]}
+    assert not got[STARTER]["applied"] and got[STARTER]["changes"] and got[STARTER]["errors"] == []
+    done = c.post(f"/api/usecases/{UC}/updates/{STARTER}").json()
+    assert "version" in done
+    stored = usecases.get(UC)
+    assert _cols(stored)["Recommended owner"]["lookups"] and STARTER in stored["updates_applied"]
+    assert c.post(f"/api/usecases/{UC}/updates/{STARTER}").status_code in (400, 409)            # once
