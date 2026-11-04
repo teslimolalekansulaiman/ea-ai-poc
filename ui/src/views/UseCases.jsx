@@ -175,13 +175,18 @@ export default function UseCases() {
   async function newUC() { setEditingId(null); setUc(BLANK()); setError(''); setPage({ k: 'basics' }); setHist(null) }
   async function edit(id) { setError(''); const s = await api.usecase(id); setEditingId(id); setUc(s); setPage({ k: 'basics' }); setHist(null) }
   async function openHistory() {
-    try { const [v, diff] = await Promise.all([api.usecaseVersions(editingId), api.usecaseFileDiff(editingId)]); setHist({ versions: v.versions, store: v.store, diff }) }
+    try { const [v, diff, ups] = await Promise.all([api.usecaseVersions(editingId), api.usecaseFileDiff(editingId), api.usecaseUpdates(editingId).catch(() => ({ updates: [] }))]); setHist({ versions: v.versions, store: v.store, diff, updates: ups.updates }) }
     catch (e) { setError(String(e).replace('Error: ', '')) }
   }
   async function afterRestore(s) { setUc(s); await reload(); await openHistory() }
   async function restoreVersion(v) {
     if (!confirm('Put back the settings saved on ' + new Date(v.saved_at * 1000).toLocaleString() + '? The current ones stay in the history.')) return
     try { await afterRestore(await api.restoreUsecase(editingId, v.vid)) } catch (e) { setError(String(e).replace('Error: ', '')) }
+  }
+  async function applyUpdate(u) {
+    if (!confirm('Apply "' + u.title + '" to the saved settings? The current ones stay in the history. Settings you have changed on this screen and not saved are not part of it.')) return
+    try { await api.applyUsecaseUpdate(editingId, u.id); const s = await api.usecase(editingId); setUc(s); await reload(); await openHistory() }
+    catch (e) { setError(String(e).replace('Error: ', '')) }
   }
   async function loadFromFile() {
     if (!confirm('Replace the saved settings with the file that came with the code? The current ones stay in the history.')) return
@@ -526,6 +531,22 @@ export default function UseCases() {
               {hist.diff.other.length > 0 && <div className="meta">Other settings that differ: {hist.diff.other.join(', ')}</div>}
               <button className="btn" style={{ marginTop: 6 }} onClick={loadFromFile}>Replace the saved settings with the file’s (the current ones stay in the history)</button>
             </div>) : hist.diff && hist.diff.in_file ? <div className="meta" style={{ marginBottom: 8 }}>The saved settings are the same as the file that came with the code.</div> : null}
+          {(hist.updates || []).length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <div className="meta" style={{ fontWeight: 600 }}>Updates that came with the code</div>
+              {hist.updates.map(u => (
+                <div key={u.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                    <b style={{ flex: 1 }}>{u.title}</b>
+                    {u.applied ? <span className="pill ok">applied</span> : <button className="btn primary" disabled={u.errors.length > 0} onClick={() => applyUpdate(u)}>Apply</button>}
+                  </div>
+                  {u.note && <div className="meta">{u.note}</div>}
+                  {!u.applied && u.errors.length > 0 && <div className="meta" style={{ color: 'var(--crit)' }}>It cannot be applied to these settings: {u.errors.join(' ')}</div>}
+                  {!u.applied && u.errors.length === 0 && u.changes.length === 0 && <div className="meta">Nothing would change: these settings already match.</div>}
+                  {!u.applied && u.changes.length > 0 && <ul className="meta" style={{ margin: '4px 0 0', paddingLeft: 18 }}>{u.changes.map((c, i) => <li key={i}>{c}</li>)}</ul>}
+                  {!u.applied && u.kept.length > 0 && <div className="meta" style={{ marginTop: 4 }}>Kept as you wrote it: {u.kept.join(' ')}</div>}
+                </div>))}
+            </div>)}
           {hist.versions.length === 0 && <div className="meta">No earlier versions are kept (the settings are stored in files).</div>}
           {hist.versions.map(v => (
             <div key={v.vid} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '4px 0', borderBottom: '1px solid var(--border)' }}>

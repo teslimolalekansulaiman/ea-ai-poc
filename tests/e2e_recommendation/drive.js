@@ -34,9 +34,13 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (
   check(/0 of 3 approved/.test(await page.innerText('.rd h3')), 'the card says how many are approved: ' + (await page.innerText('.rd h3')));
   check((await page.$$('.rd-item')).length === 3, 'one tab per demand');
   check((await page.$$('.rd-item .cs-pill')).length === 0 && /Draft for review/.test(await page.innerText('.rd-sheet')), 'drafts are not labelled on every tab; the open sheet says it once');
-  check(/Extend the existing platform/.test(await page.innerText('.rd-rec .rd-text')), 'the headline statement is the recommended action');
+  check(/extend the existing platform/i.test(await page.innerText('.rd-rec .rd-text')), 'the message to the requester is the headline');
+  check(/Message to the requester/i.test(await page.innerText('.rd-rec')) && /What you asked for/.test(await page.innerText('.rd-rec .rd-text')), 'it is labelled as the message and holds its own paragraphs');
   const heads = await page.$$eval('.rd-sec .rd-h', e => e.map(x => x.textContent));
-  check(['Overlaps with', 'Contract / licence match', 'Security fit', 'Justification'].every(h => heads.includes(h)), 'the other properties are sections: ' + heads.join(', '));
+  const apartHeads = await page.$$eval('.rd-arch .rd-sec .rd-h', e => e.map(x => x.textContent));
+  check(/For the architect, not sent/i.test(await page.innerText('.rd-arch')), 'the architect\'s part is set apart after the message');
+  check(['Overlaps with', 'Contract / licence match', 'Security fit', 'Risks and conditions', 'Next steps'].every(h => apartHeads.includes(h)) && heads.length === apartHeads.length,
+    'the findings, risks and next steps are all in that part, none among the message: ' + apartHeads.join(', '));
   const box = await page.locator('.rd-rec').boundingBox();
   check(box && box.y >= 0 && box.y < 800, 'the draft is in view when it opens, without scrolling (top at ' + Math.round(box ? box.y : -1) + 'px)');
   check(!/Confidence/.test(await page.innerText('.rd-sheet')), 'no confidence is shown (it is graded in the table, not signed)');
@@ -93,7 +97,10 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if (
   // the download is a page
   const href = await page.getAttribute('.rd-dl', 'href');
   const dl = await page.request.get(ORIGIN + href);
-  check(dl.ok() && /attachment/.test(dl.headers()['content-disposition'] || '') && /<!doctype html>/i.test(await dl.text()), 'the download is a page');
+  const dlText = await dl.text();
+  check(dl.ok() && /attachment/.test(dl.headers()['content-disposition'] || '') && /<!doctype html>/i.test(dlText), 'the download is a page');
+  check(/Please do not raise a new demand|Merge it into the HR platform/.test(dlText) && !/Overlaps with|Consolidate with|To confirm before approval|Evidence/.test(dlText), 'it holds the message only, not the architect\'s part');
+  check(/Download the message/.test(await page.innerText('.rd-dl')), 'and the button says so');
 
   // a reload keeps what was decided
   await page.reload();

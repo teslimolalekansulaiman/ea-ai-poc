@@ -10,6 +10,11 @@ sys.path.insert(0, str(ROOT / "src")); sys.path.insert(0, str(ROOT / "tests"))
 import test_cases_engine as base                      # points the history database at a temporary file and gives the engine fake tools
 import uvicorn
 from eawiki.api import app as appmod, cases as cases_api, requests as req_api
+import shutil, tempfile
+from eawiki import usecases
+_tmp = Path(tempfile.mkdtemp(prefix='uc-'))
+shutil.copytree(ROOT / 'use_cases', _tmp / 'use_cases')
+usecases.DIR = _tmp / 'use_cases'            # what the screen saves goes here, never into the repo
 from eawiki.cases.engine import Engine
 from eawiki.cases.store import store
 

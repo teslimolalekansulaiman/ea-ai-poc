@@ -482,6 +482,29 @@ def usecase_suggest_relations(body: dict):
             "graph_edges": counts["edges"]}
 
 
+@app.get("/api/usecases/{uc_id}/updates")
+def usecase_updates(uc_id: str):
+    """Changes shipped with the code for a use case that lives in the database: what each would do, before anything is applied."""
+    from eawiki import usecase_updates as up
+    try:
+        return {"updates": up.available(uc_id)}
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+
+
+@app.post("/api/usecases/{uc_id}/updates/{update_id}")
+def usecase_update_apply(uc_id: str, update_id: str):
+    """Apply one shipped update to the use case as it is stored now; the earlier version stays in the history."""
+    _require_writable()
+    from eawiki import usecase_updates as up
+    try:
+        return up.apply(uc_id, update_id)
+    except LookupError as e:
+        raise HTTPException(404, str(e))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.put("/api/usecases/{uc_id}")
 def usecase_update(uc_id: str, spec: dict):
     _require_writable()
