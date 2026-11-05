@@ -63,3 +63,14 @@ architect after them. Then it asks seven follow-up questions in the box on the c
 given: the request, both stages and the drafts, and the last five exchanges of the conversation and no more.
 
 `drive.js` checks the architect's part, which the shipped use case no longer has: start `serve.py` with `EA_E2E_ARCHITECT_PART=1` for it.
+
+## Where the time of a phase went
+
+```
+PORT=8778 python tests/e2e_recommendation/serve.py &
+PORT=8778 node tests/e2e_recommendation/drive_time.js
+```
+
+Starts a case and, when the first phase is done, opens its Activity tab: the time on the clock and the work added up, the steps by the
+time they took (with the calls and the time each took), and the properties by the time they took. The stand-in model answers at once, so the
+times are tiny; this checks the screen and the recording, not how slow a real model is.

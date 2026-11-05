@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { api } from '../api'
 import { useCite } from '../cite'
 
 // ---- chips: how a cell reads ---------------------------------------------------------
@@ -267,6 +268,46 @@ export function CellDetail({ col, cell }) {
 }
 
 // ---- workspace --------------------------------------------------------------------------
+// ---- where the time of a phase went ----------------------------------------------------------
+const secs = (n) => !n && n !== 0 ? '' : n < 1 ? `${Math.round(n * 1000)} ms` : n < 90 ? `${n.toFixed(n < 10 ? 1 : 0)} s` : `${Math.floor(n / 60)} min ${Math.round(n % 60)} s`
+
+function TimePanel({ caseId, phase }) {
+  const [t, setT] = useState(null)
+  const [err, setErr] = useState('')
+  const running = phase.state.status === 'running'
+  useEffect(() => {
+    let live = true
+    const load = () => api.caseTimings(caseId, phase.id).then(r => { if (live) { setT((r.phases || [])[0] || null); setErr('') } }).catch(e => { if (live) setErr(String(e.message || e)) })
+    load()
+    const id = running ? setInterval(load, 6000) : null
+    return () => { live = false; if (id) clearInterval(id) }
+  }, [caseId, phase.id, running, phase.state.finished])
+  if (err) return <div className="cs-muted" style={{ padding: 8 }}>The times could not be read: {err}</div>
+  if (!t || !t.steps.length) return <div className="cs-muted" style={{ padding: 8 }}>No times recorded for this phase yet. They are recorded as it runs, so a phase run before this was added shows none.</div>
+  const top = t.steps.slice(0, 10)
+  return (
+    <div className="cs-time" style={{ display: 'grid', gap: 6, padding: '0 6px 8px' }}>
+      <div className="cs-faint" style={{ fontSize: 12.5 }}>
+        {t.wall != null && <>On the clock: <b>{secs(t.wall)}</b>{running ? ' so far' : ''}. </>}
+        Work done, added up: <b>{secs(t.seconds)}</b>. It is more than the clock because properties and demands run side by side.
+      </div>
+      <div className="eyebrow" style={{ paddingTop: 6 }}>Steps, by the time they took</div>
+      {top.map((e, i) => (
+        <div key={i} className="cs-time-step" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 2, fontSize: 13 }}>
+          <span>{e.step}<span className="cs-faint" style={{ fontSize: 11.5 }}> · {e.of}{e.calls ? ` · ${e.calls} call${e.calls === 1 ? '' : 's'}, ${secs(e.average)} each` : ''}</span></span>
+          <b>{secs(e.seconds)} <span className="cs-faint" style={{ fontWeight: 400 }}>{Math.round(e.share * 100)}%</span></b>
+          <div style={{ gridColumn: '1 / -1', height: 4, background: 'var(--border, #ddd)', borderRadius: 2 }}>
+            <div style={{ width: Math.max(2, Math.round(e.share * 100)) + '%', height: 4, background: 'var(--accent, #3b6fd4)', borderRadius: 2 }} /></div>
+        </div>))}
+      <div className="eyebrow" style={{ paddingTop: 10 }}>Properties, by the time they took</div>
+      {t.properties.slice(0, 10).map(p => (
+        <div key={p.column} className="cs-time-prop" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 2, fontSize: 13 }}>
+          <span>{p.column}<span className="cs-faint" style={{ fontSize: 11.5 }}> · {p.demands} demand{p.demands === 1 ? '' : 's'}, {secs(p.average)} each{p.longest ? ` · longest: ${p.longest}` : ''}</span></span>
+          <b>{secs(p.seconds)}</b>
+        </div>))}
+    </div>)
+}
+
 const stateLabel = (s) => s === 'error' ? ['crit', 'stopped'] : s === 'running' ? ['user', 'working'] : (s === 'review' || s === 'approved') ? ['ok', 'finished'] : ['', 'waiting']
 
 export function Workspace({ data, phase, docs, L, tab, setTab, openItem, setOpenItem, openCol, setOpenCol, readiness, onReadiness, onTable, onClose }) {
@@ -332,6 +373,8 @@ export function Workspace({ data, phase, docs, L, tab, setTab, openItem, setOpen
           {phase.columns.map(c => { const n = phase.progress[c.name] || 0; const total = Math.max(1, phase.state.total || phase.summary.total)
             return <div className="cs-prop" key={c.name}><span className="nm">{c.name}</span><span className="ct">{n} of {total}</span>
               <span className={'cs-pill ' + (n >= total ? 'ok' : n ? 'user' : '')}>{n >= total ? 'done' : n ? 'working' : 'waiting'}</span></div> })}
+          <div className="eyebrow" style={{ padding: '14px 6px 4px' }}>Where the time went · {phase.name}</div>
+          <TimePanel caseId={data.case.id} phase={phase} />
         </>)}
         {tab === 'refs' && (<>
           <div className="eyebrow" style={{ padding: '10px 6px 4px' }}>Are the documents ready for this use case?</div>

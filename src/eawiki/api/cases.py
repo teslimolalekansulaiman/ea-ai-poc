@@ -280,6 +280,29 @@ def cancel(cid: str):
     return {"cancelled": True}
 
 
+@router.get("/cases/{cid}/timings")
+def case_timings(cid: str, phase: Optional[str] = None):
+    """Where the time of each phase went: the steps and the properties by the time they took, and the phase's own time on the clock
+    (shorter than the sum of its parts, which run side by side). Recorded as the run goes (see cases/timing.py)."""
+    import time as _time
+    from eawiki.cases import timing
+    case = store().get_case(cid)
+    if not case:
+        raise HTTPException(404, "no such case")
+    out = []
+    for stage in case["spec"]["stages"]:
+        pid = phase_id(stage)
+        if phase and pid != phase:
+            continue
+        ph = (case["state"].get("phases") or {}).get(pid) or {}
+        wall = None
+        if ph.get("started"):
+            end = ph.get("finished") if ph.get("finished") and ph["finished"] >= ph["started"] else (_time.time() if ph.get("status") == "running" else None)
+            wall = (end - ph["started"]) if end else None
+        out.append({"id": pid, "name": stage.get("name"), "running": ph.get("status") == "running", **timing.summarise(store().timings(cid, pid), wall)})
+    return {"phases": out}
+
+
 class CaseAsk(BaseModel):
     question: str
     history: list = []

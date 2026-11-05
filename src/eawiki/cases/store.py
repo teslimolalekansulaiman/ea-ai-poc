@@ -48,6 +48,8 @@ class CaseStore(history._Store):
             c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS request_cells(
                 case_id TEXT, phase_id TEXT, col TEXT, value_json TEXT, status TEXT, source TEXT, evidence_json TEXT,
                 how_json TEXT, need TEXT, updated_at {r}, PRIMARY KEY(case_id, phase_id, col))"""))
+            c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS timings(
+                case_id TEXT, phase_id TEXT, item_id TEXT, col TEXT, step TEXT, part_of TEXT, kind TEXT, seconds {r}, calls INTEGER)"""))
             c.execute(self._sql(f"""CREATE TABLE IF NOT EXISTS case_events(
                 case_id TEXT, seq INTEGER, ts {r}, kind TEXT, data_json TEXT,
                 PRIMARY KEY(case_id, seq))"""))
@@ -120,7 +122,7 @@ class CaseStore(history._Store):
 
     def delete_case(self, cid: str) -> bool:
         with self._conn() as c:
-            for t in ("cells", "case_events", "questions", "documents", "request_cells"):
+            for t in ("cells", "case_events", "questions", "documents", "request_cells", "timings"):
                 c.execute(self._sql(f"DELETE FROM {t} WHERE case_id=?"), (cid,))
             cur = c.execute(self._sql("DELETE FROM cases WHERE id=?"), (cid,))
         return cur.rowcount > 0
@@ -225,6 +227,27 @@ class CaseStore(history._Store):
                 "need=excluded.need,updated_at=excluded.updated_at"),
                 (cid, phase_id, col, json.dumps(value, ensure_ascii=False), status, source,
                  json.dumps(evidence or [], ensure_ascii=False), json.dumps(how or [], ensure_ascii=False), need or "", now))
+
+    # --- how long each step took (see cases/timing.py): appended as a run goes, read as one summary ---------------
+    def save_timings(self, cid: str, rows: list[dict]) -> None:
+        if not rows:
+            return
+        with self._conn() as c:
+            for r in rows:
+                c.execute(self._sql("INSERT INTO timings(case_id,phase_id,item_id,col,step,part_of,kind,seconds,calls) VALUES(?,?,?,?,?,?,?,?,?)"),
+                          (cid, r["phase_id"], r.get("item_id") or "", r.get("col") or "", r["step"], r.get("part_of") or "", r["kind"],
+                           float(r["seconds"]), int(r.get("calls") or 1)))
+
+    def timings(self, cid: str, phase_id: Optional[str] = None) -> list[dict]:
+        with self._conn() as c:
+            rows = (c.execute(self._sql("SELECT * FROM timings WHERE case_id=? AND phase_id=?"), (cid, phase_id)).fetchall() if phase_id
+                    else c.execute(self._sql("SELECT * FROM timings WHERE case_id=?"), (cid,)).fetchall())
+        return [{"phase_id": r["phase_id"], "item_id": r["item_id"], "col": r["col"], "step": r["step"], "part_of": r["part_of"], "kind": r["kind"],
+                 "seconds": r["seconds"], "calls": r["calls"]} for r in rows]
+
+    def clear_timings(self, cid: str, phase_id: str) -> None:
+        with self._conn() as c:
+            c.execute(self._sql("DELETE FROM timings WHERE case_id=? AND phase_id=?"), (cid, phase_id))
 
     def request_cells(self, cid: str, phase_id: str) -> dict:
         """{property: cell} of the properties worked out once for the whole request."""

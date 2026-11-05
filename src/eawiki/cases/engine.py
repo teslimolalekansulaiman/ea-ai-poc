@@ -31,6 +31,7 @@ from eawiki.cases import grade as grademod
 from eawiki.cases import plan as pmod
 from eawiki.cases import profile as profmod
 from eawiki.cases import solve as smod
+from eawiki.cases import timing
 from eawiki.cases.store import REQUEST_ID, CaseStore
 
 DEFAULT_GATE_COLUMN = "Is it a true demand?"
@@ -201,9 +202,16 @@ class Engine:
         fields = [f["name"] for f in (spec.get("input") or {}).get("item_fields") or []]
         docs = tools.doc_ids()
         before = [x["name"] for st in stages[:idx] for x in st["output"]["columns"] if x.get("type") != "citations"]       # answers decided before this stage
+        if not only_item and not s.get("resume"):
+            st.clear_timings(cid, pid)                                     # a run starts the time record of the phase again
+
+        def plan_of(c):
+            sc = timing.Scope(st, cid, pid, "", c["name"])
+            with sc.total("plan the lookups"):
+                return pmod.build_plan(c, fields, docs, timing.labelled(timing.bind(tools, sc).llm_json, "model call: plan the lookups"), self._plans,
+                                       list(dict.fromkeys(before + [u for u in c.get("uses") or [] if u != c["name"]])))
         with ThreadPoolExecutor(max_workers=self.workers) as px:
-            plans = dict(zip([c["name"] for c in cols], px.map(
-                lambda c: pmod.build_plan(c, fields, docs, tools.llm_json, self._plans, list(dict.fromkeys(before + [u for u in c.get("uses") or [] if u != c["name"]]))), cols)))
+            plans = dict(zip([c["name"] for c in cols], px.map(plan_of, cols)))
         if not only_item:
             st.set_phase(cid, pid, preparing=False)
         done = {(c["item_id"], c["column"]) for c in st.cells(cid, pid)
@@ -230,16 +238,21 @@ class Engine:
             if s.get("resume") and all(r["_id"] in have for r in rows):
                 run["passing"] = [r for r in rows if have[r["_id"]]["value"] == "Yes"]
             else:
-                run["passing"] = self._gate(cid, pid, spec, run["stage"], rows, run["tools"], run["pool"])
+                sc = timing.Scope(self.store, cid, pid, "", gate_column(spec))
+                with sc.total("the first check"):
+                    run["passing"] = self._gate(cid, pid, spec, run["stage"], rows, timing.bind(run["tools"], sc), run["pool"])
         if s["only_item"] and idx == 0:
             gc = {c["column"]: c for c in self.store.cells(cid, pid) if c["item_id"] == s["only_item"]}.get(gate_column(spec))
             run["passing"] = rows if (gc and gc["value"] == "Yes") or not gc else []
         return {}
 
-    def _profile_of(self, cid: str, it: dict, run: dict) -> dict:
+    def _profile_of(self, cid: str, it: dict, run: dict, pid: str = "") -> dict:
         key = (cid, it["_id"])
         if key not in self._profiles:
-            self._profiles[key] = profmod.build_profile(gmod.labelled_fields(run["spec"], it), run["tools"].llm_json)
+            sc = timing.Scope(self.store, cid, pid, it["_id"], "")
+            with sc.total("read what the demand mentions"):
+                self._profiles[key] = profmod.build_profile(gmod.labelled_fields(run["spec"], it),
+                                                            timing.labelled(timing.bind(run["tools"], sc).llm_json, "model call: read what the demand mentions"))
         return self._profiles[key]
 
     def _n_profile(self, s) -> dict:
@@ -247,7 +260,7 @@ class Engine:
         run, cid, pid = s["run"], s["cid"], s["pid"]
         if run["passing"] and not s["only_item"]:
             self.store.set_phase(cid, pid, preparing=True, prep="Reading what each demand mentions")
-        run["profiles"] = dict(run["pool"].map(lambda it: (it["_id"], self._profile_of(cid, it, run)), run["passing"]))
+        run["profiles"] = dict(run["pool"].map(lambda it: (it["_id"], self._profile_of(cid, it, run, pid)), run["passing"]))
         if not s["only_item"]:
             self.store.set_phase(cid, pid, preparing=False, prep="")
         return {}
@@ -304,8 +317,11 @@ class Engine:
             ev = {"demand": {}, "blocks": [], "graph": None, "others": [], "searched": [], "allowed": set(),
                   "used": [f"the answers for {len(run['all_rows'])} demand{'s' if len(run['all_rows']) != 1 else ''}"]}
             peers = self._peers(cid, run["spec"], pid, run["all_rows"], col.get("sees_others") or [])
+            sc = timing.Scope(self.store, cid, pid, REQUEST_ID, col["name"])
             try:
-                cell = smod.solve(col, item, run["spec"], ev, {}, run["tools"].llm_json, self._stage_rules(run["spec"], pid), peers, True)
+                with sc.total("write the answer"):
+                    cell = smod.solve(col, item, run["spec"], ev, {}, timing.labelled(timing.bind(run["tools"], sc).llm_json, "model call: write the answer"),
+                                      self._stage_rules(run["spec"], pid), peers, True)
             except Exception as e:
                 cell = self._failed_cell(col, e)
             self.store.save_request_cell(cid, pid, col["name"], value=cell["value"], status=cell["status"], source=cell.get("source") or "model",
@@ -487,10 +503,12 @@ class Engine:
 
     # ---- the cell graph's nodes -------------------------------------------------------
     def _c_gather(self, s) -> dict:
+        sc = timing.Scope(self.store, s["cid"], s["pid"], s["item"]["_id"], s["col"]["name"])
         try:
-            ev = gmod.gather(s["tools"], s["plan"], s["spec"], s["item"], s["others"], s["link_cache"], s.get("hint"),
-                             s.get("profile"), self._decided_values(s["cid"], s["pid"], s["item"]["_id"], s["spec"]), s.get("profiles"),
-                             self._carried(s["cid"], s["spec"], s["pid"], s["item"]["_id"]))
+            with sc.total("gather the evidence"):
+                ev = gmod.gather(timing.bind(s["tools"], sc), s["plan"], s["spec"], s["item"], s["others"], s["link_cache"], s.get("hint"),
+                                 s.get("profile"), self._decided_values(s["cid"], s["pid"], s["item"]["_id"], s["spec"]), s.get("profiles"),
+                                 self._carried(s["cid"], s["spec"], s["pid"], s["item"]["_id"]))
             return {"ev": ev, "failed": False}
         except Exception as e:                                   # one property failing never stops the sheet
             return {"failed": True, "cell": self._failed_cell(s["col"], e), "ev": {"looked": ""}}
@@ -530,9 +548,11 @@ class Engine:
         if s.get("failed"):
             return {}
         try:
-            peers = self._peers(s["cid"], s["spec"], s["pid"], s.get("others") or [], s["col"].get("sees_others") or [])
-            cell = smod.solve(s["col"], s["item"], s["spec"], s["ev"], self._decided(s["cid"], s["pid"], s["item"]["_id"], s["spec"]),
-                              s["tools"].llm_json, self._stage_rules(s["spec"], s["pid"]), peers)
+            sc = timing.Scope(self.store, s["cid"], s["pid"], s["item"]["_id"], s["col"]["name"])
+            with sc.total("write the answer"):
+                peers = self._peers(s["cid"], s["spec"], s["pid"], s.get("others") or [], s["col"].get("sees_others") or [])
+                cell = smod.solve(s["col"], s["item"], s["spec"], s["ev"], self._decided(s["cid"], s["pid"], s["item"]["_id"], s["spec"]),
+                                  timing.labelled(timing.bind(s["tools"], sc).llm_json, "model call: write the answer"), self._stage_rules(s["spec"], s["pid"]), peers)
         except Exception as e:
             cell = self._failed_cell(s["col"], e)
         return {"cell": cell}

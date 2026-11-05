@@ -71,6 +71,7 @@ export const api = {
   caseApprove: (cid, pid) => post('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/approve', {}),
   caseResume: (cid, pid) => post('/api/cases/' + encodeURIComponent(cid) + '/phases/' + encodeURIComponent(pid) + '/resume', {}),
   caseCancel: (cid) => post('/api/cases/' + encodeURIComponent(cid) + '/cancel', {}),
+  caseTimings: (cid, pid) => J('/api/cases/' + encodeURIComponent(cid) + '/timings?phase=' + encodeURIComponent(pid)),
   caseAsk: (cid, question, history, focus) => post('/api/cases/' + encodeURIComponent(cid) + '/ask', { question, history, focus }),
   caseExportUrl: (cid, phase) => '/api/cases/' + encodeURIComponent(cid) + '/export?phase=' + encodeURIComponent(phase || ''),
   // a request: the demands gathered before a case exists, and what each is still missing

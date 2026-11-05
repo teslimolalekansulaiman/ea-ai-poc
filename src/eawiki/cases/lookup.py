@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from eawiki.cases import graphread, namelookup as nl, pagefinder, passages, wikiread
+from eawiki.cases import graphread, namelookup as nl, pagefinder, passages, timing, wikiread
 
 KIND_FAMILY = {"application": "app", "data": "data", "technology": "tech", "security": "security", "role": "role"}
 
@@ -37,7 +37,7 @@ def _finder(kb, names: list[str], group: str, llm_text, cache: dict) -> dict:
     key = ("finder", group, tuple(sorted(names)))
     if key not in cache:
         index = pagefinder.build_index(kb.entities(), kb.wiki_entries())
-        cache[key] = pagefinder.find([{"text": n, "group": group} for n in names], index, llm_text)
+        cache[key] = pagefinder.find([{"text": n, "group": group} for n in names], index, timing.labelled(llm_text, "name finder (model)"))
     return cache[key]
 
 
@@ -46,7 +46,7 @@ def _page_search(lookup: dict, demand_text: str, kb, llm_text, cache: dict) -> d
     Asked once for a question and a demand."""
     key = ("pages", lookup.get("find"), demand_text)
     if key not in cache:
-        found = pagefinder.find_pages(str(lookup.get("find") or ""), demand_text, kb.wiki_entries(), llm_text)
+        found = pagefinder.find_pages(str(lookup.get("find") or ""), demand_text, kb.wiki_entries(), timing.labelled(llm_text, "wiki page search (model)"))
         read = wikiread.read({"pages": found["picks"]}, kb.page, deep=f"{lookup.get('find') or ''} {demand_text[:600]}") if found["picks"] else {"pages": [], "status": {}}
         status = read["status"].get("pages", {})
         cache[key] = {**found, "read": read["pages"],

@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from typing import Callable, Optional
 
 from eawiki import lanes as lanes_mod
-from eawiki.cases import compare, figureread, lookup as lkmod, plan as pmod, tableview
+from eawiki.cases import compare, figureread, lookup as lkmod, plan as pmod, tableview, timing
 from eawiki.retrieval import merge as retmerge
 from eawiki.cases import namelookup as nl
 from eawiki.usecases import PROFILE_GROUPS, RESULT_PREFIX
@@ -323,7 +323,7 @@ def gather(tools: Tools, plan: dict, spec: dict, item: dict, others: list[dict],
         if key not in cache:
             cache[key] = compare.candidate_sets(sheet, text_of, profiles)
         res = compare.run(cmp_lookup["find"], item.get("_id"), text, (profiles or {}).get(item.get("_id")), list(others), text_of, profiles,
-                          tools.llm_text, cands=cache[key].get(item.get("_id")))
+                          timing.labelled(tools.llm_text, "comparison with other demands (model)"), cands=cache[key].get(item.get("_id")))
         title = {o.get("_id"): str(o.get("title") or "") for o in others}
         ev["compared"] = {"question": cmp_lookup["find"], "status": res["status"],
                           "items": [dict(i, title=title.get(i["id"], "")) for i in res["items"]]}
