@@ -164,3 +164,29 @@ def test_the_answer_is_told_what_the_case_is_and_to_say_whether_it_rests_on_it_o
              "page": "", "wiki_pages": [], "route": {"strategy": "vector"}}
     ctx = g.n_relevance(state)["context"]
     assert ctx.startswith("THE CASE (the request, what each stage decided") and "# THE REQUEST: R" in ctx and "whether an answer rests on the case or on the documents" in ctx
+
+
+# ---- how a case answer is written ---------------------------------------------------------------------------------------------
+
+def test_a_question_inside_a_case_is_answered_for_the_architect_and_the_wiki_box_is_not_changed():
+    asked = ans.build_prompt("who owns it?", "ctx", None, case=True)
+    for part in ("inside a case", "Lead with the answer", "Name demands by their ID", "The assessment found", "The documents say",
+                 "which role has to confirm it", "never personal names"):
+        assert part in asked, part
+    plain = ans.build_prompt("who owns it?", "ctx", None)
+    assert "inside a case" not in plain and plain == ans.build_prompt("who owns it?", "ctx", None, case=False)       # the wiki box reads as it always did
+    assert plain.replace(ans.CASE_STYLE, "") == plain
+    # the same rules about sources stand in both
+    for p in (asked, plain):
+        assert "Do not invent facts" in p and "NOT in the context" in p and "Answer (grounded, with [block] citations):" in p
+    assert asked.index("inside a case") < asked.index("Question: who owns it?")
+
+
+def test_only_a_question_asked_with_a_case_is_written_that_way(monkeypatch):
+    from eawiki.query import graph as g
+    seen = []
+    monkeypatch.setattr(ans, "answer", lambda q, c, b, m, history=None, case=False: (seen.append(case), "a")[1])
+    g.n_answer({"question": "q", "context": "c", "case_context": "# THE REQUEST", "backend": "x"})
+    g.n_answer({"question": "q", "context": "c", "backend": "x"})
+    g.n_answer({"question": "q", "context": "c", "case_context": "", "backend": "x"})
+    assert seen == [True, False, False]

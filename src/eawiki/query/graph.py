@@ -395,7 +395,7 @@ def n_answer(s: QAState) -> dict:
     if not s.get("use_llm", True):
         return {"status": "retrieved"}
     text = ans.answer(s["question"], s["context"], s.get("backend", "cli"),
-                      s.get("model"), history=s.get("history"))
+                      s.get("model"), history=s.get("history"), case=bool(s.get("case_context")))
     return {"answer": text}
 
 

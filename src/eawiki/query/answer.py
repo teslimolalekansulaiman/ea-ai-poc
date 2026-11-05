@@ -50,7 +50,19 @@ def recent(history: Optional[list], exchanges: int = HISTORY_EXCHANGES) -> list:
     return turns[-2 * exchanges:]
 
 
-def build_prompt(question: str, context: str, history: Optional[list] = None) -> str:
+CASE_STYLE = """This question is asked inside a case, by the architect who is reading its assessment. Answer as the architecture team's analyst:
+- Lead with the answer in the first sentence, then the reason. Answer what was asked; do not repeat the whole case.
+- Name demands by their ID (for example D-2026-001), as the case does.
+- Keep apart what the assessment decided and what the documents say. Say "The assessment found ..." for what comes from THE CASE (it needs no block id), and "The documents say ..." with the citation for what comes from the documents. When they differ, say so, and say which you rely on and why.
+- Say what is still open and which role has to confirm it, using what the case lists as open. Name no role it does not give. Roles only, never personal names.
+- Write plainly, for someone who is not an architect: no catalogue codes except the IDs the case gives.
+
+"""
+
+
+def build_prompt(question: str, context: str, history: Optional[list] = None, case: bool = False) -> str:
+    """`case` is True only for a question asked inside a case: the answer is then written for the architect reading its assessment. The
+    wiki's own question box never sets it, so its answers read as they always have."""
     convo = ""
     if history:
         turns = "\n".join(f"{h.get('role')}: {h.get('content')}" for h in recent(history))
@@ -65,7 +77,7 @@ Say what you found in whichever of these three ways is true, and no other:
 
 Where a section heading says how complete it is ("3 shown", "none found", "parts 6 to 8 of 8 shown"), believe it. A complete section holds everything that was found, so do not apologise for what it holds. Say something is missing only when a section says it is partial, "could not be searched" or "not searched", and then name that section. "none found" means it was searched and nothing was there; "could not be searched" means nothing can be concluded from it.
 
-{convo}Question: {question}
+{CASE_STYLE if case else ""}{convo}Question: {question}
 
 Context:
 {context}
@@ -74,6 +86,6 @@ Answer (grounded, with [block] citations):"""
 
 
 def answer(question: str, context: str, backend: str = "cli",
-           model: Optional[str] = None, history: Optional[list] = None) -> str:
+           model: Optional[str] = None, history: Optional[list] = None, case: bool = False) -> str:
     """One grounded answer. `backend` is the model backend (cli today; pulse later)."""
-    return llm_text(build_prompt(question, context, history), backend, model).strip()
+    return llm_text(build_prompt(question, context, history, case), backend, model).strip()
