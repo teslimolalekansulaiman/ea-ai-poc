@@ -146,3 +146,19 @@ def summarise(rows: list[dict], wall: Optional[float] = None, names: Optional[di
                       "longest": top[0] or "", "longest_seconds": top[1]})
     props.sort(key=lambda p: -p["seconds"])
     return {"steps": steps, "properties": props, "seconds": sum(total_of.values()), "wall": wall, "names": names or {}}
+
+
+def settings_of(spec: dict, stage: dict) -> dict:
+    """What the case ran with, which is what it was started with: a case keeps its own copy of the use case, so a change made in Config
+    reaches only the cases started after it was saved. {wiki_pages: the use case's switch, wiki_search: the properties whose lookups
+    search the wiki's pages, own_questions: how many properties have questions of their own, planned: the properties that have none, so a
+    model plans their lookups each run}."""
+    on = bool(spec.get("wiki_pages"))
+    cols = [c for c in stage["output"]["columns"] if c.get("name") and c.get("type") != "citations" and not c.get("derive") and c.get("scope") != "request"]
+    searching = []
+    for c in cols:
+        lks = [lk for lk in c.get("lookups") or [] if isinstance(lk, dict)]
+        if (not lks and on) or any(lk.get("pages") is True or (lk.get("pages") is None and on) for lk in lks):
+            searching.append(c["name"])
+    return {"wiki_pages": on, "wiki_search": searching, "own_questions": sum(1 for c in cols if c.get("lookups")),
+            "planned": [c["name"] for c in cols if not c.get("lookups")]}

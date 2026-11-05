@@ -291,6 +291,13 @@ function TimePanel({ caseId, phase }) {
         {t.wall != null && <>On the clock: <b>{secs(t.wall)}</b>{running ? ' so far' : ''}. </>}
         Work done, added up: <b>{secs(t.seconds)}</b>. It is more than the clock because properties and demands run side by side.
       </div>
+      {t.settings && (
+        <div className="cs-faint cs-time-settings" style={{ fontSize: 12.5 }}>
+          Wiki page search in this case: <b>{t.settings.wiki_search.length === 0 ? 'off for every property' : `on for ${t.settings.wiki_search.length} propert${t.settings.wiki_search.length === 1 ? 'y' : 'ies'}`}</b>
+          {t.settings.wiki_search.length > 0 && <> ({t.settings.wiki_search.slice(0, 6).join(', ')}{t.settings.wiki_search.length > 6 ? ', …' : ''}){t.settings.wiki_pages ? ': the use case switches it on for every lookup' : ': set on those lookups themselves'}</>}.
+          {' '}{t.settings.planned.length > 0 && <>No questions of their own, so a model plans them each run: {t.settings.planned.slice(0, 6).join(', ')}{t.settings.planned.length > 6 ? ', …' : ''}. </>}
+          A case keeps the settings it was started with: a change in Config reaches only cases started after it is saved.
+        </div>)}
       <div className="eyebrow" style={{ paddingTop: 6 }}>Steps, by the time they took</div>
       {top.map((e, i) => (
         <div key={i} className="cs-time-step" style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 2, fontSize: 13 }}>

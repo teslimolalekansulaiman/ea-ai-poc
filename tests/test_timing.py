@@ -127,3 +127,23 @@ def test_the_route_gives_the_summary_for_a_phase_and_a_new_run_starts_the_record
     assert 0 < len(e.store.timings(cid, "screening")) <= before + 5
     e.run_phase(cid, "screening", only_item="D-2026-001", only_cols={"Domain"})                        # one cell added to it, nothing cleared
     assert len(e.store.timings(cid, "screening")) > 0
+
+
+def test_the_summary_says_what_the_case_ran_with_which_is_what_it_was_started_with():
+    spec = {"wiki_pages": True, "stages": [{"name": "S", "output": {"columns": [
+        {"name": "A", "type": "text", "lookups": [{"find": "x", "from": "need", "match": "meaning", "in": [], "pages": False}]},
+        {"name": "B", "type": "text", "lookups": [{"find": "y", "from": "need", "match": "meaning", "in": []}]},
+        {"name": "C", "type": "text"}, {"name": "D", "type": "citations"}, {"name": "E", "type": "text", "derive": {"kind": "groups"}}]}}]}
+    got = timing.settings_of(spec, spec["stages"][0])
+    assert got == {"wiki_pages": True, "wiki_search": ["B", "C"], "own_questions": 2, "planned": ["C"]}           # A turned it off for itself; C has no questions, so a model plans them
+    off = {**spec, "wiki_pages": False}
+    off["stages"][0]["output"]["columns"][0]["lookups"][0]["pages"] = True                                         # a lookup that asks for it itself
+    assert timing.settings_of(off, off["stages"][0])["wiki_search"] == ["A"] and timing.settings_of(off, off["stages"][0])["wiki_pages"] is False
+
+
+def test_the_route_carries_those_settings(monkeypatch):
+    api, e, cid = _case_timings(monkeypatch)
+    app = FastAPI()
+    app.include_router(api.router)
+    [ph] = TestClient(app).get(f"/api/cases/{cid}/timings", params={"phase": shipped.PID}).json()["phases"]
+    assert set(ph["settings"]) == {"wiki_pages", "wiki_search", "own_questions", "planned"} and "Handled with" not in ph["settings"]["planned"]

@@ -299,7 +299,8 @@ def case_timings(cid: str, phase: Optional[str] = None):
         if ph.get("started"):
             end = ph.get("finished") if ph.get("finished") and ph["finished"] >= ph["started"] else (_time.time() if ph.get("status") == "running" else None)
             wall = (end - ph["started"]) if end else None
-        out.append({"id": pid, "name": stage.get("name"), "running": ph.get("status") == "running", **timing.summarise(store().timings(cid, pid), wall)})
+        out.append({"id": pid, "name": stage.get("name"), "running": ph.get("status") == "running", **timing.summarise(store().timings(cid, pid), wall),
+                    "settings": timing.settings_of(case["spec"], stage)})
     return {"phases": out}
 
 
